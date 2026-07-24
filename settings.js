@@ -64,6 +64,18 @@ const DEFAULTS = {
   // so a brief is waiting before the user ever opens the page. Requires connectConsent
   // (background M365 access). Set false to opt out of the automatic summarization.
   meetingsAutoSummarize: true,
+  // Meetings.AI narration. Azure uses the user's configured Azure AI Services
+  // resource and resolves its key at runtime via AZURE_SPEECH_KEY or Azure CLI;
+  // the secret is never persisted in settings.json or returned to the browser.
+  meetingsNarration: {
+    provider: 'azure',
+    voice: 'en-US-JennyNeural',
+    style: 'newscast',
+    subscriptionId: '',
+    region: '',
+    resourceGroup: '',
+    account: '',
+  },
   // GitHub source provider (Code Flow + Dev cards). Auth is secretless by
   // default via the `gh` CLI login store (githubAuthMode='cli'); 'env' uses
   // GH_TOKEN/GITHUB_TOKEN; 'pat' falls back to githubPat below. githubOwner is

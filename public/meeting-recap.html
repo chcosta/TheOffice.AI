@@ -11,31 +11,77 @@
     --good:#57d38c; --warn:#ffcf5a; --bad:#ff7a7a;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;background:transparent;color:var(--ink);
+  html,body{margin:0;width:100%;height:100%;overflow:hidden;background:var(--bg);color:var(--ink);
     font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
-  .wrap{padding:0}
+  body{height:100vh}
+  .wrap{height:100vh;overflow:hidden;padding:0;background:
+    radial-gradient(circle at 50% 18%,rgba(90,169,255,.08),transparent 34%),var(--bg)}
+  #recap{height:100vh;min-height:0;overflow:hidden;flex-direction:column}
   .stage-wrap{position:relative;border-radius:14px;overflow:hidden;border:1px solid var(--line);
-    background:#0a0d11;box-shadow:0 24px 70px rgba(0,0,0,.4)}
-  canvas{display:block;width:100%;height:auto;background:#0a0d11}
+    background:#0a0d11;box-shadow:0 24px 70px rgba(0,0,0,.4);flex:1;min-height:0;
+    display:flex;align-items:center;justify-content:center}
+  canvas{display:block;width:100%;height:100%;object-fit:contain;background:#0a0d11}
   .masthead{position:absolute;top:0;left:0;right:0;height:30px;display:flex;align-items:center;gap:10px;
     padding:0 12px;background:linear-gradient(180deg,rgba(8,10,14,.85),rgba(8,10,14,0));font-size:11.5px;color:#cfd8e6;z-index:3}
   .masthead .dot{width:8px;height:8px;border-radius:50%;background:var(--good);box-shadow:0 0 8px var(--good)}
   .masthead .shot{margin-left:auto;color:#9fb0c6;font-variant-numeric:tabular-nums}
-  .controls{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .controls{display:flex;align-items:center;gap:10px;margin:8px 4px 0;flex:none;flex-wrap:nowrap;
+    overflow-x:auto;overflow-y:hidden}
   button{cursor:pointer;border-radius:8px;border:1px solid var(--line);background:var(--panel2);
     color:var(--ink);padding:8px 13px;font-size:13px;font-weight:600;transition:.15s}
+  button.primary-control{border-color:rgba(126,224,201,.5);background:rgba(126,224,201,.09);color:#dffbf5}
   button:hover{border-color:var(--accent)}
   button:disabled{opacity:.45;cursor:not-allowed}
+  .narrator-choice{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:var(--muted);font-size:11px}
+  .narrator-choice select{max-width:190px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);
+    color:var(--ink);padding:7px 25px 7px 9px;font:12px "Segoe UI",system-ui,sans-serif}
+  .narrator-choice select:disabled{opacity:.5}
   .prog{flex:1;min-width:160px;height:6px;border-radius:4px;background:var(--panel2);overflow:hidden;border:1px solid var(--line)}
   .prog > i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2))}
   .beat-label{color:var(--muted);font-size:12px;min-width:130px}
-  .note{color:var(--muted);font-size:12px;margin-top:10px}
-  .loading{display:grid;place-items:center;aspect-ratio:960/560;color:var(--muted);font-size:13px}
+  .note{color:var(--muted);font-size:12px;margin:6px 4px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
+  .sources{height:36px;line-height:17px;margin:6px 4px 0;color:var(--muted);font-size:12px;overflow:hidden;flex:none}
+  .sources a{color:var(--accent2);text-decoration:none;border-bottom:1px solid rgba(126,224,201,.28)}
+  .sources a:hover{border-bottom-color:var(--accent2)}
+  .loading{display:grid;place-items:center;min-height:100vh;padding:28px;color:var(--muted);font-size:13px}
+  .loading-card{width:min(420px,100%);text-align:center}
+  .loading-mark{position:relative;width:54px;height:54px;margin:0 auto 20px}
+  .loading-mark::before,.loading-mark::after{content:"";position:absolute;inset:0;border-radius:50%}
+  .loading-mark::before{border:1px solid rgba(126,224,201,.25)}
+  .loading-mark::after{border:2px solid transparent;border-top-color:var(--accent);
+    border-right-color:var(--accent2);animation:load-spin 1.1s linear infinite}
+  .loading-mark i{position:absolute;inset:18px;border-radius:50%;background:var(--accent2);
+    box-shadow:0 0 18px rgba(126,224,201,.55);animation:load-pulse 1.5s ease-in-out infinite}
+  .loading-kicker{color:var(--accent2);font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase}
+  .loading-title{margin-top:7px;color:var(--ink);font-size:18px;font-weight:650}
+  .loading-detail{min-height:42px;margin-top:7px;color:var(--muted);font-size:13px}
+  .loading-track{height:3px;margin:18px auto 0;overflow:hidden;background:#171d26;border-radius:3px}
+  .loading-track i{display:block;width:38%;height:100%;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),transparent);
+    animation:load-track 1.5s ease-in-out infinite}
+  .loading-retry{display:none;margin:18px auto 0;background:transparent;color:var(--accent2);border-color:#2d3a47}
+  .loading.is-error .loading-mark::after{animation:none;border-color:var(--bad)}
+  .loading.is-error .loading-mark i{background:var(--bad);box-shadow:0 0 18px rgba(255,122,122,.4)}
+  .loading.is-error .loading-track{display:none}
+  @keyframes load-spin{to{transform:rotate(360deg)}}
+  @keyframes load-pulse{50%{transform:scale(.65);opacity:.55}}
+  @keyframes load-track{0%{transform:translateX(-110%)}100%{transform:translateX(365%)}}
+  @media (prefers-reduced-motion:reduce){
+    .loading-mark::after,.loading-mark i,.loading-track i{animation-duration:3s}
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div id="loading" class="loading stage-wrap">Preparing recap…</div>
+  <div id="loading" class="loading">
+    <div class="loading-card">
+      <div class="loading-mark" aria-hidden="true"><i></i></div>
+      <div class="loading-kicker">Meetings.AI</div>
+      <div class="loading-title" id="loadingTitle">Opening recap player</div>
+      <div class="loading-detail" id="loadingDetail">Connecting to the cached meeting summary…</div>
+      <div class="loading-track" aria-hidden="true"><i></i></div>
+      <button type="button" class="loading-retry" id="loadingRetry">Retry connection</button>
+    </div>
+  </div>
   <div id="recap" style="display:none">
     <div class="stage-wrap">
       <div class="masthead">
@@ -49,11 +95,22 @@
       <button id="replayBtn">↻ Replay</button>
       <button id="prevBtn">◀ Prev</button>
       <button id="nextBtn">Next ▶</button>
-      <button id="autoBtn">Auto: Off</button>
+      <button id="autoBtn" class="primary-control" title="Pause or resume narration, original audio, and the newscast timeline">⏸ Pause newscast</button>
+      <button id="narrationBtn" title="Synthetic AI newscaster voice — not original meeting audio">AI narration: On</button>
+      <label class="narrator-choice">Voice
+        <select id="narratorProvider" title="Choose Azure neural narration or the operating-system voice">
+          <option value="azure">Azure neural</option>
+          <option value="system">System voice</option>
+        </select>
+      </label>
+      <label class="narrator-choice" id="narratorVoiceWrap">Narrator <select id="narratorVoice"></select></label>
+      <label class="narrator-choice" id="narratorStyleWrap">Style <select id="narratorStyle"></select></label>
+      <button id="audioBtn" style="display:none">▶ Original clip</button>
       <div class="beat-label" id="beatLabel">—</div>
       <div class="prog"><i id="progBar"></i></div>
     </div>
-    <div class="note">Each beat plays, then <b>holds</b> so you can read it fully — click the stage, press <b>→ / Space</b>, or hit <b>Next</b> to continue (◀ Prev to revisit). Empty/establishing beats advance on their own. Flip <b>Auto</b> on for hands-free playback. Nothing is truncated — text auto-fits.</div>
+    <div class="sources" id="sourceLinks"></div>
+    <div class="note" id="sourceDisclosure"><b>Evidence-backed recap with AI newscaster narration.</b> Narration is synthetic and distinct from original meeting audio. Click an evidence card to open its source.</div>
   </div>
 </div>
 
@@ -69,6 +126,22 @@ let PEOPLE = {};
 let PHOTOS = {};
 const IMG = {};
 function loadPhotos(){ for(const k in PHOTOS){ const im=new Image(); im.src=PHOTOS[k]; IMG[k]=im; } }
+let EVIDENCE = [];
+let EVIDENCE_BY_ID = {};
+const EVIDENCE_IMG = {};
+function loadEvidenceImages(){
+  for(const item of EVIDENCE){
+    const add=(key,url)=>{
+      if(!url) return;
+      const im=new Image();
+      im.referrerPolicy='no-referrer';
+      im.src=url;
+      EVIDENCE_IMG[key]=im;
+    };
+    add(item.id,item.imageUrl);
+    (item.visuals||[]).forEach((visual,index)=>add(`${item.id}:v${index}`,visual.imageUrl));
+  }
+}
 
 /* ---- Emotion detection (honest lexicon/heuristic, not ML) ---------------- */
 const EMO_LEX = [
@@ -96,7 +169,12 @@ const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const W=cv.width, H=cv.height;
 ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
 
-let STORY=null, BEATS=[], beatIx=0, beatStart=0, playing=false, autoplay=false, awaitingNext=false, raf=0;
+let STORY=null, BEATS=[], beatIx=0, beatStart=0, playing=false, autoplay=true, awaitingNext=false, raf=0, pausedElapsed=0;
+let ACTIVE_AUDIO=null;
+let narrationEnabled=true, ACTIVE_UTTERANCE=null, NARRATION_AUDIO=null, NARRATION_ABORT=null, NARRATION_GENERATION=0;
+let NARRATION_TIMER=0, NARRATION_QUEUE=[], NARRATION_DONE=true, NARRATION_STARTED_AT=0;
+let NARRATION_CONFIG={provider:'system',voice:'',style:'',configured:false,voices:[]};
+let CLICK_TARGETS=[];
 
 /* layout rectangles */
 const HS_RECT ={x:44, y:150, w:352, h:372};
@@ -211,15 +289,15 @@ function drawHeadshotPanel(r, person, emo){
   ctx.fillText(person.name, r.x+16, r.y+r.h-32);
   ctx.font='13px "Segoe UI",sans-serif'; ctx.fillStyle='#c6d2e2';
   ctx.fillText(person.role||'', r.x+16, r.y+r.h-14);
-  ctx.fillStyle='rgba(8,11,15,.7)'; rr(r.x+12,r.y+12,52,22,6); ctx.fill();
-  ctx.fillStyle='#ff5d5d'; ctx.beginPath(); ctx.arc(r.x+24,r.y+23,4,0,7); ctx.fill();
-  ctx.fillStyle='#fff'; ctx.font='700 11px "Segoe UI",sans-serif'; ctx.fillText('LIVE', r.x+34, r.y+27);
+  ctx.fillStyle='rgba(8,11,15,.7)'; rr(r.x+12,r.y+12,78,22,6); ctx.fill();
+  ctx.fillStyle='#7ee0c9'; ctx.beginPath(); ctx.arc(r.x+24,r.y+23,4,0,7); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='700 11px "Segoe UI",sans-serif'; ctx.fillText('QUOTE', r.x+34, r.y+27);
   const em=EMO_META[emo]||EMO_META[EMO_NEUTRAL];
-  const bw=ctx.measureText(em.label).width+40;
+  const bw=ctx.measureText('Text: '+em.label).width+40;
   ctx.fillStyle='rgba(8,11,15,.7)'; rr(r.x+r.w-bw-12,r.y+12,bw,22,6); ctx.fill();
   ctx.fillStyle=em.color; ctx.beginPath(); ctx.arc(r.x+r.w-bw+2,r.y+23,4,0,7); ctx.fill();
   ctx.fillStyle='#e8eef6'; ctx.font='600 11px "Segoe UI",sans-serif';
-  ctx.fillText(em.label, r.x+r.w-bw+14, r.y+27);
+  ctx.fillText('Text: '+em.label, r.x+r.w-bw+14, r.y+27);
 }
 
 /* ---- on-screen card (heading + narration + supporting visual) ------------ */
@@ -236,7 +314,139 @@ function drawCard(r, seg){
   }
   ctx.strokeStyle='rgba(255,255,255,.08)'; ctx.beginPath(); ctx.moveTo(ix,y); ctx.lineTo(ix+iw,y); ctx.stroke(); y+=14;
   const rx=ix, ry=y, rw=iw, rh=(r.y+r.h-pad)-y;
-  drawScreen(seg.screen, rx, ry, rw, rh, seg);
+  const linked=evidenceForSegment(seg);
+  if(linked.length) drawEvidenceBoard(linked, {x:rx,y:ry,w:rw,h:rh}, 2);
+  else drawScreen(seg.screen, rx, ry, rw, rh, seg);
+}
+
+function evidenceTypeLabel(type){
+  return String(type||'source').replace(/-/g,' ').toUpperCase();
+}
+function drawEvidenceBoard(items, r, maxItems){
+  items=(items||[]).slice(0,maxItems||6);
+  if(!items.length) return;
+  const cols=items.length===1?1:2, gap=12, rows=Math.ceil(items.length/cols);
+  const cw=(r.w-gap*(cols-1))/cols, ch=(r.h-gap*(rows-1))/rows;
+  items.forEach((item,index)=>{
+    const col=index%cols,row=Math.floor(index/cols),x=r.x+col*(cw+gap),y=r.y+row*(ch+gap);
+    if(item.url) CLICK_TARGETS.push({x,y,w:cw,h:ch,url:item.url,title:item.title||'Open source'});
+    ctx.fillStyle='rgba(255,255,255,.035)'; rr(x,y,cw,ch,10); ctx.fill();
+    ctx.strokeStyle='rgba(126,224,201,.16)'; rr(x,y,cw,ch,10); ctx.stroke();
+    const image=EVIDENCE_IMG[item.id];
+    let tx=x+14, tw=cw-28;
+    if(image&&image.complete&&image.naturalWidth&&ch>90){
+      const iw=Math.min(92,cw*.34),ih=ch-20;
+      ctx.save(); rr(x+10,y+10,iw,ih,7); ctx.clip(); drawCover(image,x+10,y+10,iw,ih); ctx.restore();
+      tx=x+iw+22; tw=cw-iw-34;
+    }
+    ctx.font='700 10px "Segoe UI",sans-serif'; ctx.fillStyle='#7ee0c9';
+    ctx.fillText(evidenceTypeLabel(item.type),tx,y+20);
+    if(item.url){
+      ctx.textAlign='right'; ctx.font='700 13px "Segoe UI Symbol","Segoe UI",sans-serif'; ctx.fillStyle='#7ee0c9';
+      ctx.fillText('↗',x+cw-13,y+21); ctx.textAlign='left';
+    }
+    const title=fitText(item.title||'Supporting evidence',tw,42,{max:13,min:11,weight:'700',lh:1.2});
+    let yy=drawFitted(title,tx,y+25,'#eef4fb')+4;
+    const meta=[item.source,item.author,item.timestamp].filter(Boolean).join(' · ');
+    if(meta){ const mf=fitText(meta,tw,28,{max:10.5,min:9.5,lh:1.15}); yy=drawFitted(mf,tx,yy,'#8aa0b6')+3; }
+    const highlights=Array.isArray(item.highlights)?item.highlights.filter(Boolean):[];
+    const detail=item.excerpt?`“${item.excerpt}”`:(highlights.length?highlights.slice(0,3).join(' • '):item.summary);
+    if(detail && yy<y+ch-18){
+      if(item.excerpt||highlights.length){ ctx.fillStyle='#7ee0c9'; rr(tx,yy+2,3,Math.max(18,(y+ch-12)-yy),2); ctx.fill(); tx+=9; tw-=9; }
+      const sf=fitText(detail,tw,(y+ch-12)-yy,{max:11.5,min:9.5,lh:1.25});
+      drawFitted(sf,tx,yy,item.excerpt?'#e5edf7':'#c8d4e3');
+    }
+  });
+}
+function evidenceHasDeepExtract(item){
+  return !!(item&&((item.citations&&item.citations.length)||(item.visuals&&item.visuals.length)));
+}
+function drawEvidenceChart(visual,r){
+  const labels=(visual.labels||[]).slice(0,8),series=(visual.series||[]).filter(x=>x&&x.values&&x.values.length).slice(0,4);
+  if(!labels.length||!series.length) return false;
+  const values=series.flatMap(x=>x.values.slice(0,labels.length)).filter(Number.isFinite);
+  if(!values.length) return false;
+  const max=Math.max(...values,0),min=Math.min(...values,0),range=(max-min)||1;
+  const colors=['#7ee0c9','#5aa9ff','#ffb27a','#c58cff'];
+  const left=r.x+42,right=r.x+r.w-12,top=r.y+16,bottom=r.y+r.h-42;
+  ctx.strokeStyle='rgba(255,255,255,.16)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(left,top); ctx.lineTo(left,bottom); ctx.lineTo(right,bottom); ctx.stroke();
+  ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#8aa0b6'; ctx.textAlign='right';
+  ctx.fillText(String(max)+(visual.unit?` ${visual.unit}`:''),left-7,top+4);
+  ctx.fillText(String(min),left-7,bottom+3);
+  const groupW=(right-left)/labels.length,barGap=2,barW=Math.max(3,(groupW-8)/series.length);
+  labels.forEach((label,index)=>{
+    series.forEach((entry,seriesIndex)=>{
+      const value=entry.values[index];
+      if(!Number.isFinite(value)) return;
+      const zeroY=bottom-((0-min)/range)*(bottom-top);
+      const valueY=bottom-((value-min)/range)*(bottom-top);
+      const x=left+index*groupW+4+seriesIndex*(barW+barGap);
+      ctx.fillStyle=colors[seriesIndex%colors.length];
+      ctx.fillRect(x,Math.min(zeroY,valueY),barW,Math.max(2,Math.abs(zeroY-valueY)));
+    });
+    ctx.save(); ctx.translate(left+index*groupW+groupW/2,bottom+8); ctx.rotate(-Math.PI/7);
+    ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#aebed0'; ctx.textAlign='right';
+    ctx.fillText(label.slice(0,18),0,0); ctx.restore();
+  });
+  ctx.textAlign='left';
+  if(series.length>1){
+    let lx=left;
+    series.forEach((entry,index)=>{
+      ctx.fillStyle=colors[index%colors.length]; ctx.fillRect(lx,top-12,8,8);
+      ctx.font='9px "Segoe UI",sans-serif'; ctx.fillStyle='#aebed0';
+      ctx.fillText((entry.name||`Series ${index+1}`).slice(0,18),lx+12,top-4);
+      lx+=Math.min(128,ctx.measureText((entry.name||'Series')+'').width+28);
+    });
+  }
+  return true;
+}
+function drawSourceExtract(item,r,citationIndex,visualIndex){
+  if(item.url) CLICK_TARGETS.push({x:r.x,y:r.y,w:r.w,h:r.h,url:item.url,title:item.title||'Open source'});
+  ctx.fillStyle='rgba(10,14,20,.94)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
+  ctx.strokeStyle='rgba(126,224,201,.3)'; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
+  const pad=26,ix=r.x+pad,iw=r.w-pad*2;
+  ctx.fillStyle='#7ee0c9'; rr(ix,r.y+pad,44,4,2); ctx.fill();
+  ctx.font='700 10px "Segoe UI",sans-serif'; ctx.fillStyle='#7ee0c9';
+  ctx.fillText(`${evidenceTypeLabel(item.type)} · SOURCE EXTRACT`,ix,r.y+pad+22);
+  if(item.url){ ctx.textAlign='right'; ctx.font='700 14px "Segoe UI Symbol","Segoe UI",sans-serif'; ctx.fillText('↗ OPEN SOURCE',r.x+r.w-pad,r.y+pad+22); ctx.textAlign='left'; }
+  const title=fitText(item.title||'Supporting evidence',iw,54,{max:20,min:15,weight:'700',lh:1.15});
+  const titleBottom=drawFitted(title,ix,r.y+pad+31,'#f2f7fc');
+  const citations=item.citations||[],visuals=item.visuals||[];
+  const citation=citations[Math.max(0,Number(citationIndex)||0)]||citations[0];
+  const resolvedVisualIndex=Math.max(0,Number(visualIndex)||0);
+  const visual=visuals[resolvedVisualIndex]||visuals[0];
+  const contentY=titleBottom+12,contentH=r.y+r.h-pad-contentY,gap=18;
+  const hasVisual=!!visual;
+  const citationW=hasVisual?(iw-gap)*.47:iw,visualX=ix+citationW+gap,visualW=iw-citationW-gap;
+  if(citation){
+    ctx.fillStyle='rgba(126,224,201,.07)'; rr(ix,contentY,citationW,contentH,10); ctx.fill();
+    ctx.fillStyle='#7ee0c9'; rr(ix,contentY,4,contentH,2); ctx.fill();
+    const locator=citation.locator||visual&&visual.locator||'Exact source passage';
+    ctx.font='700 10px "Segoe UI",sans-serif'; ctx.fillStyle='#8fdccb'; ctx.fillText(locator.toUpperCase(),ix+16,contentY+22);
+    const quote=fitText(`“${citation.text}”`,citationW-32,contentH-42,{max:15,min:10.5,weight:'600',lh:1.38});
+    drawFitted(quote,ix+16,contentY+30,'#e9f0f8');
+  }else{
+    const detail=item.relevance||item.excerpt||(item.highlights||[])[0]||item.summary||'No exact passage was available.';
+    const quote=fitText(detail,citationW,contentH,{max:16,min:11,lh:1.42});
+    drawFitted(quote,ix,contentY,'#d7e2ef');
+  }
+  if(visual){
+    ctx.fillStyle='rgba(255,255,255,.035)'; rr(visualX,contentY,visualW,contentH,10); ctx.fill();
+    const visualTitle=fitText(visual.title||'Source visual',visualW-24,34,{max:12,min:10,weight:'700',lh:1.15});
+    drawFitted(visualTitle,visualX+12,contentY+8,'#eef4fb');
+    const locator=visual.locator?` · ${visual.locator}`:'';
+    ctx.font='9.5px "Segoe UI",sans-serif'; ctx.fillStyle='#8aa0b6';
+    ctx.fillText(`${String(visual.kind||'visual').toUpperCase()}${locator}`.slice(0,58),visualX+12,contentY+47);
+    const chartRect={x:visualX+10,y:contentY+58,w:visualW-20,h:contentH-70};
+    const image=EVIDENCE_IMG[`${item.id}:v${visuals.indexOf(visual)}`];
+    if(image&&image.complete&&image.naturalWidth){
+      ctx.save(); rr(chartRect.x,chartRect.y,chartRect.w,chartRect.h,7); ctx.clip(); drawCover(image,chartRect.x,chartRect.y,chartRect.w,chartRect.h); ctx.restore();
+    }else if(!drawEvidenceChart(visual,chartRect)){
+      const caption=fitText(visual.caption||'The source identified this visual, but no renderable preview or exact chart series was available.',chartRect.w,chartRect.h,{max:13,min:10.5,lh:1.4});
+      drawFitted(caption,chartRect.x,chartRect.y,'#c8d4e3');
+    }
+  }
 }
 function drawScreen(sc, x, y, w, h, seg){
   if(!sc) return;
@@ -334,8 +544,19 @@ function drawSpeechBubble(anchorX, anchorTopY, quote, color){
 function buildBeats(story){
   const B=[];
   B.push({type:'title', gate:true, dur:2600});
-  B.push({type:'wide', gate:false, dur:1400});
   B.push({type:'overview', gate:true, dur:3600});
+  if(story.evidence && story.evidence.length) B.push({type:'evidence', gate:true, dur:4800});
+  const sourceBeats=[];
+  orderedEvidence(story.evidence||[])
+    .filter(evidenceHasDeepExtract)
+    .sort((a,b)=>Number(!!(b.visuals&&b.visuals.length))-Number(!!(a.visuals&&a.visuals.length))||evidencePriority(a)-evidencePriority(b))
+    .forEach(item=>{
+      const count=Math.max((item.citations||[]).length,(item.visuals||[]).length,1);
+      for(let index=0;index<Math.min(2,count);index++){
+        sourceBeats.push({type:'source',item,citationIndex:index,visualIndex:index,gate:true,dur:5600});
+      }
+    });
+  B.push(...sourceBeats.slice(0,6));
   (story.segments||[]).forEach((seg)=>{
     if(!seg.narration && !seg.quote && !seg.screen) return;
     B.push({type:'segment', seg, gate:true, dur:5200});
@@ -347,9 +568,10 @@ function buildBeats(story){
 }
 
 function beatShotLabel(b){
-  if(b.type==='wide') return 'WIDE';
   if(b.type==='title') return 'OPEN';
   if(b.type==='overview') return 'ANCHOR';
+  if(b.type==='evidence') return 'EVIDENCE';
+  if(b.type==='source') return 'SOURCE';
   if(b.type==='segment') return 'TWO-SHOT';
   if(b.type==='decisions') return 'RECAP';
   if(b.type==='chatter') return 'CHATTER';
@@ -387,11 +609,6 @@ function renderBeat(b, t){
     ctx.textAlign='left'; ctx.globalAlpha=1;
     return;
   }
-  if(b.type==='wide'){ drawRoom(0);
-    ctx.textAlign='center'; ctx.fillStyle='rgba(147,161,179,.8)'; ctx.font='13px "Segoe UI",sans-serif';
-    ctx.fillText('Conference room · '+((STORY.attendees||[]).length)+' attendees', W/2, H-40); ctx.textAlign='left';
-    return;
-  }
   if(b.type==='overview'){
     drawRoom(0.55);
     const r=FULL_RECT;
@@ -407,6 +624,26 @@ function renderBeat(b, t){
     ctx.globalAlpha=1;
     return;
   }
+  if(b.type==='evidence'){
+    drawRoom(0.72); const r=FULL_RECT; ctx.globalAlpha=intro;
+    ctx.fillStyle='rgba(10,14,20,.92)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
+    ctx.strokeStyle='rgba(126,224,201,.3)'; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
+    const pad=24,ix=r.x+pad,iw=r.w-pad*2;
+    ctx.fillStyle='#7ee0c9'; rr(ix,r.y+pad,44,4,2); ctx.fill();
+    ctx.font='700 20px "Segoe UI",sans-serif'; ctx.fillStyle='#f2f7fc';
+    ctx.fillText('Evidence map',ix,r.y+pad+34);
+    ctx.font='12px "Segoe UI",sans-serif'; ctx.fillStyle='#93a1b3';
+    ctx.fillText('Documents, discussions, code, work items, and recording sources used in this edit',ix,r.y+pad+56);
+    drawEvidenceBoard(orderedEvidence(EVIDENCE),{x:ix,y:r.y+pad+72,w:iw,h:r.h-pad*2-72},6);
+    ctx.globalAlpha=1;
+    return;
+  }
+  if(b.type==='source'){
+    drawRoom(0.72); ctx.globalAlpha=intro;
+    drawSourceExtract(b.item,FULL_RECT,b.citationIndex,b.visualIndex);
+    ctx.globalAlpha=1;
+    return;
+  }
   if(b.type==='segment'){
     const seg=b.seg, p=PEOPLE[seg.speaker]||{name:seg.speaker,role:'',color:'#5aa9ff',key:seg.speaker};
     const emo=detectEmotion(seg.quote);
@@ -414,6 +651,11 @@ function renderBeat(b, t){
     ctx.globalAlpha=intro;
     drawHeadshotPanel(HS_RECT, p, emo);
     drawCard(SL_RECT, seg);
+    if(seg.timestamp){
+      ctx.fillStyle='rgba(8,11,15,.82)'; rr(HS_RECT.x+16,HS_RECT.y+42,116,24,6); ctx.fill();
+      ctx.font='600 11px "Segoe UI",sans-serif'; ctx.fillStyle='#c6d2e2';
+      ctx.fillText('At '+seg.timestamp,HS_RECT.x+28,HS_RECT.y+58);
+    }
     ctx.globalAlpha=1;
     if(t>460 && seg.quote){
       drawSpeechBubble(HS_RECT.x+30, HS_RECT.y+8, seg.quote, p.color||'#5aa9ff');
@@ -542,18 +784,259 @@ function drawChatter(items, x, y, w, h){
 }
 
 /* ============================ playback loop ============================== */
+function evidencePriority(item){
+  if(!item) return 9;
+  if(['recording','slide','image','document','work-item','pull-request','commit','repository'].includes(item.type)) return 0;
+  if(item.type==='email') return 1;
+  if(item.type==='teams' && !/teams\.microsoft\.com\/l\/meeting\/details/i.test(item.url||'')) return 1;
+  if(item.type==='teams') return 2;
+  if(item.type==='transcript') return 3;
+  return 2;
+}
+function evidenceForSegment(seg){
+  return (seg&&seg.evidenceIds||[])
+    .map(id=>EVIDENCE_BY_ID[id])
+    .filter(Boolean)
+    .sort((a,b)=>evidencePriority(a)-evidencePriority(b));
+}
+function orderedEvidence(items){
+  return [...(items||[])].sort((a,b)=>evidencePriority(a)-evidencePriority(b));
+}
+function evidenceForBeat(beat){
+  if(!beat) return [];
+  if(beat.type==='evidence') return orderedEvidence(EVIDENCE).slice(0,6);
+  if(beat.type==='source') return beat.item?[beat.item]:[];
+  if(beat.type==='segment') return evidenceForSegment(beat.seg);
+  return [];
+}
+function clipForBeat(beat){
+  if(!beat||beat.type!=='segment'||!beat.seg.audioClipId) return null;
+  return (((STORY||{}).media||{}).audioClips||[]).find(x=>x.id===beat.seg.audioClipId)||null;
+}
+function updateBeatSources(){
+  const beat=BEATS[beatIx],items=evidenceForBeat(beat),host=document.getElementById('sourceLinks');
+  host.replaceChildren();
+  if(items.length){
+    host.append(document.createTextNode('Sources: '));
+    items.forEach((item,index)=>{
+      if(index) host.append(document.createTextNode(' · '));
+      if(item.url){
+        const a=document.createElement('a'); a.href=item.url; a.target='_blank'; a.rel='noopener';
+        a.textContent=item.title||item.source||'Open source'; host.append(a);
+      }else host.append(document.createTextNode(item.title||item.source||'Supporting evidence'));
+    });
+  }
+  const clip=clipForBeat(beat),button=document.getElementById('audioBtn');
+  button.style.display=clip?'inline-flex':'none';
+  button.textContent=clip?'▶ '+(clip.label||'Original clip'):'▶ Original clip';
+}
+function stopAudio(){
+  if(!ACTIVE_AUDIO) return;
+  try{ ACTIVE_AUDIO.pause(); }catch(e){}
+  ACTIVE_AUDIO=null;
+}
+function stopNarration(){
+  NARRATION_GENERATION++;
+  if(NARRATION_TIMER){ clearTimeout(NARRATION_TIMER); NARRATION_TIMER=0; }
+  if(NARRATION_ABORT){ try{ NARRATION_ABORT.abort(); }catch(e){} NARRATION_ABORT=null; }
+  if(NARRATION_AUDIO){ try{ NARRATION_AUDIO.pause(); NARRATION_AUDIO.removeAttribute('src'); }catch(e){} NARRATION_AUDIO=null; }
+  if('speechSynthesis' in window) try{ window.speechSynthesis.cancel(); }catch(e){}
+  ACTIVE_UTTERANCE=null;
+  NARRATION_QUEUE=[];
+  NARRATION_DONE=true;
+  NARRATION_STARTED_AT=0;
+  const button=document.getElementById('narrationBtn');
+  if(button) button.textContent='AI narration: '+(narrationEnabled?'On':'Off');
+}
+function updateNarratorControls(){
+  const provider=document.getElementById('narratorProvider');
+  const voiceSelect=document.getElementById('narratorVoice');
+  const styleSelect=document.getElementById('narratorStyle');
+  provider.value=NARRATION_CONFIG.provider||'system';
+  voiceSelect.innerHTML='';
+  for(const voice of (NARRATION_CONFIG.voices||[])){
+    const option=document.createElement('option');
+    option.value=voice.id; option.textContent=voice.label||voice.id;
+    voiceSelect.appendChild(option);
+  }
+  voiceSelect.value=NARRATION_CONFIG.voice||'';
+  const selected=(NARRATION_CONFIG.voices||[]).find(v=>v.id===voiceSelect.value);
+  styleSelect.innerHTML='';
+  for(const style of ((selected&&selected.styles)||['general'])){
+    const option=document.createElement('option');
+    option.value=style; option.textContent=style.replace(/-/g,' ');
+    styleSelect.appendChild(option);
+  }
+  styleSelect.value=NARRATION_CONFIG.style||((selected&&selected.styles&&selected.styles[0])||'general');
+  const azure=provider.value==='azure';
+  document.getElementById('narratorVoiceWrap').style.display=azure?'inline-flex':'none';
+  document.getElementById('narratorStyleWrap').style.display=azure?'inline-flex':'none';
+  voiceSelect.disabled=!azure||!NARRATION_CONFIG.configured;
+  styleSelect.disabled=!azure||!NARRATION_CONFIG.configured;
+  provider.options[0].disabled=!NARRATION_CONFIG.configured;
+  const button=document.getElementById('narrationBtn');
+  if(azure&&!NARRATION_CONFIG.configured) button.title='Azure neural narration is not configured; using the system voice.';
+  else button.title=azure?'Azure neural narration - synthetic, not original meeting audio':'Operating-system synthetic voice - not original meeting audio';
+}
+async function loadNarrationConfig(){
+  try{
+    const response=await fetch('/api/meetings/narration/config',{cache:'no-store'});
+    if(!response.ok) throw new Error('Narration settings unavailable');
+    NARRATION_CONFIG=await response.json();
+    if(NARRATION_CONFIG.provider==='azure'&&!NARRATION_CONFIG.configured) NARRATION_CONFIG.provider='system';
+  }catch(e){
+    NARRATION_CONFIG={provider:'system',voice:'',style:'',configured:false,voices:[]};
+  }
+  updateNarratorControls();
+}
+async function saveNarrationConfig(){
+  const provider=document.getElementById('narratorProvider').value;
+  const voice=document.getElementById('narratorVoice').value||NARRATION_CONFIG.voice;
+  const style=document.getElementById('narratorStyle').value||NARRATION_CONFIG.style;
+  const response=await fetch('/api/meetings/narration/config',{
+    method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({provider,voice,style})
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(result.error||'Could not save narration settings');
+  NARRATION_CONFIG={...NARRATION_CONFIG,...result};
+  updateNarratorControls();
+}
+function beatNarration(beat){
+  if(!beat||!STORY) return '';
+  if(beat._narration) return beat._narration;
+  let text='';
+  if(beat.type==='title'){
+    text=`Welcome to your Meetings A I newscast for ${STORY.title||'this meeting'}. We will connect the moments that changed the conversation, the evidence behind them, and what moves next.`;
+  }else if(beat.type==='overview'){
+    text=STORY.editorialThroughline||`Here is the editorial arc: the discussion moved from context into tradeoffs, then narrowed toward decisions and ownership. Watch for where the evidence changes what the team can confidently do next.`;
+  }else if(beat.type==='evidence'){
+    const types=[...new Set(orderedEvidence(EVIDENCE).map(x=>evidenceTypeLabel(x.type).toLowerCase()))];
+    text=STORY.evidenceSynthesis||`This edit cross-checks ${EVIDENCE.length} retrieved sources across ${types.slice(0,4).join(', ')||'the meeting record'}. That mix helps separate a passing comment from a conclusion supported by the surrounding work. Every card remains clickable for the original context.`;
+  }else if(beat.type==='source'){
+    const item=beat.item||{};
+    const citation=(item.citations||[])[Math.max(0,Number(beat.citationIndex)||0)]||(item.citations||[])[0];
+    const visual=(item.visuals||[])[Math.max(0,Number(beat.visualIndex)||0)]||(item.visuals||[])[0];
+    const where=(citation&&citation.locator)||(visual&&visual.locator)||'the retrieved source';
+    const proof=item.relevance||(citation&&citation.context)||(item.highlights||[])[0]||item.summary;
+    text=`Now we open ${item.title||'a supporting source'} at ${where}. ${proof||'This is the underlying material that supports the meeting discussion rather than just another link in a source list.'}`;
+    if(visual) text+=` The ${visual.kind||'visual'} puts the supporting pattern on screen so you can compare the meeting's conclusion with the source itself.`;
+  }else if(beat.type==='segment'){
+    const seg=beat.seg||{};
+    text=`Now the story turns to ${seg.heading||'the next key moment'}. ${seg.narration||'This is where the conversation shifts from information-sharing toward a consequence the team has to manage.'}`;
+    if(seg.whyItMatters) text+=` The practical signal: ${seg.whyItMatters}`;
+  }else if(beat.type==='decisions'){
+    const decisions=(STORY.decisions||[]).slice(0,4),questions=(STORY.questions||[]).slice(0,2);
+    text=`The conversation converted into ${decisions.length} concrete ${decisions.length===1?'decision':'decisions'}, while ${questions.length} ${questions.length===1?'question remains':'questions remain'} unresolved. The important distinction is between settled direction and risk that still needs an owner.`;
+  }else if(beat.type==='chatter'){
+    const count=(STORY.chatter&&STORY.chatter.items||[]).length;
+    text=`The side channel adds ${count} useful pieces of context that the spoken discussion alone would miss. Treat these as connective evidence: they show where participants supplied links, clarified intent, or moved follow-up work forward in parallel.`;
+  }else if(beat.type==='actions'){
+    const actions=(STORY.actions||[]),owners=[...new Set(actions.map(a=>a.owner).filter(Boolean))];
+    text=STORY.closingSynthesis||`The meeting now depends on ${actions.length} owned ${actions.length===1?'follow-up':'follow-ups'} across ${owners.length||1} ${owners.length===1?'owner':'owners'}. The handoff is the real test: progress will come from closing the unresolved risk, not from repeating the discussion.`;
+  }
+  beat._narration=text.replace(/\s+/g,' ').trim();
+  return beat._narration;
+}
+function preferredNarratorVoice(){
+  if(!('speechSynthesis' in window)) return null;
+  const voices=window.speechSynthesis.getVoices()||[];
+  const english=voices.filter(v=>/^en(-|_)/i.test(v.lang));
+  return english.find(v=>/Aria.*Natural|Ava.*Natural|Jenny.*Natural/i.test(v.name))
+    || english.find(v=>/Aria|Ava|Jenny|Samantha|Zira/i.test(v.name))
+    || english.find(v=>!/David|Mark|Guy|George/i.test(v.name))
+    || null;
+}
+function narrationChunks(text){
+  const sentences=String(text||'').match(/[^.!?]+[.!?]+|[^.!?]+$/g)||[];
+  const chunks=[]; let current='';
+  for(const sentence of sentences){
+    const next=(current+' '+sentence.trim()).trim();
+    if(current&&next.length>240){ chunks.push(current); current=sentence.trim(); }
+    else current=next;
+  }
+  if(current) chunks.push(current);
+  return chunks;
+}
+function speakNarrationChunk(generation){
+  if(generation!==NARRATION_GENERATION) return;
+  if(!narrationEnabled||!NARRATION_QUEUE.length){
+    ACTIVE_UTTERANCE=null; NARRATION_DONE=true;
+    const button=document.getElementById('narrationBtn'); if(button) button.textContent='AI narration: On';
+    return;
+  }
+  const utterance=new SpeechSynthesisUtterance(NARRATION_QUEUE.shift());
+  utterance.rate=1.14; utterance.pitch=1.12; utterance.volume=0.98;
+  const voice=preferredNarratorVoice(); if(voice) utterance.voice=voice;
+  const button=document.getElementById('narrationBtn');
+  utterance.onstart=()=>{ if(button) button.textContent='AI narration: Speaking'; };
+  utterance.onend=()=>{ if(ACTIVE_UTTERANCE===utterance){ ACTIVE_UTTERANCE=null; speakNarrationChunk(generation); } };
+  utterance.onerror=()=>{ if(ACTIVE_UTTERANCE===utterance){ ACTIVE_UTTERANCE=null; NARRATION_QUEUE=[]; NARRATION_DONE=true; if(button) button.textContent='AI narration: On'; } };
+  ACTIVE_UTTERANCE=utterance;
+  window.speechSynthesis.speak(utterance);
+}
+function speakSystemNarration(text,generation){
+  if(!('speechSynthesis' in window)){ NARRATION_DONE=true; return; }
+  NARRATION_QUEUE=narrationChunks(text);
+  speakNarrationChunk(generation);
+}
+async function speakAzureNarration(text,generation){
+  const button=document.getElementById('narrationBtn');
+  button.textContent='AI narration: Preparing neural voice';
+  const ac=new AbortController(); NARRATION_ABORT=ac;
+  try{
+    const response=await fetch('/api/meetings/narration/synthesize',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text}),signal:ac.signal
+    });
+    const result=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(result.error||'Azure neural narration failed');
+    if(generation!==NARRATION_GENERATION) return;
+    NARRATION_ABORT=null;
+    const audio=new Audio(result.url);
+    audio.preload='auto';
+    audio.onplay=()=>{ if(generation===NARRATION_GENERATION) button.textContent='AI narration: Speaking'; };
+    audio.onended=()=>{ if(generation===NARRATION_GENERATION){ NARRATION_AUDIO=null; NARRATION_DONE=true; button.textContent='AI narration: On'; } };
+    audio.onerror=()=>{ if(generation===NARRATION_GENERATION){ NARRATION_AUDIO=null; NARRATION_DONE=true; button.textContent='Neural narration unavailable'; } };
+    NARRATION_AUDIO=audio;
+    await audio.play();
+  }catch(e){
+    if(e&&e.name==='AbortError') return;
+    if(generation!==NARRATION_GENERATION) return;
+    NARRATION_ABORT=null;
+    button.textContent='AI narration: System fallback';
+    speakSystemNarration(text,generation);
+  }
+}
+function speakBeat(beat){
+  if(!narrationEnabled) return;
+  const text=beatNarration(beat);
+  if(!text) return;
+  stopNarration();
+  const generation=NARRATION_GENERATION;
+  NARRATION_DONE=false;
+  NARRATION_STARTED_AT=performance.now();
+  if(NARRATION_CONFIG.provider==='azure'&&NARRATION_CONFIG.configured) speakAzureNarration(text,generation);
+  else speakSystemNarration(text,generation);
+}
+function beatDuration(beat){
+  const base=(beat&&beat.dur)||3000;
+  if(!narrationEnabled) return base;
+  const words=(beatNarration(beat).match(/\S+/g)||[]).length;
+  return Math.max(base,Math.min(45000,1000+(words/2.7)*1000));
+}
 function tick(now){
   if(!playing) return;
-  const b=BEATS[beatIx]; const t=now-beatStart; const dur=b.dur||3000;
+  const b=BEATS[beatIx]; const t=now-beatStart; const dur=beatDuration(b);
   ctx.clearRect(0,0,W,H);
+  CLICK_TARGETS=[];
   renderBeat(b, Math.min(t,dur));
-  const frac=Math.min(1,t/dur);
+  const waitingForNarrator=narrationEnabled&&!NARRATION_DONE&&(now-NARRATION_STARTED_AT)<90000;
+  const frac=waitingForNarrator?Math.min(.98,t/dur):Math.min(1,t/Math.max(1,(b&&b.dur)||3000));
   document.getElementById('progBar').style.width=(((beatIx+frac)/BEATS.length)*100)+'%';
   document.getElementById('mShot').textContent=beatShotLabel(b);
   document.getElementById('beatLabel').textContent=`Beat ${beatIx+1} / ${BEATS.length}`+(awaitingNext?' · ready':'');
-  if(t>=dur && !awaitingNext){
+  if(t>=((b&&b.dur)||3000) && !waitingForNarrator && !awaitingNext){
     if(beatIx>=BEATS.length-1){ awaitingNext=true; }
-    else if(autoplay || b.gate===false){ beatIx++; beatStart=now; awaitingNext=false; }
+    else if(autoplay || b.gate===false){ gotoBeat(beatIx+1); }
     else { awaitingNext=true; }
   }
   if(awaitingNext && b.gate!==false){
@@ -565,35 +1048,159 @@ function tick(now){
   }
   raf=requestAnimationFrame(tick);
 }
-function gotoBeat(i){ beatIx=Math.max(0,Math.min(BEATS.length-1,i)); beatStart=performance.now(); awaitingNext=false; }
+function gotoBeat(i){
+  stopAudio();
+  stopNarration();
+  beatIx=Math.max(0,Math.min(BEATS.length-1,i));
+  beatStart=performance.now();
+  pausedElapsed=0;
+  awaitingNext=false;
+  updateBeatSources();
+  if(narrationEnabled&&playing) NARRATION_TIMER=setTimeout(()=>{ NARRATION_TIMER=0; if(BEATS[beatIx]) speakBeat(BEATS[beatIx]); },40);
+  if(!playing){
+    ctx.clearRect(0,0,W,H); CLICK_TARGETS=[]; renderBeat(BEATS[beatIx],0);
+    document.getElementById('mShot').textContent=beatShotLabel(BEATS[beatIx]);
+    document.getElementById('beatLabel').textContent=`Beat ${beatIx+1} / ${BEATS.length} · paused`;
+  }
+}
 function advance(){ if(beatIx>=BEATS.length-1){ return; } gotoBeat(beatIx+1); }
 function goBack(){ gotoBeat(beatIx-1); }
 
 /* ============================ boot / handshake =========================== */
-function startRecap(story, people, photos){
+function setLoadingStatus(title, detail, error){
+  const loading=document.getElementById('loading');
+  document.getElementById('loadingTitle').textContent=title;
+  document.getElementById('loadingDetail').textContent=detail||'';
+  loading.classList.toggle('is-error',!!error);
+}
+function showLoadingError(){
+  setLoadingStatus('Recap player is still waiting','The summary is ready, but the player has not received it yet. Retry the connection or return to details.',true);
+  document.getElementById('loadingRetry').style.display='block';
+}
+async function finishRecap(story, people, photos){
   PEOPLE = people || {};
   PHOTOS = photos || {};
+  EVIDENCE = Array.isArray(story.evidence) ? story.evidence : [];
+  EVIDENCE_BY_ID = Object.fromEntries(EVIDENCE.map(item=>[item.id,item]));
   for(const k in IMG) delete IMG[k];
+  for(const k in EVIDENCE_IMG) delete EVIDENCE_IMG[k];
   loadPhotos();
+  loadEvidenceImages();
   STORY = story;
   BEATS = buildBeats(STORY);
+  await loadNarrationConfig();
   document.getElementById('loading').style.display='none';
-  document.getElementById('recap').style.display='block';
+  document.getElementById('recap').style.display='flex';
   document.getElementById('mTitle').textContent=STORY.title||'Recap';
-  playing=true; autoplay=false; document.getElementById('autoBtn').textContent='Auto: Off';
+  const hasAudio=!!((((STORY||{}).media||{}).audioClips||[]).length);
+  document.getElementById('sourceDisclosure').innerHTML=hasAudio
+    ? '<b>Evidence-backed recap with AI newscaster narration and authentic meeting audio.</b> Narration is synthetic; original clips are labeled separately. Click any evidence card to open its source.'
+    : EVIDENCE.length
+      ? `<b>Evidence-backed transcript recap with AI newscaster narration · no playable meeting audio was retrieved.</b> Includes ${Number((STORY.newscast||{}).citationCount)||0} exact citations and ${Number((STORY.newscast||{}).visualCount)||0} source visuals. Narration is synthetic. Click any linked evidence card to open its source.`
+      : '<b>Transcript-only recap with AI newscaster narration · no supporting media was retrieved.</b> Narration is synthetic; nothing is fabricated.';
+  narrationEnabled=(NARRATION_CONFIG.provider==='azure'&&NARRATION_CONFIG.configured)||('speechSynthesis' in window);
+  const narrationButton=document.getElementById('narrationBtn');
+  narrationButton.disabled=!narrationEnabled;
+  narrationButton.textContent=narrationEnabled?'AI narration: On':'Narration unavailable';
+  playing=true; autoplay=true; pausedElapsed=0; document.getElementById('autoBtn').textContent='⏸ Pause newscast';
   gotoBeat(0); cancelAnimationFrame(raf); raf=requestAnimationFrame(tick);
 }
+function startRecap(story, people, photos){
+  setLoadingStatus('Building recap scenes','Laying out speakers, key moments, decisions, and action items…',false);
+  document.getElementById('loadingRetry').style.display='none';
+  requestAnimationFrame(()=>requestAnimationFrame(async()=>{
+    try{ await finishRecap(story, people, photos); }
+    catch(err){
+      setLoadingStatus('Could not render this recap','Return to details and try generating the recap again.',true);
+      document.getElementById('loadingRetry').style.display='block';
+    }
+  }));
+}
 
-document.getElementById('replayBtn').onclick=()=>{ if(!STORY) return; playing=true; gotoBeat(0); cancelAnimationFrame(raf); raf=requestAnimationFrame(tick); };
+document.getElementById('replayBtn').onclick=()=>{ if(!STORY) return; playing=true; pausedElapsed=0; document.getElementById('autoBtn').textContent='⏸ Pause newscast'; gotoBeat(0); cancelAnimationFrame(raf); raf=requestAnimationFrame(tick); };
 document.getElementById('nextBtn').onclick=advance;
 document.getElementById('prevBtn').onclick=goBack;
-document.getElementById('autoBtn').onclick=()=>{ autoplay=!autoplay;
-  document.getElementById('autoBtn').textContent='Auto: '+(autoplay?'On':'Off');
-  if(autoplay && awaitingNext && beatIx<BEATS.length-1){ awaitingNext=false; beatStart=performance.now(); } };
-cv.addEventListener('click',()=>{ if(awaitingNext && beatIx<BEATS.length-1) advance(); });
+document.getElementById('autoBtn').onclick=()=>{
+  const button=document.getElementById('autoBtn');
+  if(playing){
+    pausedElapsed=Math.max(0,performance.now()-beatStart);
+    playing=false; cancelAnimationFrame(raf);
+    if(NARRATION_TIMER){ clearTimeout(NARRATION_TIMER); NARRATION_TIMER=0; }
+    if(NARRATION_AUDIO) try{ NARRATION_AUDIO.pause(); }catch(e){}
+    else if('speechSynthesis' in window) try{ window.speechSynthesis.pause(); }catch(e){}
+    if(ACTIVE_AUDIO) try{ ACTIVE_AUDIO.pause(); }catch(e){}
+    button.textContent='▶ Resume newscast';
+    if(ACTIVE_UTTERANCE||NARRATION_AUDIO) document.getElementById('narrationBtn').textContent='AI narration: Paused';
+    document.getElementById('beatLabel').textContent=`Beat ${beatIx+1} / ${BEATS.length} · paused`;
+  }else{
+    playing=true; beatStart=performance.now()-pausedElapsed;
+    if(NARRATION_AUDIO) try{ NARRATION_AUDIO.play().catch(()=>{}); }catch(e){}
+    else if('speechSynthesis' in window) try{ window.speechSynthesis.resume(); }catch(e){}
+    if(ACTIVE_UTTERANCE||NARRATION_AUDIO) document.getElementById('narrationBtn').textContent='AI narration: Speaking';
+    if(narrationEnabled&&!ACTIVE_UTTERANCE&&!NARRATION_AUDIO&&BEATS[beatIx]) speakBeat(BEATS[beatIx]);
+    if(ACTIVE_AUDIO) try{ ACTIVE_AUDIO.play().catch(()=>{}); }catch(e){}
+    button.textContent='⏸ Pause newscast';
+    cancelAnimationFrame(raf); raf=requestAnimationFrame(tick);
+  }
+};
+document.getElementById('narrationBtn').onclick=()=>{
+  narrationEnabled=!narrationEnabled;
+  stopNarration();
+  document.getElementById('narrationBtn').textContent='AI narration: '+(narrationEnabled?'On':'Off');
+  if(narrationEnabled&&BEATS[beatIx]) speakBeat(BEATS[beatIx]);
+};
+document.getElementById('narratorProvider').onchange=async()=>{
+  try{
+    await saveNarrationConfig();
+    narrationEnabled=(NARRATION_CONFIG.provider==='azure'&&NARRATION_CONFIG.configured)||('speechSynthesis' in window);
+    stopNarration();
+    if(narrationEnabled&&BEATS[beatIx]) speakBeat(BEATS[beatIx]);
+  }catch(e){ updateNarratorControls(); }
+};
+document.getElementById('narratorVoice').onchange=async()=>{
+  NARRATION_CONFIG.voice=document.getElementById('narratorVoice').value;
+  const selected=(NARRATION_CONFIG.voices||[]).find(v=>v.id===NARRATION_CONFIG.voice);
+  NARRATION_CONFIG.style=(selected&&selected.styles&&selected.styles[0])||'general';
+  updateNarratorControls();
+  try{ await saveNarrationConfig(); stopNarration(); if(narrationEnabled&&BEATS[beatIx]) speakBeat(BEATS[beatIx]); }catch(e){ await loadNarrationConfig(); }
+};
+document.getElementById('narratorStyle').onchange=async()=>{
+  NARRATION_CONFIG.style=document.getElementById('narratorStyle').value;
+  try{ await saveNarrationConfig(); stopNarration(); if(narrationEnabled&&BEATS[beatIx]) speakBeat(BEATS[beatIx]); }catch(e){ await loadNarrationConfig(); }
+};
+document.getElementById('audioBtn').onclick=()=>{
+  const clip=clipForBeat(BEATS[beatIx]);
+  if(!clip||!clip.url) return;
+  stopNarration();
+  stopAudio();
+  ACTIVE_AUDIO=new Audio(clip.url);
+  if(Number(clip.start)>0) ACTIVE_AUDIO.currentTime=Number(clip.start);
+  ACTIVE_AUDIO.play().catch(()=>{ document.getElementById('audioBtn').textContent='Audio could not play'; });
+  if(Number(clip.end)>Number(clip.start)){
+    ACTIVE_AUDIO.ontimeupdate=()=>{ if(ACTIVE_AUDIO&&ACTIVE_AUDIO.currentTime>=Number(clip.end)) stopAudio(); };
+  }
+};
+function canvasPoint(event){
+  const rect=cv.getBoundingClientRect();
+  const scale=Math.min(rect.width/W,rect.height/H);
+  const left=rect.left+(rect.width-W*scale)/2,top=rect.top+(rect.height-H*scale)/2;
+  return {x:(event.clientX-left)/scale,y:(event.clientY-top)/scale};
+}
+function evidenceHit(event){
+  const point=canvasPoint(event);
+  return CLICK_TARGETS.find(hit=>point.x>=hit.x&&point.x<=hit.x+hit.w&&point.y>=hit.y&&point.y<=hit.y+hit.h)||null;
+}
+cv.addEventListener('pointermove',event=>{ cv.style.cursor=evidenceHit(event)?'pointer':'default'; });
+cv.addEventListener('pointerleave',()=>{ cv.style.cursor='default'; });
+cv.addEventListener('click',event=>{
+  const hit=evidenceHit(event);
+  if(hit){ window.open(hit.url,'_blank','noopener'); return; }
+  if(awaitingNext && beatIx<BEATS.length-1) advance();
+});
 document.addEventListener('keydown',e=>{
   if(!STORY) return;
-  if(e.key==='ArrowRight'||e.key===' '){ e.preventDefault(); if(awaitingNext && beatIx<BEATS.length-1) advance(); }
+  if(e.key===' '){ e.preventDefault(); document.getElementById('autoBtn').click(); }
+  if(e.key==='ArrowRight'){ e.preventDefault(); if(beatIx<BEATS.length-1) advance(); }
   if(e.key==='ArrowLeft'){ e.preventDefault(); goBack(); }
 });
 
@@ -601,15 +1208,28 @@ document.addEventListener('keydown',e=>{
 window.addEventListener('message',(ev)=>{
   const d=ev.data||{};
   if(d.type==='mrv:load' && d.story){
-    try{ startRecap(d.story, d.people, d.photos); }
-    catch(err){ document.getElementById('loading').textContent='Could not render recap.'; }
+    clearInterval(readyTimer);
+    startRecap(d.story, d.people, d.photos);
   }
 });
-function announceReady(){ try{ (window.parent||window).postMessage({type:'mrv:ready'}, '*'); }catch(e){} }
+let readyAttempts=0;
+let readyTimer=null;
+function announceReady(){
+  if(STORY) return;
+  readyAttempts++;
+  if(readyAttempts===2) setLoadingStatus('Requesting recap data','The player is ready. Waiting for the cached summary and scene data…',false);
+  if(readyAttempts===5) setLoadingStatus('Still connecting','Retrying the recap handoff. You can stay on this page.',false);
+  if(readyAttempts===8) showLoadingError();
+  try{ (window.parent||window).postMessage({type:'mrv:ready'}, '*'); }catch(e){}
+}
+document.getElementById('loadingRetry').onclick=()=>{
+  readyAttempts=1;
+  document.getElementById('loadingRetry').style.display='none';
+  setLoadingStatus('Requesting recap data','Retrying the cached recap handoff…',false);
+  announceReady();
+};
 announceReady();
-/* re-announce in case the parent listener attaches slightly after load */
-setTimeout(announceReady, 200);
-setTimeout(announceReady, 800);
+readyTimer=setInterval(announceReady,1200);
 </script>
 </body>
 </html>

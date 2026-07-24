@@ -240,7 +240,18 @@
       if (u.protocol !== 'http:' && u.protocol !== 'https:') return;
       var isBlank = a.getAttribute('target') === '_blank';
       var isExternal = u.origin !== location.origin;
-      // Same-origin, same-tab links (none expected — routing is @click) proceed.
+      // A few SPA controls retain target=_blank so middle-click still works in a
+      // browser. In the desktop WebView those same-origin hash routes belong here,
+      // not in a new system-browser window.
+      if (!isExternal && /^#\//.test(u.hash || '')) {
+        if (isBlank) {
+          e.preventDefault();
+          e.stopPropagation();
+          location.hash = u.hash;
+        }
+        return;
+      }
+      // Same-origin, same-tab links proceed normally.
       if (!isBlank && !isExternal) return;
       e.preventDefault();
       e.stopPropagation();
@@ -8915,7 +8926,7 @@
                                     :disabled="boardAgentChatState(item) && boardAgentChatState(item).running"
                                     x-model="boardAgentChats[item.refId].input"
                                     @keydown="macComposerKey(item, $event)"
-                                    @input="macMentionScan(item, $event)"
+                                    @input="macMentionScan(item, $event); macComposerGrow($event.target)"
                                     @click="macMentionScan(item, $event)"
                                     @paste="chatAttPaste('boardagent:' + item.id, $event)"
                                     @drop.prevent="chatAttDrop('boardagent:' + item.id, $event)"
@@ -12039,7 +12050,6 @@
               .dvx-idx-row:hover { background:color-mix(in srgb, var(--cp-accent) 8%, transparent); }
               .dvx-idx-row.sel { background:color-mix(in srgb, var(--cp-accent) 15%, transparent); box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--cp-accent) 32%, transparent); }
               .dvx-idx-row.sel .dvx-idx-title { font-weight:650; }
-              .dvx-idx-here { width:6px; height:6px; border-radius:999px; background:var(--cp-here); flex:0 0 auto; }
               .dvx-idx-main { display:flex; flex-direction:column; gap:1px; min-width:0; flex:1 1 auto; }
               .dvx-idx-title { font-size:13px; line-height:1.25; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .dvx-idx-repo { font-size:11px; color:var(--cp-text-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -12057,6 +12067,9 @@
               .dvx-idx-row.attn { background:color-mix(in srgb, var(--cp-warning) 10%, transparent); }
               .dvx-idx-row.attn:hover { background:color-mix(in srgb, var(--cp-warning) 17%, transparent); }
               .dvx-idx-row.attn.sel { background:color-mix(in srgb, var(--cp-accent) 15%, transparent); }
+              .dvx-idx-row.here, .dvx-idx-row.here.sel { background:color-mix(in srgb, var(--cp-warning, #f5a623) 11%, transparent); box-shadow:inset 0 0 0 2px var(--cp-warning, #f5a623); }
+              .dvx-idx-row.here:hover { background:color-mix(in srgb, var(--cp-warning, #f5a623) 17%, transparent); }
+              .dvx-idx-row.here .dvx-idx-title { font-weight:700; }
               .dvx-idx-attnrow { display:flex; align-items:center; gap:5px; margin-top:2px; font-size:11px; font-weight:650; line-height:1.2; color:var(--cp-warning); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
               .dvx-idx-attnrow .adot { width:6px; height:6px; border-radius:999px; background:var(--cp-warning); flex:0 0 auto; }
               .cf-detail-card { max-width:none; }
@@ -12245,9 +12258,8 @@
                         </div>
                         <template x-for="card in grp.cards" :key="'dvir-' + card.id">
                           <button type="button" class="dvx-idx-row"
-                                  :class="{ sel: (devPageSelected() && devPageSelected().id === card.id) }"
+                                  :class="{ sel: (devPageSelected() && devPageSelected().id === card.id), here: yahIsOn('dev:' + card.id) }"
                                   @click="devPageSelect(card)">
-                            <span class="dvx-idx-here" x-show="yahIsOn('dev:' + card.id)" title="You are here"></span>
                             <span class="dvx-idx-main">
                               <span class="dvx-idx-title" x-text="card.title || card.repo || 'Dev card'"></span>
                               <span class="dvx-idx-repo" x-show="card.repo || card.workItemId" x-text="(card.org ? card.org + ' / ' : '') + (card.repo || '') + (card.workItemId ? ((card.repo ? '  ·  ' : '') + '#' + card.workItemId) : '')"></span>
@@ -12488,7 +12500,7 @@
                                     <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
                                       <button class="cf-primeact" type="button" x-show="cfCurPr(d).promote > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'promote')" @click.stop="cfPromote(d, cfCurPr(d)._slot)" x-text="'↑ Promote from dev (' + cfCurPr(d).promote + ')'"></button>
                                       <button class="cf-primeact" type="button" x-show="cfCurPr(d).pull > 0" :disabled="cfActBusy(d, cfCurPr(d)._slot, 'pull')" @click.stop="cfPullReview(d, cfCurPr(d)._slot)" x-text="'↓ Pull review (' + cfCurPr(d).pull + ')'"></button>
-                                      <a class="cf-primeact pr" :href="cfCurPr(d).href || '#'" target="_blank" rel="noopener" x-show="cfCurPr(d).href" @click.stop>Open PR ↗</a>
+                                      <button class="cf-primeact pr" type="button" x-show="cfCurPr(d).href" @click.stop="openSlotPrInFlow(d, cfCurPr(d)._slot)">Open PR</button>
                                     </div>
                                   </div>
                                 </template>
@@ -12527,7 +12539,7 @@
                                       <div style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);padding:10px 12px;display:flex;flex-direction:column;gap:8px">
                                         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
                                           <span style="font-weight:650;font-size:14px" x-text="'🔀 ' + cfCurPr(d).num + ' · ' + cfCurPr(d).bn"></span>
-                                          <a :href="cfCurPr(d).href || '#'" target="_blank" rel="noopener" x-show="cfCurPr(d).href" @click.stop style="font-size:11px;text-decoration:none;color:var(--cp-pr);font-weight:600">Open PR ↗</a>
+                                          <button type="button" x-show="cfCurPr(d).href" @click.stop="openSlotPrInFlow(d, cfCurPr(d)._slot)" style="font-size:11px;border:0;background:none;padding:0;cursor:pointer;color:var(--cp-pr);font-weight:600">Open PR</button>
                                         </div>
                                         <div class="hint" style="font-size:11px" x-text="'Checks: ' + cfCurPr(d).checks + (cfCurPr(d).approvals ? '  ·  Approvals: ' + cfCurPr(d).approvals : '')"></div>
                                         <p class="cf-agent-explain" style="margin:0">This pull request owns its own worktree, branched from the dev worktree. Promote or pull review changes using the actions in the summary above; open the worktree to review, build &amp; validate.</p>
@@ -21160,12 +21172,20 @@
           <section x-show="!loading && !errorMessage && route === 'meetings'">
             <style>
               .mtg{ --mtg-accent: var(--cp-accent, #58a6ff); --mtg-ai: var(--cp-accent-2, #a371f7); }
-              .mtg-wrap{ display:grid; grid-template-columns:300px 1fr; gap:18px; max-width:1240px; margin:0 auto; padding:8px 4px 60px; align-items:start; }
+              .mtg-wrap{ display:grid; grid-template-columns:var(--mtg-nav-w, 300px) minmax(0,1fr); gap:18px; max-width:1240px; margin:0 auto; padding:8px 4px 60px; align-items:start; }
               .mtg-hero{ margin:0 auto 14px; max-width:1240px; padding:2px 4px 0; }
               .mtg-hero .kick{ color:var(--mtg-ai); font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px; }
               .mtg-hero h1{ font-size:24px; margin:0 0 6px; font-weight:650; letter-spacing:-.01em; }
               .mtg-hero p{ margin:0; color:var(--cp-text-muted); max-width:720px; font-size:14px; }
-              .mtg-nav{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:8px; position:sticky; top:8px; }
+              .mtg-nav{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:8px; position:sticky; top:8px; height:calc(100vh - 150px); min-height:360px; max-height:760px; display:flex; flex-direction:column; }
+              .mtg-nav.collapsed{ min-height:0; height:44px; padding:5px; overflow:hidden; }
+              .mtg-nav-body{ min-height:0; flex:1; display:flex; flex-direction:column; }
+              .mtg-nav-list{ min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding-right:2px; }
+              .mtg-nav-toggle{ align-self:flex-end; width:30px; height:30px; display:grid; place-items:center; padding:0; border:0; border-radius:7px; background:transparent; color:var(--cp-text-muted); cursor:pointer; flex:none; }
+              .mtg-nav-toggle:hover{ background:var(--cp-surface-2, rgba(127,127,127,.10)); color:var(--cp-text); }
+              .mtg-nav-resize{ position:absolute; z-index:3; top:10px; bottom:10px; right:-10px; width:14px; cursor:ew-resize; touch-action:none; }
+              .mtg-nav-resize::after{ content:""; position:absolute; top:42%; bottom:42%; left:6px; width:2px; border-radius:2px; background:var(--cp-border); transition:.15s; }
+              .mtg-nav-resize:hover::after{ top:30%; bottom:30%; background:var(--mtg-accent); }
               .mtg-nav-h{ display:flex; align-items:center; justify-content:space-between; padding:6px 8px 8px; }
               .mtg-nav-h .t{ font-size:12px; font-weight:650; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-muted); }
               .mtg-nav-h .n{ font-size:12px; color:var(--cp-text-faint); }
@@ -21199,6 +21219,11 @@
               .mtg-att .dot{ width:8px; height:8px; border-radius:50%; background:var(--mtg-accent); display:inline-block; }
               .mtg-hi{ margin:0; padding-left:18px; color:var(--cp-text); font-size:13.5px; line-height:1.55; }
               .mtg-hi li{ margin:2px 0; }
+              .mtg-evidence{ display:grid; gap:10px; margin-top:8px; }
+              .mtg-evidence-row{ padding:10px 0; border-top:1px solid var(--cp-border); }
+              .mtg-evidence-row:first-child{ border-top:0; padding-top:0; }
+              .mtg-evidence-row .meta{ color:var(--cp-text-faint); font-size:11px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
+              .mtg-evidence-row .desc{ color:var(--cp-text-muted); font-size:12.5px; line-height:1.45; margin-top:3px; }
               .mtg-gen{ margin-top:20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
               .mtg-gen .go{ background:linear-gradient(135deg, var(--mtg-ai), var(--mtg-accent)); border:0; border-radius:8px; padding:10px 18px; font-weight:600; color:#fff; display:flex; align-items:center; gap:8px; cursor:pointer; }
               .mtg-gen .go[disabled]{ opacity:.6; cursor:default; }
@@ -21210,7 +21235,7 @@
               .mtg-recap-bar .back:hover{ text-decoration:underline; }
               .mtg-recap-bar .t{ font-size:13px; color:var(--cp-text-muted); }
               .mtg-recap iframe{ width:100%; height:calc(100vh - 220px); min-height:520px; border:0; display:block; background:#000; }
-              @media (max-width: 900px){ .mtg-wrap{ grid-template-columns:1fr; } .mtg-nav{ position:relative; } }
+              @media (max-width: 900px){ .mtg-wrap{ grid-template-columns:1fr !important; } .mtg-nav{ position:relative; height:min(48vh,560px); } .mtg-nav-resize{ display:none; } }
             </style>
             <div class="mtg">
               <div class="mtg-hero">
@@ -21218,37 +21243,42 @@
                 <h1>🎬 Meeting recaps</h1>
                 <p>Pick a recent meeting and generate an animated newscast-style recap that highlights the key contributions, decisions, and action items.</p>
               </div>
-              <div class="mtg-wrap">
+              <div class="mtg-wrap" :style="`--mtg-nav-w:${meetings.navCollapsed ? 44 : meetings.navWidth}px`">
                 <!-- Left index: recent meetings -->
-                <div class="mtg-nav">
-                  <div class="mtg-wk">
+                <div class="mtg-nav" :class="{ collapsed: meetings.navCollapsed }">
+                  <button type="button" class="mtg-nav-toggle" :title="meetings.navCollapsed ? 'Expand meeting list' : 'Collapse meeting list'" @click="mtgToggleNav()" x-text="meetings.navCollapsed ? '›' : '‹'"></button>
+                  <div class="mtg-nav-body" x-show="!meetings.navCollapsed">
+                    <div class="mtg-wk">
                     <button type="button" class="nav" title="Previous week" @click="mtgPrevWeek()">‹</button>
                     <div style="text-align:center;flex:1;min-width:0;">
                       <div class="lab" x-text="mtgWeekLabel()"></div>
                       <div class="sub" x-text="mtgWeekSub()"></div>
                     </div>
                     <button type="button" class="nav" title="Next week" :disabled="meetings.weekOffset === 0" @click="mtgNextWeek()">›</button>
-                  </div>
-                  <div class="mtg-search">
+                    </div>
+                    <div class="mtg-search">
                     <input type="text" x-model="meetings.query" placeholder="Search meetings…" aria-label="Search meetings">
-                  </div>
-                  <div class="mtg-nav-h">
+                    </div>
+                    <div class="mtg-nav-h">
                     <span class="t">Completed</span>
                     <span class="n" x-show="mtgFilteredList().length" x-text="mtgFilteredList().length + (mtgFilteredList().length === 1 ? ' meeting' : ' meetings')"></span>
+                    </div>
+                    <div class="mtg-nav-list">
+                      <div x-show="meetings.loading" class="mtg-empty">Reading your calendar…</div>
+                      <div x-show="!meetings.loading && !meetings.list.length" class="mtg-empty">No completed meetings this week.</div>
+                      <div x-show="!meetings.loading && meetings.list.length && !mtgFilteredList().length" class="mtg-empty">No meetings match “<span x-text="meetings.query"></span>”.</div>
+                      <template x-for="m in mtgFilteredList()" :key="m.id">
+                        <button type="button" class="mtg-item" :class="{ active: m.id === meetings.selectedId }" @click="mtgSelect(m.id)">
+                          <div class="s" x-text="m.subject || m.title || 'Untitled meeting'"></div>
+                          <div class="m">
+                            <span x-text="mtgFmtWhen(m)"></span>
+                            <span class="brief" x-show="mtgBriefLabel(m)" x-text="' · ' + mtgBriefLabel(m)"></span>
+                          </div>
+                        </button>
+                      </template>
+                    </div>
                   </div>
-                  <div x-show="meetings.loading" class="mtg-empty">Reading your calendar…</div>
-                  <div x-show="!meetings.loading && !meetings.list.length" class="mtg-empty">No completed meetings this week.</div>
-                  <div x-show="!meetings.loading && meetings.list.length && !mtgFilteredList().length" class="mtg-empty">No meetings match “<span x-text="meetings.query"></span>”.</div>
-                  <template x-for="m in mtgFilteredList()" :key="m.id">
-                    <button type="button" class="mtg-item" :class="{ active: m.id === meetings.selectedId }" @click="mtgSelect(m.id)">
-                      <div class="s" x-text="m.subject || m.title || 'Untitled meeting'"></div>
-                      <div class="m">
-                        <span x-text="mtgFmtWhen(m)"></span>
-                        <span class="brief" x-show="mtgBriefLabel(m)" x-text="' · ' + mtgBriefLabel(m)"></span>
-                        <template x-if="m.demo"><span class="demo"> · sample</span></template>
-                      </div>
-                    </button>
-                  </template>
+                  <div class="mtg-nav-resize" x-show="!meetings.navCollapsed" title="Resize meeting list" @pointerdown.prevent="mtgStartNavResize($event)"></div>
                 </div>
                 <!-- Right panel: detail OR recap -->
                 <div>
@@ -21308,6 +21338,19 @@
                                   <template x-for="(h, i) in (meetings.brief.highlights || [])" :key="'h'+i"><li x-text="(typeof h === 'string') ? h : (h.text || '')"></li></template>
                                 </ul>
                               </div>
+                              <div x-show="(meetings.brief.evidence || []).length">
+                                <div class="lbl">Sources & evidence</div>
+                                <div class="mtg-evidence">
+                                  <template x-for="e in (meetings.brief.evidence || [])" :key="e.id || e.url || e.title">
+                                    <div class="mtg-evidence-row">
+                                      <div class="meta" x-text="[e.type, e.source, e.timestamp].filter(Boolean).join(' · ')"></div>
+                                      <template x-if="e.url"><a class="mtg-link" :href="e.url" target="_blank" rel="noopener" x-text="e.title || 'Open source'"></a></template>
+                                      <template x-if="!e.url"><strong x-text="e.title || 'Supporting evidence'"></strong></template>
+                                      <div class="desc" x-show="e.summary" x-text="e.summary"></div>
+                                    </div>
+                                  </template>
+                                </div>
+                              </div>
                             </div>
                           </template>
                         </div>
@@ -21349,10 +21392,12 @@
                           </button>
                         </div>
                         <div class="mtg-gen">
-                          <button type="button" class="go" :disabled="meetings.recapLoading" @click="mtgGenerateRecap()">
-                            <span x-show="!meetings.recapLoading">✨ Generate recap</span>
+                          <button type="button" class="go" x-show="mtgSelected().demo || (meetings.brief && meetings.brief.newscast && meetings.brief.newscast.ready)" :disabled="meetings.recapLoading" @click="mtgGenerateRecap()">
+                            <span x-show="!meetings.recapLoading">▶ Watch evidence newscast</span>
                             <span x-show="meetings.recapLoading">Generating…</span>
                           </button>
+                          <span class="hint" x-show="!mtgSelected().demo && meetings.briefStatus === 'ready' && (!meetings.brief || !meetings.brief.newscast || !meetings.brief.newscast.ready)">No source-backed newscast is available for this meeting; use the transcript summary above.</span>
+                          <span class="hint" x-show="meetings.brief && meetings.brief.newscast && meetings.brief.newscast.ready" x-text="meetings.brief.newscast.hasAuthenticAudio ? 'Includes authentic meeting audio and linked evidence.' : meetings.brief.newscast.evidenceCount + ' supporting sources · transcript audio unavailable.'"></span>
                           <span class="hint" x-show="mtgSelected().demo">Sample meeting — recap uses authored content.</span>
                           <span class="hint" x-show="!mtgSelected().demo && mtgSelected().hasTranscript === false">No transcript available — the recap will be brief.</span>
                         </div>
@@ -21367,7 +21412,7 @@
                       <button type="button" class="back" @click="mtgBackToDetail()">← Back to details</button>
                       <span class="t" x-text="(mtgSelected() && (mtgSelected().subject || mtgSelected().title)) || 'Recap'"></span>
                     </div>
-                    <iframe x-ref="mtgPlayer" src="/meeting-recap.html" @load="_mtgPushRecap()" title="Meeting recap"></iframe>
+                    <iframe x-ref="mtgPlayer" src="/public/meeting-recap.html" @load="_mtgPushRecap()" title="Meeting recap"></iframe>
                   </div>
                 </div>
               </div>
@@ -23847,7 +23892,8 @@
                     <div class="nlx-acc-body">
                       <div class="nlx-fld"><label>Title <span class="hint" style="font-weight:400">(optional — AI writes one if blank)</span></label><input class="field-input" type="text" x-model="newsletter.config.title" placeholder="Leave blank to auto-title" /></div>
                       <div class="nlx-fld"><label>Subtitle <span class="hint" style="font-weight:400">(optional)</span></label><input class="field-input" type="text" x-model="newsletter.config.subtitle" placeholder="What shipped and why it matters" /></div>
-                      <div class="nlx-fld"><label>Template</label><select class="field-input" x-model="newsletter.config.template"><option value="digest">Digest</option><option value="highlights">Highlights</option><option value="executive">Executive</option></select></div>
+                      <div class="nlx-fld"><label>Template</label><select class="field-input" x-model="newsletter.config.template"><option value="digest">Digest</option><option value="highlights">Highlights</option><option value="executive">Executive</option><option value="shawn">Shawn · impact first</option></select></div>
+                      <p class="hint" style="margin:-4px 0 8px;font-weight:400" x-show="newsletter.config.template === 'shawn'">TL;DR first, impact over activity, explicit proof and measurement gaps, no decorative fluff.</p>
                       <p class="hint" style="margin:2px 0 6px;font-weight:400">Timeframe is set with the day chips next to Generate.</p>
                       <div class="nlx-fld"><label>Email to</label><input class="field-input" type="text" x-model="newsletter.config.emailTo" placeholder="you@company.com" /></div>
                     </div>
@@ -24267,9 +24313,8 @@
                           <div class="dvx-idx-group-items">
                             <template x-for="pr in grp.items" :key="'cfir-' + cfPrKey(pr)">
                               <button type="button" class="dvx-idx-row"
-                                      :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)), attn: cfIdxMeta(pr).attn }"
+                                      :class="{ sel: (cfPageSelected() && cfPrKey(cfPageSelected()) === cfPrKey(pr)), attn: cfIdxMeta(pr).attn, here: yahIsOn('pr:' + cfPrKey(pr)) }"
                                       @click="cfPageSelect(pr)">
-                                <span class="dvx-idx-here" x-show="yahIsOn('pr:' + cfPrKey(pr))" title="You are here"></span>
                                 <span class="dvx-idx-main">
                                   <span class="dvx-idx-title" x-text="pr.title || ('PR ' + (pr.id || ''))"></span>
                                   <span class="dvx-idx-repo" x-show="pr.repo || pr.id" x-text="(pr.org ? pr.org + ' / ' : '') + (pr.repo || '') + (pr.id ? ((pr.repo ? '  ·  ' : '') + '#' + pr.id) : '')"></span>
@@ -32131,14 +32176,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, epics: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, meetings: false, epics: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, epics: true };
+          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, meetings: true, epics: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -33243,6 +33288,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           days: 7,
           weekOffset: 0,          // 0 = current work week; +1 = last week, etc.
           query: '',              // search/filter over the loaded week's meetings
+          navCollapsed: (() => { try { return localStorage.getItem('meetings-nav-collapsed') === '1'; } catch (_) { return false; } })(),
+          navWidth: (() => { try { const value = Number(localStorage.getItem('meetings-nav-width')); return value >= 240 && value <= 520 ? value : 300; } catch (_) { return 300; } })(),
           list: [], demo: false,
           selectedId: '',
           view: 'detail',        // 'detail' | 'recap'
@@ -34222,7 +34269,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'chains' && second) return { route: 'chain-detail', param: second };
           if (first === 'boards' && second) return { route: 'boards', param: second };
           if (first === 'monitoring' && second) return { route: 'monitoring', param: second };
-          if (first === 'meetings' && second) return { route: 'meetings', param: second };
+          if ((first === 'meetings' || first === 'meetings-ai') && second) return { route: 'meetings', param: second };
+          if (first === 'meetings-ai') return { route: 'meetings', param: null };
           if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'monitoring', 'meetings', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
@@ -35702,9 +35750,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _navDefaultKeys(scope) {
           const en = (k) => this.featureEnabled(k);
           if (scope === 'basic') {
-            const out = ['home', 'boards', 'codeflow', 'meetings'];
+            const out = ['home', 'boards', 'codeflow'];
             if (en('me-ai')) out.push('me-ai', 'backlog');
             if (en('pulse')) out.push('pulse');
+            if (en('meetings')) out.push('meetings');
             out.push('agents');
             if (en('diary')) out.push('diary');
             if (en('autonomous')) out.push('autonomous');
@@ -35724,7 +35773,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (en('pulse')) out.push('pulse');
           if (en('playbooks')) out.push('playbooks');
           out.push('boards');
-          out.push('codeflow', 'meetings', 'agents');
+          out.push('codeflow');
+          if (en('meetings')) out.push('meetings');
+          out.push('agents');
           if (en('autonomous')) out.push('autonomous');
           out.push('marketplace', 'updates');
           if (en('diary')) out.push('diary');
@@ -36033,6 +36084,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const autonomous = { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false };
             const marketplace = { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' };
             const sessions = { key: 'sessions', label: 'CLI Sessions', title: 'CLI Sessions', icon: '⌨', href: '#/sessions', routeGroup: 'sessions', items: [], collapsible: false };
+            const meetings = { key: 'meetings', label: 'Meetings.AI', title: 'Meetings.AI', icon: '🎬', href: '#/meetings', routeGroup: 'meetings', items: [], collapsible: false };
             const connect = { key: 'connect', label: 'Connect', title: 'Connect', icon: '🌟', href: '#/connect', routeGroup: 'connect', items: [], collapsible: false };
             const newsletter = { key: 'newsletter', label: 'Compose.AI', title: 'Compose.AI', icon: '✍️', href: '#/compose', routeGroup: 'compose', items: [], collapsible: false, attnBadge: (this.newsletter.sched && this.newsletter.sched.reviewPending) ? 1 : 0, attnTitle: 'A new newsletter is ready for review' };
             const news = { key: 'news', label: 'News', collapsible: true, isGroup: true, href: '#/activity', routeGroup: 'activity', children: [
@@ -36045,6 +36097,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (bf.autonomous || bf.tasks || bf.flows) out.push(autonomous);
             out.push(marketplace);
             if (bf.watercooler) out.push(watercooler);
+            if (bf.meetings) out.push(meetings);
             if (bf.sessions) out.push(sessions);
             if (bf.news) out.push(news);
             if (bf.connect) out.push(connect);
@@ -36067,6 +36120,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'playbooks', label: 'Playbooks', title: 'Playbooks', icon: '📘', href: '#/playbooks', routeGroup: 'playbooks', items: [], collapsible: false },
             { key: 'boards', label: 'Workspaces.AI', title: 'Workspaces.AI', icon: '📌', href: '#/boards', routeGroup: 'boards', items: [], collapsible: false },
             { key: 'codeflow', label: 'Code Flow', title: 'Code Flow', icon: '🔀', href: '#/codeflow', routeGroup: 'codeflow', items: [], collapsible: false, badge: this.codeflowAttention.mineActive || 0, badgeTitle: 'Active pull requests you authored', attnBadge: this.codeflowAttention.reviewsActive || 0, attnTitle: 'Active pull requests for your review' },
+            ...(this.featureEnabled('meetings') ? [{ key: 'meetings', label: 'Meetings.AI', title: 'Meetings.AI', icon: '🎬', href: '#/meetings', routeGroup: 'meetings', items: [], collapsible: false }] : []),
             { key: 'agents', label: 'Agents', title: 'Agents', icon: '🤖', href: '#/agents', routeGroup: 'agents', items: [], collapsible: false },
             { key: 'autonomous', label: 'Automation', title: 'Automation', icon: '⚡', href: '#/autonomous', routeGroup: 'autonomous', items: [], collapsible: false },
             { key: 'marketplace', label: 'Marketplace', title: 'Marketplace', icon: '🛍️', href: '#/marketplace', routeGroup: 'marketplace', items: [], collapsible: false, badge: this.marketplaceUpdates.newCount || 0, badgeTitle: 'New marketplace items since your last visit' },
@@ -36305,6 +36359,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Agenda.AI build on.' },
             { key: 'me-ai', label: 'Agenda.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
+            { key: 'meetings', label: 'Meetings.AI', icon: '🎬', hint: 'Verified meeting recaps and evidence-rich narrated newscasts.' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
@@ -36322,6 +36377,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'diary', label: 'Diary', icon: '📖', hint: 'Your living impact diary — the foundation Connect, Newsletter & Agenda.AI build on.' },
             { key: 'me-ai', label: 'Agenda.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
+            { key: 'meetings', label: 'Meetings.AI', icon: '🎬', hint: 'Verified meeting recaps and evidence-rich narrated newscasts.' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📘', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
@@ -36406,11 +36462,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         basicRouteVisible(route) {
           const r = route || this.route;
           // Always-available shared routes (core, non-gateable).
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'settings', 'events', 'meetings'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'settings', 'events'].includes(r)) return true;
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
             pulse: ['pulse'],
+            meetings: ['meetings'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
             sessions: ['sessions'],
@@ -36430,11 +36487,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         advancedRouteVisible(route) {
           const r = route || this.route;
           // Always-available core (never opt-out-able).
-          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'design', 'settings', 'events', 'meetings'].includes(r)) return true;
+          if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'design', 'settings', 'events'].includes(r)) return true;
           const gated = {
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
             pulse: ['pulse'],
+            meetings: ['meetings'],
             playbooks: ['playbooks'],
             autonomous: ['autonomous', 'tasks', 'task-detail', 'assignments', 'assignment-detail', 'new-task', 'chains', 'chain-detail', 'chain'],
             watercooler: ['chat', 'chat-detail'],
@@ -41584,7 +41642,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // (restore the recap after a reload). Split so the id stays clean.
           const rawParam = String(selectId || '');
           const slash = rawParam.indexOf('/');
-          const wantId = slash >= 0 ? rawParam.slice(0, slash) : rawParam;
+          const rawWantId = slash >= 0 ? rawParam.slice(0, slash) : rawParam;
+          // WorkIQ search references are conversation-local and can point at a different
+          // meeting on the next collection. Never hydrate or preserve those stale links.
+          const wantId = /^turn\d+search\d+$/i.test(rawWantId) ? '' : rawWantId;
           const wantRecap = slash >= 0 && rawParam.slice(slash + 1) === 'recap';
           w.loading = true; w.error = '';
           try {
@@ -41595,6 +41656,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             w.list = arr.map(m => ({ ...m, id: m.meetingId || m.id || '' }));
             w.demo = !!(r && r.demo);
             w.loaded = true;
+            // A durable deep link can carry the real calendar event id while the bulk
+            // WorkIQ index still exposes a transient search-result token. Preserve the
+            // requested meeting by hydrating its metadata from the cached brief instead
+            // of silently replacing the URL/selection with the first indexed meeting.
+            if (wantId && !w.list.some(m => m.id === wantId)) {
+              try {
+                const probe = await this.request(`/api/meetings/brief?meetingId=${encodeURIComponent(wantId)}`);
+                const meta = probe && probe.meeting;
+                if (meta && meta.subject) {
+                  w.list = [{
+                    ...meta,
+                    id: wantId,
+                    meetingId: wantId,
+                    briefStatus: (probe && probe.status) || 'none',
+                    briefPhase: (probe && probe.phase) || '',
+                    briefStartedAt: (probe && probe.startedAt) || 0,
+                  }, ...w.list];
+                }
+              } catch (_) {}
+            }
             // Pick the requested meeting, else keep current if still present, else first.
             let pick = wantId || w.selectedId || (w.list[0] && w.list[0].id) || '';
             if (pick && !w.list.some(m => m.id === pick)) pick = (w.list[0] && w.list[0].id) || '';
@@ -41739,7 +41820,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             w.people = r.people;
             w.recapDemo = !!r.demo;
             w.recapEmpty = !!r.empty;
-            // Stash for the iframe handshake; the player asks for it via postMessage(mrv:ready).
+            // Stash for the player handoff. The same-origin player is invoked directly;
+            // postMessage remains a load-timing fallback.
             w._pendingRecap = { type: 'mrv:load', story: r.story, people: r.people, photos: r.photos || {} };
             w.view = 'recap';
             // Persist the recap view in the hash so a reload restores it (server-cached).
@@ -41758,6 +41840,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!w._pendingRecap) return;
           const fr = this.$refs && this.$refs.mtgPlayer;
           if (fr && fr.contentWindow) {
+            try {
+              if (typeof fr.contentWindow.startRecap === 'function') {
+                fr.contentWindow.startRecap(w._pendingRecap.story, w._pendingRecap.people, w._pendingRecap.photos);
+                return;
+              }
+            } catch (_) {}
             try { fr.contentWindow.postMessage(w._pendingRecap, '*'); } catch (_) {}
           }
         },
@@ -41786,6 +41874,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         mtgWeekLabel() { return this.mtgWeekRange(this.meetings.weekOffset).label; },
         mtgWeekSub() { return this.mtgWeekRange(this.meetings.weekOffset).sub; },
+        mtgToggleNav() {
+          this.meetings.navCollapsed = !this.meetings.navCollapsed;
+          try { localStorage.setItem('meetings-nav-collapsed', this.meetings.navCollapsed ? '1' : '0'); } catch (_) {}
+        },
+        mtgStartNavResize(event) {
+          if (!event || this.meetings.navCollapsed) return;
+          const startX = event.clientX;
+          const startWidth = this.meetings.navWidth;
+          const move = e => { this.meetings.navWidth = Math.max(240, Math.min(520, startWidth + e.clientX - startX)); };
+          const up = () => {
+            window.removeEventListener('pointermove', move);
+            window.removeEventListener('pointerup', up);
+            window.removeEventListener('pointercancel', up);
+            try { localStorage.setItem('meetings-nav-width', String(Math.round(this.meetings.navWidth))); } catch (_) {}
+          };
+          window.addEventListener('pointermove', move);
+          window.addEventListener('pointerup', up);
+          window.addEventListener('pointercancel', up);
+        },
         mtgPrevWeek() { this.meetings.weekOffset += 1; this.meetings.query = ''; this.loadMeetings(''); },
         mtgNextWeek() { if (this.meetings.weekOffset > 0) { this.meetings.weekOffset -= 1; this.meetings.query = ''; this.loadMeetings(''); } },
         // Search/filter over the loaded week — matches subject, organizer, or any attendee.
@@ -57428,6 +57535,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Composer key handler: when the mention dropdown is open, ↑/↓ navigate, Tab/Enter
         // pick. Otherwise Enter sends (Shift+Enter = newline).
         macComposerKey(item, ev) {
+          if (ev.key === 'Enter' && ev.shiftKey) {
+            ev.preventDefault();
+            const st = this.boardAgentChatState(item);
+            const el = ev.target;
+            if (!st || !el) return;
+            const start = typeof el.selectionStart === 'number' ? el.selectionStart : String(st.input || '').length;
+            const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : start;
+            const value = String(st.input || '');
+            st.input = value.slice(0, start) + '\n' + value.slice(end);
+            this.macMention.open = false;
+            this.$nextTick(() => {
+              try { el.setSelectionRange(start + 1, start + 1); } catch {}
+              this.macComposerGrow(el);
+            });
+            return;
+          }
           if (this.macMention.open) {
             if (ev.key === 'ArrowDown') { ev.preventDefault(); this.macMentionMove(1); return; }
             if (ev.key === 'ArrowUp') { ev.preventDefault(); this.macMentionMove(-1); return; }
@@ -57435,6 +57558,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (ev.key === 'Tab' || ev.key === 'Enter') { ev.preventDefault(); this.macMentionPick(item, ev); return; }
           }
           if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); this.macSend(item); }
+        },
+        macComposerGrow(el) {
+          if (!el) return;
+          el.style.height = 'auto';
+          el.style.height = Math.min(160, Math.max(38, el.scrollHeight)) + 'px';
         },
         // Orchestrate one user turn across the roster. Single-agent chats fall straight
         // through to the existing boardAgentSend path.

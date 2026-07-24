@@ -2805,7 +2805,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
       const n = (name || '').trim().toLowerCase();
       return !n || n === creatorName || n === expertName || existingReviewerNames.has(n) || isViewer(name, email);
     };
-    const seen = new Set();
+    const seen = new Map();
     for (const a of approverCandidates) {
       const lk = a.name.toLowerCase();
       if (excludeName(a.name, a.email) || seen.has(lk)) continue;
@@ -6276,6 +6276,52 @@ function whatsNewCurrentEntry(version) {
     details: [],
   };
 }
+function whatsNewEntryFromRelease(release) {
+  const version = String(release && release.version || '').trim().replace(/^v/i, '');
+  const body = String(release && release.notes || '').replace(/\r/g, '').split(/\n---\s*\n/)[0].trim();
+  if (!version || !body) return null;
+  const lines = body.split('\n');
+  let title = '';
+  const intro = [];
+  const details = [];
+  let group = null;
+  for (const raw of lines) {
+    const line = raw.trim();
+    const heading = /^#{2}\s+(.+)$/.exec(line);
+    if (heading && !title) {
+      title = heading[1].trim();
+      continue;
+    }
+    const section = /^#{3}\s+(.+)$/.exec(line);
+    if (section) {
+      group = { heading: section[1].trim(), items: [] };
+      details.push(group);
+      continue;
+    }
+    const bullet = /^[-*]\s+(.+)$/.exec(line);
+    if (bullet) {
+      if (!group) {
+        group = { heading: 'Highlights', items: [] };
+        details.push(group);
+      }
+      group.items.push(bullet[1].trim());
+      continue;
+    }
+    if (line && !group && !/^#/.test(line)) intro.push(line);
+  }
+  const populated = details.filter(d => d.items.length);
+  const highlights = populated.flatMap(d => d.items).slice(0, 4);
+  if (!title && !intro.length && !highlights.length) return null;
+  return {
+    version,
+    date: String(release.publishedAt || '').slice(0, 10),
+    title: title || release.name || `Version ${version}`,
+    summary: intro.join(' '),
+    highlights,
+    details: populated,
+    source: 'github-release',
+  };
+}
 function readWhatsNew() {
   try {
     const raw = fs.readFileSync(path.join(__dirname, 'whats-new.json'), 'utf-8');
@@ -6315,7 +6361,7 @@ function readRecentCommitNotes(limit = 40) {
   } catch { return []; }
 }
 
-app.get('/api/whats-new', (req, res) => {
+app.get('/api/whats-new', async (req, res) => {
   const current = GIT_VERSION.version || '';
   if (!updater.isDesktop()) {
     const commitNotes = readRecentCommitNotes();
@@ -6328,11 +6374,19 @@ app.get('/api/whats-new', (req, res) => {
   if (base && entries.length) {
     entries = entries.filter(e => whatsNewBase(e && e.version) === base);
   }
-  // Guarantee the running version sits at the top so "What's new" never looks a
-  // build behind. If the exact running version has no bundled note (the file
-  // lags the installed build), synthesize a minimal current-version entry.
+  // Recover the exact published release notes when an older installer shipped a
+  // stale whats-new.json. The release body is generated from that build's commit
+  // range, so it is a better source than a generic current-version placeholder.
   if (current && !entries.some(e => e && e.version === current)) {
-    entries.unshift(whatsNewCurrentEntry(current));
+    let published = null;
+    if (updater.isDesktop()) {
+      try {
+        published = whatsNewEntryFromRelease(await updater.releaseForVersion(current));
+      } catch (e) {
+        console.warn('[whats-new] exact release lookup failed:', e && e.message);
+      }
+    }
+    entries.unshift(published || whatsNewCurrentEntry(current));
   }
   // Safety net: never hand the UI an empty changelog. If scoping/synthesis still
   // yielded nothing (no current version to anchor on), fall back to the full,
@@ -6940,6 +6994,35 @@ app.post('/api/multi-agent/synthesize', async (req, res) => {
 // writes events to ~/.copilot/session-state/<uuid>/events.jsonl, which we mirror
 // back into a source:'cli' chat (read-only). The agent's plugin/package/project
 // wiring is resolved by sdk-runner so the terminal boots with the same org.
+function _openAgentCliWindow(launcher, cwd) {
+  const { spawn, spawnSync } = require('child_process');
+  if (process.platform !== 'win32') {
+    const child = spawn(launcher, [], { cwd, detached: true, stdio: 'ignore' });
+    child.unref();
+    return child.pid || null;
+  }
+  // Start-Process gives us a concrete process id or a synchronous error. The prior
+  // `cmd /c start` fire-and-forget path reported success even when Windows opened nothing.
+  const ps = [
+    `$launcher=${JSON.stringify(launcher)}`,
+    `$cwd=${JSON.stringify(cwd)}`,
+    "$process=Start-Process -FilePath $launcher -WorkingDirectory $cwd -PassThru -ErrorAction Stop",
+    "if (-not $process) { throw 'Windows did not return a terminal process.' }",
+    'Write-Output $process.Id',
+  ].join(';');
+  const encoded = Buffer.from(ps, 'utf16le').toString('base64');
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+    encoding: 'utf8',
+    timeout: 15000,
+    windowsHide: true,
+  });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(String(result.stderr || result.stdout || 'Windows terminal launch failed.').trim());
+  const pid = Number(String(result.stdout || '').trim().split(/\s+/).pop());
+  if (!Number.isInteger(pid) || pid <= 0) throw new Error('Windows did not return a terminal process id.');
+  return pid;
+}
+
 function launchAgentCliSession(agentEntry) {
   const sessionId = crypto.randomUUID();
   const { args, cwd, agent } = sdkRunner.resolveCliLaunch(agentEntry.config);
@@ -6965,9 +7048,8 @@ function launchAgentCliSession(agentEntry) {
     'pause >nul'
   ].join('\r\n') + '\r\n';
   fs.writeFileSync(launcher, body);
-  const { spawn } = require('child_process');
-  spawn('cmd.exe', ['/c', 'start', '', 'cmd', '/k', launcher], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
-  return { sessionId, args: launchArgs, cwd, agent, launcher };
+  const pid = _openAgentCliWindow(launcher, cwd);
+  return { sessionId, args: launchArgs, cwd, agent, launcher, pid };
 }
 
 app.post('/api/agents/:id/cli-session', (req, res) => {
@@ -7000,7 +7082,7 @@ app.post('/api/agents/:id/cli-session', (req, res) => {
     return res.status(500).json({ error: 'CLI launched but failed to save chat: ' + e.message });
   }
   broadcastSSE('chat-created', { chatId, target: req.params.id, targetType: 'agent' });
-  res.json({ ok: true, chatId, sessionId: launch.sessionId, agent: launch.agent, cwd: launch.cwd });
+  res.json({ ok: true, chatId, sessionId: launch.sessionId, agent: launch.agent, cwd: launch.cwd, pid: launch.pid });
 });
 
 // Find the chat session for an agent. Prefers the pinned id tracked when chat
@@ -12902,6 +12984,25 @@ function _newsletterContext() {
   return { st, cfg, win, items };
 }
 
+// Named editorial presets are more than visual skins: they carry an audience
+// contract into both writer and editor prompts. "Shawn" is grounded in review
+// feedback on a real issue and deliberately optimizes for decision-time and proof.
+function _newsletterTemplateGuidance(template) {
+  if (String(template || '').toLowerCase() !== 'shawn') return '';
+  return [
+    'SHAWN TEMPLATE - IMPACT FIRST, ZERO FLUFF:',
+    '- Optimize for a busy engineering leader who wants the point in under 60 seconds but can read deeper for context.',
+    '- Immediately after a minimal masthead/dateline, add `## TL;DR - impact and proof` with 3-5 bullets. Each bullet leads with the outcome, names who benefits, and includes a verified metric, customer effect, or concrete evidence. Never lead with activity.',
+    '- Put the driving principles and the true "why this matters" at the top. Do not bury the headline beneath background, chronology, praise, or scene-setting.',
+    '- Structure each story as: Impact -> Evidence/metric -> Who benefits -> How (only the activity needed to explain causality) -> Remaining measurement gap.',
+    '- Convert claims such as faster, safer, more reliable, self-service, or lower cost into a baseline, target, observed result, or explicit measurement gap. Never invent a number. If evidence is missing, say `Measurement gap:` and name the metric that must be captured.',
+    '- `By the numbers` may contain impact measures only. Counts of meetings, PRs, documents, reviews, or pipeline changes are activity and must be omitted unless they directly quantify an outcome.',
+    '- `What is next` must include dates or state that the date is uncommitted, plus success criteria that will prove the benefit occurred.',
+    '- Remove decorative copy, throat-clearing, generic praise, repeated conclusions, and unsupported superlatives. Do not use phrases like "quietly transforming", "trajectory is clear", or "progress that compounds".',
+    '- Keep the issue materially shorter than a Digest: target a 2-3 minute read. Use visuals only when they communicate a substantiated impact metric; no decorative hero illustration or cartoon.',
+  ].join('\n');
+}
+
 
 // Process `shot:` image directives the writer leaves in the draft, e.g.
 //   ![Arcade PR review](shot:https://github.com/dotnet/arcade/pull/17018)
@@ -12972,10 +13073,17 @@ async function runNewsletterGeneration(runId, { docMode } = {}) {
   const _shotLine = _cap && _cap.available
     ? 'REAL SCREENSHOTS: request a headless capture with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1&width=1400) — and the app screenshots the page and swaps in the saved image. Works best on public pages; authenticated/internal pages may be dropped. Deep-dive PRs/builds/dashboards and capture the telling view.'
     : 'SCREENSHOTS: headless capture is unavailable on this machine, so do not use shot: directives — lean on inline SVG charts/illustrations and clearly-marked screenshot suggestions instead.';
+  const templateGuide = _newsletterTemplateGuidance(cfg.template);
+  const shawnTemplate = String(cfg.template || '').toLowerCase() === 'shawn';
   const prompt = [
-    'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing, and use rich imagery — real screenshots, inline SVG charts/stat cards, and at least one clever on-theme cartoon/illustration you draw yourself as inline SVG. Follow the newsletter-standards skill.',
-    'REQUIRED STRUCTURE: (1) hero masthead SVG + H1 title + one-line dek; (2) a dateline right under the dek with the covered date range, an estimated read time (⏱ N min read), and a byline; (3) a top 3–4-up stat strip of headline figures; then the intro, highlight stories with visuals, and (last) a "## Sources" footer with a one-line count summary and a markdown list of the real links you investigated. Only use figures and sources the evidence substantiates.',
-    _shotLine,
+    shawnTemplate
+      ? 'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing. Follow the newsletter-standards skill, with the Shawn template rules below taking precedence where they are stricter.'
+      : 'Write my newsletter for the timeframe below from the diary evidence. Investigate the most significant items (WorkIQ, ADO/GitHub links, browser, shell) before writing, and use rich imagery — real screenshots, inline SVG charts/stat cards, and at least one clever on-theme cartoon/illustration you draw yourself as inline SVG. Follow the newsletter-standards skill.',
+    shawnTemplate
+      ? 'REQUIRED STRUCTURE: (1) minimal H1 masthead + one-line impact dek + dateline/read time/byline; (2) `## TL;DR - impact and proof`; (3) 2-4 impact stories; (4) impact-only `## By the numbers` when substantiated; (5) dated `## What is next - success measures`; and (last) `## Sources`. Do not add a decorative hero, cartoon, or activity stat strip.'
+      : 'REQUIRED STRUCTURE: (1) hero masthead SVG + H1 title + one-line dek; (2) a dateline right under the dek with the covered date range, an estimated read time (⏱ N min read), and a byline; (3) a top 3–4-up stat strip of headline figures; then the intro, highlight stories with visuals, and (last) a "## Sources" footer with a one-line count summary and a markdown list of the real links you investigated. Only use figures and sources the evidence substantiates.',
+    shawnTemplate ? '' : _shotLine,
+    templateGuide,
     '',
     'OUTPUT PROTOCOL — STRICT: You may think and use tools freely, but emit the finished newsletter exactly once, wrapped between these two sentinel lines, each alone on its own line:',
     '===NEWSLETTER-START===',
@@ -13053,6 +13161,8 @@ async function runNewsletterDraftChat({ message, history, draft, attachments, ru
     try { broadcastSSE('newsletter-progress', { runId: runId || null, chat: true, icon, text, at: Date.now(), seq: ++_nlSeq }); } catch (_) { /* ignore */ }
   };
   const { st, cfg, win, items } = _newsletterContext();
+  const templateGuide = _newsletterTemplateGuidance(cfg.template);
+  const shawnTemplate = String(cfg.template || '').toLowerCase() === 'shawn';
   const curDraft = String(draft != null ? draft : ((st.draft && st.draft.markdown) || '')).trim();
   const evLines = _newsletterEvidenceLines(items.slice(0, 100)) || '(no diary evidence)';
   const histLines = (Array.isArray(history) ? history : []).slice(-8).map(h => {
@@ -13065,7 +13175,9 @@ async function runNewsletterDraftChat({ message, history, draft, attachments, ru
   emitProgress('💬', atts.length ? 'Reading your message and attached image(s)…' : 'Reading your feedback…');
   const prompt = [
     'You are revising my newsletter draft through conversation. Follow your output protocol exactly.',
-    ((() => { try { const c = newsletterCapture.capabilities(); return c && c.available ? 'You can request real screenshots with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1) — and the app captures and swaps in the image. Public pages work best. Also draw clever on-theme SVG cartoons/illustrations to keep it enjoyable.' : 'Headless screenshot capture is unavailable — do not use shot: directives; use inline SVG charts/illustrations instead.'; } catch (_) { return ''; } })()),
+    shawnTemplate
+      ? 'For the Shawn template, use a chart or screenshot only when it proves a substantiated impact measure. Do not add decorative art.'
+      : ((() => { try { const c = newsletterCapture.capabilities(); return c && c.available ? 'You can request real screenshots with a shot: image directive — ![caption](shot:https://public-url|selector=.foo&fullPage=1) — and the app captures and swaps in the image. Public pages work best. Also draw clever on-theme SVG cartoons/illustrations to keep it enjoyable.' : 'Headless screenshot capture is unavailable — do not use shot: directives; use inline SVG charts/illustrations instead.'; } catch (_) { return ''; } })()),
     '',
     'INVESTIGATE BEFORE YOU REVISE — this is required, not optional. My feedback often references something by a short name (a meeting like "the VS Images meeting", a PR, a work item, a person, an initiative, a demo) that may be only lightly present — or entirely absent — in the current draft. Do NOT reply that you cannot find it or cannot make the change. Instead, act like the "Generate newsletter" pass does:',
     '  1. Re-scan the diary evidence below for the thing I referenced (match on title, people, dates, links, keywords).',
@@ -13077,6 +13189,7 @@ async function runNewsletterDraftChat({ message, history, draft, attachments, ru
     `Title (masthead): ${cfg.title || 'My Impact Digest'}`,
     `Subtitle: ${cfg.subtitle || '(none)'}`,
     `Template style: ${cfg.template || 'digest'}`,
+    templateGuide,
     `Accent color: ${cfg.accent || '(theme default)'}`,
     `Timeframe: ${win.since} to ${win.until} (${cfg.timeframeDays} day window)`,
     '',
@@ -33370,6 +33483,47 @@ const _MEETINGS_SEED_STORY = {
 
 const _MEETINGS_SEED_ID = 'demo-sfi-ar127';
 
+function _meetingsSubjectKey(value) {
+  return String(value || '').normalize('NFKD').toLowerCase()
+    .replace(/\b(meeting\s+recap|recap)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+function _meetingsSubjectsMatch(expected, actual) {
+  const a = _meetingsSubjectKey(expected);
+  const b = _meetingsSubjectKey(actual);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const aa = new Set(a.split(' '));
+  const bb = new Set(b.split(' '));
+  const shared = [...aa].filter(word => bb.has(word)).length;
+  return shared / Math.max(aa.size, bb.size) >= 0.8;
+}
+function _meetingsWhen(value, dateHint) {
+  const graph = _meAiGraphLocal(value);
+  if (graph && graph.date && graph.hm) return graph;
+  const text = String(value || '').trim();
+  const hint = String(dateHint || '').trim().slice(0, 10);
+  if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(text) && /^\d{4}-\d{2}-\d{2}$/.test(hint)) {
+    return { date: hint, hm: text.slice(0, 5) };
+  }
+  const parsed = Date.parse(text);
+  if (Number.isNaN(parsed)) return { date: hint, hm: '' };
+  const when = new Date(parsed);
+  const pad = number => String(number).padStart(2, '0');
+  return {
+    date: `${when.getFullYear()}-${pad(when.getMonth() + 1)}-${pad(when.getDate())}`,
+    hm: `${pad(when.getHours())}:${pad(when.getMinutes())}`,
+  };
+}
+function _meetingsOccurrenceId(subject, date, start, organizer) {
+  const identity = [_meetingsSubjectKey(subject), date, start, _meetingsSubjectKey(organizer)].join('|');
+  return 'mtg-' + require('crypto').createHash('sha256').update(identity).digest('hex').slice(0, 24);
+}
+function _meetingsIsTransientId(value) {
+  return /^turn\d+search\d+$/i.test(String(value || '').trim());
+}
+
 // The seeded recent-meetings index (fallback when WorkIQ returns nothing).
 function _meetingsSeedRecent() {
   const pad = n => String(n).padStart(2, '0');
@@ -33394,32 +33548,42 @@ async function _meetingsGatherRange(start, end) {
     // made the collector return false for everything, which (a) falsely showed "No
     // transcript available" for real meetings and (b) suppressed every background
     // summary. Transcript presence is resolved honestly at build time instead.
-    const prompt = `Using WorkIQ, read my Microsoft 365 calendar for meetings that have ALREADY ENDED between ${iso(start)} and ${iso(end)} by calling /me/calendarView?startDateTime=${iso(start)}&endDateTime=${iso(end)} with $select=id,iCalUId,subject,start,end,isAllDay,isCancelled,organizer,attendees,onlineMeeting,webLink and $orderby=start/dateTime desc and a high $top. Return ONLY a JSON array (no prose, no code fence), newest first, one element per meeting that has already ended: {"meetingId":string (the event id), "subject":string, "start":{"dateTime":string,"timeZone":string}, "end":{"dateTime":string,"timeZone":string}, "organizer":string (organizer display name), "attendees":[string] (attendee display names), "recordingUrl":string|null (a playback URL for the meeting recording if one exists, else null), "webLink":string|null (the event's own webLink that opens it in Outlook/OWA, NOT the join URL)}. Skip all-day and cancelled events. If there are none, return [].`;
+    const prompt = `Using WorkIQ, find the Microsoft 365 calendar meetings that ALREADY ENDED between ${iso(start)} and ${iso(end)}. Include meetings whether or not I attended them; attendance is not a requirement. Exclude cancelled, all-day, focus-time, hold, and appointment events that were not actual meetings. Return ONLY a JSON array (no prose, no code fence), newest first, with one element per distinct meeting occurrence: {"subject":string,"date":"YYYY-MM-DD","start":"HH:mm","end":"HH:mm","organizer":string,"attendees":[string],"meetingUrl":string|null,"recordingUrl":string|null}. Preserve the occurrence's local date and time. meetingUrl must be the exact Teams meeting-details URL for that occurrence when available. Never use a turn1search/reference token as a meeting ID. If there are none, return [].`;
     const text = await _meetingsWorkIqAsk(prompt, 150000);
     const arr = _connectExtractJson(text);
     if (!Array.isArray(arr)) return [];
     const out = [];
+    const seen = new Set();
     for (const e of arr) {
       if (!e || typeof e !== 'object') continue;
-      const sd = _meAiGraphLocal(e.start);
-      const ed = _meAiGraphLocal(e.end);
+      if (/cancelled/i.test(String(e.responseStatus || e.status || ''))) continue;
+      const dateHint = String(e.date || e.localDate || '').slice(0, 10);
+      const sd = _meetingsWhen(e.start || e.startDateTime, dateHint);
+      const ed = _meetingsWhen(e.end || e.endDateTime, sd.date || dateHint);
       const subject = String(e.subject || '').trim();
-      const meetingId = String(e.meetingId || e.id || e.iCalUId || '').trim();
-      if (!subject || !meetingId) continue;
+      const organizer = String((e.organizer && (e.organizer.name || e.organizer.displayName)) || e.organizer || '').slice(0, 160);
+      if (!subject || !sd.date || !sd.hm || !ed.hm) continue;
+      const startedAt = new Date(`${sd.date}T${sd.hm}:00`);
+      const endedAt = new Date(`${ed.date || sd.date}T${ed.hm}:00`);
+      if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime()) || startedAt < start || endedAt > end || endedAt > new Date()) continue;
+      const occurrenceKey = [_meetingsSubjectKey(subject), sd.date, sd.hm, _meetingsSubjectKey(organizer)].join('|');
+      if (seen.has(occurrenceKey)) continue;
+      seen.add(occurrenceKey);
+      const meetingId = _meetingsOccurrenceId(subject, sd.date, sd.hm, organizer);
       out.push({
         meetingId,
         subject: subject.slice(0, 240),
-        date: sd ? sd.date : '',
-        start: sd ? sd.hm : '',
-        end: ed ? ed.hm : '',
-        organizer: String(e.organizer || '').slice(0, 160),
-        attendees: (Array.isArray(e.attendees) ? e.attendees : []).map(a => String(a || '').slice(0, 160)).filter(Boolean).slice(0, 40),
+        date: sd.date,
+        start: sd.hm,
+        end: ed.hm,
+        organizer,
+        attendees: (Array.isArray(e.attendees) ? e.attendees : []).map(a => String((a && (a.name || a.displayName)) || a || '').slice(0, 160)).filter(Boolean).slice(0, 40),
         // Unknown at list time — resolved honestly when the recap/brief actually
         // fetches the transcript. Do NOT coerce to false: that falsely claimed "no
         // transcript" for every meeting and suppressed all background summaries.
         hasTranscript: null,
         recordingUrl: typeof e.recordingUrl === 'string' ? e.recordingUrl.slice(0, 800) : '',
-        webLink: typeof e.webLink === 'string' ? e.webLink.slice(0, 800) : '',
+        webLink: String(e.meetingUrl || e.webLink || '').slice(0, 1200),
       });
     }
     return out;
@@ -33544,6 +33708,371 @@ function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
   });
 }
 
+function _meetingsEvidenceUrl(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  try {
+    const url = new URL(text);
+    return (url.protocol === 'http:' || url.protocol === 'https:') ? text.slice(0, 1200) : '';
+  } catch (_) { return ''; }
+}
+
+function _meetingsEvidenceUrlKey(value) {
+  try {
+    const url = new URL(String(value || ''));
+    url.hash = '';
+    url.searchParams.delete('EntityRepresentationId');
+    return url.toString().replace(/\/$/, '').toLowerCase();
+  } catch (_) { return String(value || '').toLowerCase(); }
+}
+
+function _meetingsNormalizeCitations(raw) {
+  const values = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  return values.slice(0, 8).map(value => {
+    const item = typeof value === 'string' ? { text: value } : value;
+    if (!item || typeof item !== 'object') return null;
+    const text = String(item.text || item.quote || item.excerpt || '').trim().slice(0, 1400);
+    if (!text) return null;
+    return {
+      text,
+      locator: String(item.locator || item.location || item.page || item.slide || item.section || '').trim().slice(0, 160),
+      context: String(item.context || item.relevance || item.whyItMatters || '').trim().slice(0, 500),
+    };
+  }).filter(Boolean);
+}
+
+function _meetingsNormalizeVisuals(raw) {
+  const values = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  const allowed = new Set(['chart', 'graph', 'table', 'diagram', 'image', 'slide']);
+  return values.slice(0, 6).map(value => {
+    if (!value || typeof value !== 'object') return null;
+    const kindRaw = String(value.kind || value.type || 'chart').toLowerCase().trim();
+    const kind = allowed.has(kindRaw) ? kindRaw : 'chart';
+    const labels = (Array.isArray(value.labels) ? value.labels : [])
+      .map(x => String(x || '').trim().slice(0, 80)).filter(Boolean).slice(0, 12);
+    const directValues = (Array.isArray(value.values) ? value.values : [])
+      .map(Number).filter(Number.isFinite).slice(0, labels.length || 12);
+    const series = (Array.isArray(value.series) ? value.series : []).slice(0, 4).map(entry => ({
+      name: String((entry && entry.name) || '').trim().slice(0, 80),
+      values: (Array.isArray(entry && entry.values) ? entry.values : [])
+        .map(Number).filter(Number.isFinite).slice(0, labels.length || 12),
+    })).filter(entry => entry.values.length);
+    if (directValues.length) series.unshift({ name: String(value.seriesName || '').trim().slice(0, 80), values: directValues });
+    const imageUrl = _meetingsEvidenceUrl(value.imageUrl || value.thumbnailUrl || value.previewUrl);
+    const title = String(value.title || value.name || '').trim().slice(0, 240);
+    const caption = String(value.caption || value.summary || value.description || '').trim().slice(0, 700);
+    if (!imageUrl && !title && !caption && !(labels.length && series.length)) return null;
+    return {
+      kind,
+      title: title || `${kind.charAt(0).toUpperCase()}${kind.slice(1)} from source`,
+      caption,
+      locator: String(value.locator || value.location || value.page || value.slide || value.section || '').trim().slice(0, 160),
+      imageUrl,
+      labels,
+      series,
+      unit: String(value.unit || value.valueLabel || '').trim().slice(0, 60),
+    };
+  }).filter(Boolean);
+}
+
+function _meetingsNormalizeEvidence(items) {
+  const allowed = new Set(['recording', 'transcript', 'slide', 'document', 'image', 'teams', 'email', 'repository', 'pull-request', 'commit', 'work-item', 'link']);
+  const out = [];
+  const seen = new Map();
+  for (const raw of (Array.isArray(items) ? items : []).slice(0, 40)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const url = _meetingsEvidenceUrl(raw.url || raw.webUrl || raw.link);
+    let title = String(raw.title || raw.name || raw.label || '').trim().slice(0, 240);
+    const summary = String(raw.summary || raw.description || raw.context || '').trim().slice(0, 1000);
+    const excerpt = String(raw.excerpt || raw.quote || raw.snippet || '').trim().slice(0, 1200);
+    const highlights = (Array.isArray(raw.highlights) ? raw.highlights : Array.isArray(raw.keyPoints) ? raw.keyPoints : [])
+      .map(value => String(value || '').trim().slice(0, 500))
+      .filter(Boolean)
+      .slice(0, 4);
+    const citations = _meetingsNormalizeCitations(raw.citations || raw.citation);
+    if (!citations.length && excerpt) {
+      citations.push({
+        text: excerpt,
+        locator: String(raw.locator || raw.location || raw.page || raw.slide || raw.section || '').trim().slice(0, 160),
+        context: String(raw.relevance || raw.whyItMatters || '').trim().slice(0, 500),
+      });
+    }
+    const visuals = _meetingsNormalizeVisuals(raw.visuals || raw.visual || raw.chart || raw.graph);
+    if (!title && !summary && !excerpt && !highlights.length && !citations.length && !visuals.length && !url) continue;
+    const typeRaw = String(raw.type || raw.kind || 'link').toLowerCase().trim();
+    let type = allowed.has(typeRaw) ? typeRaw : 'link';
+    if (/^Retrieved (email|document|link) source$/i.test(title)) continue;
+    if (/^Retrieved teams source$/i.test(title)) {
+      title = /teams\.microsoft\.com\/l\/meeting\/details/i.test(url) ? 'Meeting transcript or chat' : 'Meeting chat discussion';
+    }
+    if ((type === 'document' || type === 'link') && /meeting recording.*\.(mp4|m4a|wav)\b/i.test(title)) type = 'recording';
+    const identity = url
+      ? `${type}|${_meetingsEvidenceUrlKey(url)}`
+      : `${type}|${title.toLowerCase()}`;
+    const item = {
+      id: String(raw.id || `e${out.length + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || `e${out.length + 1}`,
+      type,
+      title: title || summary.slice(0, 120) || 'Supporting evidence',
+      summary,
+      excerpt,
+      highlights,
+      citations,
+      visuals,
+      relevance: String(raw.relevance || raw.whyItMatters || raw.whyThisMatters || '').trim().slice(0, 700),
+      url,
+      source: String(raw.source || raw.provenance || type).trim().slice(0, 120),
+      author: String(raw.author || raw.who || '').trim().slice(0, 160),
+      timestamp: String(raw.timestamp || raw.time || '').trim().slice(0, 40),
+      imageUrl: _meetingsEvidenceUrl(raw.imageUrl || raw.thumbnailUrl),
+      confidence: Math.max(0, Math.min(1, Number(raw.confidence) || 0)),
+    };
+    if (seen.has(identity)) {
+      const prior = seen.get(identity);
+      if (item.summary.length > prior.summary.length) prior.summary = item.summary;
+      if (item.excerpt.length > prior.excerpt.length) prior.excerpt = item.excerpt;
+      prior.highlights = [...new Set([...prior.highlights, ...item.highlights])].slice(0, 4);
+      const citationKeys = new Set(prior.citations.map(x => `${x.locator}|${x.text}`.toLowerCase()));
+      prior.citations.push(...item.citations.filter(x => !citationKeys.has(`${x.locator}|${x.text}`.toLowerCase())));
+      prior.citations = prior.citations.slice(0, 8);
+      const visualKeys = new Set(prior.visuals.map(x => `${x.kind}|${x.locator}|${x.title}`.toLowerCase()));
+      prior.visuals.push(...item.visuals.filter(x => !visualKeys.has(`${x.kind}|${x.locator}|${x.title}`.toLowerCase())));
+      prior.visuals = prior.visuals.slice(0, 6);
+      if (item.relevance.length > prior.relevance.length) prior.relevance = item.relevance;
+      if (!prior.imageUrl && item.imageUrl) prior.imageUrl = item.imageUrl;
+      if (!prior.author && item.author) prior.author = item.author;
+      if (!prior.timestamp && item.timestamp) prior.timestamp = item.timestamp;
+      prior.confidence = Math.max(prior.confidence, item.confidence);
+      continue;
+    }
+    seen.set(identity, item);
+    out.push(item);
+  }
+  const ids = new Set();
+  for (const item of out) {
+    let id = item.id;
+    let suffix = 2;
+    while (ids.has(id)) id = `${item.id.slice(0, 42)}-${suffix++}`;
+    item.id = id;
+    ids.add(id);
+  }
+  return out.slice(0, 16);
+}
+
+function _meetingsEvidenceFromStory(story) {
+  const texts = [];
+  const add = value => { if (typeof value === 'string') texts.push(value); };
+  add(story && story.overview);
+  for (const value of [...(story && story.decisions || []), ...(story && story.questions || [])]) add(value);
+  for (const action of (story && story.actions || [])) add(action && (action.text || action));
+  for (const seg of (story && story.segments || [])) {
+    add(seg && seg.heading); add(seg && seg.narration); add(seg && seg.quote);
+    for (const item of (seg && seg.screen && seg.screen.items || [])) add(item);
+  }
+  const found = [];
+  const seen = new Set();
+  for (const text of texts) {
+    for (const match of text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)) {
+      const url = match[0].replace(/[.,;:!?]+$/, '');
+      if (seen.has(url)) continue;
+      seen.add(url);
+      const lower = url.toLowerCase();
+      let type = 'link';
+      if (/dev\.azure\.com|visualstudio\.com/.test(lower)) {
+        if (/_workitems\/edit|\/wit\/workitems/.test(lower)) type = 'work-item';
+        else if (/pullrequest/.test(lower)) type = 'pull-request';
+        else if (/\/commit\//.test(lower)) type = 'commit';
+        else type = 'repository';
+      } else if (/github\.com/.test(lower)) {
+        if (/\/pull\/\d+/.test(lower)) type = 'pull-request';
+        else if (/\/commit\//.test(lower)) type = 'commit';
+        else type = 'repository';
+      } else if (/teams\.microsoft\.com/.test(lower)) type = 'teams';
+      else if (/sharepoint\.com|1drv\.ms|onedrive/.test(lower)) type = 'document';
+      else if (/outlook\.office\.com|outlook\.live\.com/.test(lower)) type = 'email';
+      found.push({ type, title: type.replace(/-/g, ' '), url, source: 'Referenced in meeting evidence', confidence: 1 });
+    }
+  }
+  return found;
+}
+
+function _meetingsEvidenceFromText(text) {
+  const input = String(text || '');
+  const found = [];
+  const seen = new Set();
+  const contextAround = (start, end) => {
+    const lineStart = Math.max(input.lastIndexOf('\n', Math.max(0, start - 1)) + 1, 0);
+    const blockEndMatch = input.slice(end, end + 900).search(/\n\s*\n|\n#{1,6}\s/);
+    const blockEnd = blockEndMatch >= 0 ? end + blockEndMatch : Math.min(input.length, end + 700);
+    return input.slice(lineStart, blockEnd)
+      .replace(/\[([^\]]+)\]\(https?:\/\/[^)]+\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, '')
+      .replace(/[*_`>#-]+/g, ' ')
+      .replace(/\[\d+\]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 800);
+  };
+  const add = (rawUrl, rawTitle, context) => {
+    const url = _meetingsEvidenceUrl(String(rawUrl || '').replace(/[.,;:!?]+$/, ''));
+    if (!url || seen.has(url)) return;
+    if (/office\.com\/search/i.test(url)) return;
+    seen.add(url);
+    const lower = url.toLowerCase();
+    let type = 'link';
+    if (/dev\.azure\.com|visualstudio\.com/.test(lower)) {
+      if (/_workitems\/edit|\/wit\/workitems/.test(lower)) type = 'work-item';
+      else if (/pullrequest/.test(lower)) type = 'pull-request';
+      else if (/\/commit\//.test(lower)) type = 'commit';
+      else type = 'repository';
+    } else if (/github\.com/.test(lower)) {
+      if (/\/pull\/\d+/.test(lower)) type = 'pull-request';
+      else if (/\/commit\//.test(lower)) type = 'commit';
+      else type = 'repository';
+    } else if (/teams\.microsoft\.com/.test(lower)) type = 'teams';
+    else if (/sharepoint\.com|1drv\.ms|onedrive/.test(lower)) type = 'document';
+    else if (/outlook\.office/.test(lower)) type = 'email';
+    const label = String(rawTitle || '').trim();
+    if ((!label || /^\d+$/.test(label)) && (type === 'email' || type === 'document' || type === 'link')) return;
+    if (type === 'document' && /meeting recording.*\.(mp4|m4a|wav)\b/i.test(label)) type = 'recording';
+    found.push({
+      type,
+      title: label && !/^\d+$/.test(label) ? label.slice(0, 240) : 'Meeting transcript or chat',
+      summary: String(context || '').slice(0, 800) || 'Retrieved by WorkIQ as directly supporting meeting evidence.',
+      excerpt: '',
+      highlights: String(context || '').split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(x => x.length > 24).slice(0, 3),
+      url,
+      source: 'WorkIQ supporting-evidence search',
+      confidence: 0.75,
+    });
+  };
+  for (const match of input.matchAll(/\[([^\]]{1,240})\]\((https?:\/\/[^)\s]+)\)/gi)) {
+    add(match[2], match[1], contextAround(match.index, match.index + match[0].length));
+  }
+  for (const match of input.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)) add(match[0], '', '');
+  return found;
+}
+
+function _meetingsEvidenceWords(value) {
+  const stop = new Set(['about', 'after', 'before', 'from', 'have', 'into', 'meeting', 'more', 'that', 'their', 'there', 'these', 'they', 'this', 'through', 'with', 'will']);
+  const words = String(value || '').toLowerCase().match(/[a-z0-9]{4,}/g) || [];
+  return new Set(words.filter(x => !stop.has(x)).map(x => x.length > 5 ? x.replace(/(ments?|ing|ed|s)$/i, '') : x));
+}
+
+function _meetingsLinkEvidence(segments, evidence) {
+  const linked = evidence.filter(x => x.url || x.imageUrl);
+  const meetingSource = linked.find(x => (x.type === 'transcript' || x.type === 'teams') && /teams\.microsoft\.com\/l\/meeting\/details/i.test(x.url));
+  for (const seg of segments) {
+    if (meetingSource && !seg.evidenceIds.includes(meetingSource.id)) seg.evidenceIds.push(meetingSource.id);
+    const text = [
+      seg.heading, seg.narration, seg.quote,
+      ...(seg.screen && Array.isArray(seg.screen.items) ? seg.screen.items : []),
+    ].filter(Boolean).join(' ');
+    const words = _meetingsEvidenceWords(text);
+    const headingWords = _meetingsEvidenceWords(seg.heading);
+    const ranked = linked.map(item => {
+      const sourceWords = _meetingsEvidenceWords(`${item.title} ${item.summary} ${item.relevance} ${item.highlights.join(' ')} ${item.citations.map(x => x.text).join(' ')}`);
+      let score = 0;
+      for (const word of words) if (sourceWords.has(word)) score++;
+      for (const word of headingWords) if (sourceWords.has(word)) score++;
+      return { id: item.id, score };
+    }).filter(x => x.score >= 2).sort((a, b) => b.score - a.score);
+    for (const match of ranked.slice(0, 2)) {
+      if (!seg.evidenceIds.includes(match.id)) seg.evidenceIds.push(match.id);
+    }
+  }
+  return segments;
+}
+
+function _meetingsNormalizeNewscast(story, people, subject, date) {
+  if (!story || typeof story !== 'object') return null;
+  const rawSegments = Array.isArray(story.segments) ? story.segments : [];
+  const embeddedEvidence = [];
+  for (const seg of rawSegments) {
+    if (seg && Array.isArray(seg.evidence)) embeddedEvidence.push(...seg.evidence);
+  }
+  const evidence = _meetingsNormalizeEvidence([...(Array.isArray(story.evidence) ? story.evidence : []), ...embeddedEvidence, ..._meetingsEvidenceFromStory(story)]);
+  const evidenceIds = new Set(evidence.map(x => x.id));
+  const clips = [];
+  const rawClips = story.media && Array.isArray(story.media.audioClips) ? story.media.audioClips : [];
+  for (const raw of rawClips.slice(0, 12)) {
+    if (!raw || typeof raw !== 'object') continue;
+    const url = _meetingsEvidenceUrl(raw.url || raw.audioUrl);
+    if (!url) continue;
+    clips.push({
+      id: String(raw.id || `a${clips.length + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || `a${clips.length + 1}`,
+      url,
+      label: String(raw.label || raw.title || 'Original meeting audio').trim().slice(0, 160),
+      start: Math.max(0, Number(raw.start) || 0),
+      end: Math.max(0, Number(raw.end) || 0),
+      speaker: String(raw.speaker || '').trim().slice(0, 80),
+      transcript: String(raw.transcript || '').trim().slice(0, 1000),
+    });
+  }
+  const clipIds = new Set(clips.map(x => x.id));
+  const seenQuotes = new Set();
+  const segments = _meetingsLinkEvidence(rawSegments.map((seg, index) => {
+    const refs = Array.isArray(seg && seg.evidenceIds) ? seg.evidenceIds.map(String).filter(id => evidenceIds.has(id)) : [];
+    const inline = Array.isArray(seg && seg.evidence) ? _meetingsNormalizeEvidence(seg.evidence) : [];
+    for (const item of inline) {
+      const match = evidence.find(x => x.url === item.url && x.title === item.title);
+      if (match && !refs.includes(match.id)) refs.push(match.id);
+    }
+    const audioClipId = String((seg && seg.audioClipId) || '');
+    const rawQuote = String((seg && seg.quote) || '').trim().slice(0, 1800);
+    const quoteKey = rawQuote.toLowerCase().replace(/\s+/g, ' ');
+    const quoteWords = quoteKey.match(/[a-z0-9']+/g) || [];
+    const trivialQuote = quoteWords.length < 4 || /^(ok|okay|yes|yeah|right|sure|thanks|thank you)[.!?]*$/i.test(quoteKey);
+    const quote = quoteKey && !trivialQuote && !seenQuotes.has(quoteKey) ? rawQuote : '';
+    if (quoteKey) seenQuotes.add(quoteKey);
+    return {
+      ...(seg || {}),
+      heading: String((seg && seg.heading) || `Key moment ${index + 1}`).slice(0, 240),
+      narration: String((seg && seg.narration) || '').slice(0, 1600),
+      whyItMatters: String((seg && seg.whyItMatters) || '').slice(0, 800),
+      quote,
+      timestamp: String((seg && seg.timestamp) || '').slice(0, 40),
+      chapter: String((seg && seg.chapter) || '').slice(0, 100),
+      confidence: Math.max(0, Math.min(1, Number(seg && seg.confidence) || 0)),
+      evidenceIds: refs,
+      audioClipId: clipIds.has(audioClipId) ? audioClipId : '',
+    };
+  }), evidence);
+  const recordingUrl = _meetingsEvidenceUrl((story.media && story.media.recordingUrl) || story.recordingUrl);
+  const evidenceLinkedSegments = segments.filter(x => x.evidenceIds.length || x.audioClipId).length;
+  const hasAuthenticAudio = clips.length > 0;
+  const linkedSourceCount = evidence.filter(x => x.url || x.imageUrl).length;
+  const citationCount = evidence.reduce((total, item) => total + item.citations.length, 0);
+  const visualCount = evidence.reduce((total, item) => total + item.visuals.length, 0);
+  const grade = hasAuthenticAudio ? 'authentic-media'
+    : visualCount > 0 ? 'visual-evidence'
+      : citationCount > 0 ? 'source-extracted'
+    : linkedSourceCount >= 3 ? 'evidence-rich'
+      : linkedSourceCount ? 'evidence-linked'
+        : 'transcript-only';
+  return {
+    story: {
+      ...story,
+      title: String(story.title || subject || 'Meeting recap').slice(0, 240),
+      date: String(story.date || date || '').slice(0, 40),
+      segments,
+      evidence,
+      media: { recordingUrl, audioClips: clips },
+      newscast: {
+        version: 3,
+        ready: hasAuthenticAudio || linkedSourceCount > 0 || citationCount > 0 || visualCount > 0,
+        grade,
+        evidenceCount: evidence.length,
+        linkedSourceCount,
+        evidenceLinkedSegments,
+        hasAuthenticAudio,
+        citationCount,
+        visualCount,
+      },
+    },
+    people: (people && typeof people === 'object') ? people : {},
+  };
+}
+
 function _meetingsStoryFromWorkIq(raw, subject, date) {
   if (!raw || raw.available === false) return null;
   const summary = String(raw.summary || '').trim();
@@ -33589,6 +34118,7 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
     people[key] = {
       name,
       role: String((source && source.role) || ''),
+      email: String((source && (source.email || source.userPrincipalName || source.upn)) || '').trim().slice(0, 320),
       gender: source && source.gender === 'f' ? 'f' : 'm',
       color: palette[index % palette.length],
       key,
@@ -33602,8 +34132,12 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
     return {
       heading: point,
       narration: String((item && item.narration) || point),
+      whyItMatters: String((item && item.whyItMatters) || ''),
       speaker: keyFor(speakerName),
       quote: quoteText,
+      timestamp: String((item && item.timestamp) || ''),
+      confidence: Number((item && item.confidence) || 0),
+      evidenceIds: Array.isArray(item && item.evidenceIds) ? item.evidenceIds.map(String) : [],
       screen: quoteText
         ? { kind: 'quote', title: point, items: [quoteText] }
         : { kind: 'bullets', title: point, items: [point] },
@@ -33620,6 +34154,22 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
   }
 
   const organizerName = String(raw.organizer || names[0]);
+  const transcriptCitations = highlights.map(item => ({
+    text: String((item && item.quote) || '').trim(),
+    locator: String((item && item.timestamp) || '').trim(),
+    context: String((item && (item.whyItMatters || item.point || item.heading)) || '').trim(),
+  })).filter(item => item.text);
+  const transcriptEvidence = transcriptCitations.length ? [{
+    id: 'meeting-transcript',
+    type: 'transcript',
+    title: `${String(raw.sourceSubject || raw.title || subject || 'Meeting')} transcript`,
+    summary: 'Primary meeting record used to verify the key turning points in this edit.',
+    citations: transcriptCitations,
+    relevance: 'These verbatim passages are the primary-source basis for the meeting narrative.',
+    source: 'Microsoft Teams transcript',
+    timestamp: String(raw.sourceDate || raw.date || date || '').slice(0, 40),
+    confidence: 1,
+  }] : [];
   const chatter = raw.chatter && Array.isArray(raw.chatter.items)
     ? {
         intro: String(raw.chatter.intro || ''),
@@ -33628,9 +34178,15 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
     : null;
   return {
     story: {
-      title: String(raw.title || subject || 'Meeting recap'),
+      title: String(raw.sourceSubject || raw.title || subject || 'Meeting recap'),
+      sourceSubject: String(raw.sourceSubject || raw.title || ''),
+      sourceDate: String(raw.sourceDate || raw.date || '').slice(0, 10),
+      identityVerified: raw.identityVerified === true,
       subtitle: String(raw.subtitle || 'Meeting recap'),
       date: String(raw.date || date || ''),
+      editorialThroughline: String(raw.editorialThroughline || ''),
+      evidenceSynthesis: String(raw.evidenceSynthesis || ''),
+      closingSynthesis: String(raw.closingSynthesis || ''),
       organizer: keyFor(organizerName),
       attendees: names.map(keyFor),
       overview: summary,
@@ -33639,6 +34195,8 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
       questions,
       actions: rawActions.map(x => ({ owner: keyFor(x && x.owner), text: String((x && x.text) || '') })).filter(x => x.text),
       chatter,
+      evidence: [...(Array.isArray(raw.evidence) ? raw.evidence : []), ...transcriptEvidence],
+      media: raw.media && typeof raw.media === 'object' ? raw.media : {},
     },
     people,
   };
@@ -33659,20 +34217,64 @@ async function _meetingsBuildRecap(meetingId, subject, date) {
   let error = '';
   try {
     const prompt = `Build the Meetings.AI recap for this completed Microsoft 365 meeting:
-- calendar event id: "${id}"
+- internal Meetings.AI list reference: "${id}" (this may be a search-result token, NOT a Microsoft calendar event id; do not identify the meeting from this value)
 - subject: "${String(subject || '').slice(0, 200)}"
 - date: "${String(date || '').slice(0, 40)}"
 
-Use WorkIQ ask (Microsoft 365 Copilot) to read the meeting recap/transcript summary and chat insights for this exact meeting. Then weave a useful, honest newscast-style recap that highlights key decisions, insights, disagreements, and action items. Return ONLY JSON (no prose, no code fence) with this exact shape:
-{"story":{"title":string,"subtitle":string,"date":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]}},
-"people":{"<speakerKey>":{"name":string,"role":string,"gender":"m"|"f","color":string hex,"key":string}}}
-Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". Quotes MUST be verbatim from the transcript — never fabricate. Pick a plausible gender per person for the animated avatar. Use 3–6 segments. If the transcript is unavailable, return {"story":null,"people":{}}.`;
-    const text = await _meetingsWorkIqAsk(prompt, 120000);
+Use WorkIQ ask (Microsoft 365 Copilot) to find the completed meeting by its exact subject and date, then read its recap/transcript and meeting chat. Never substitute the most recent occurrence or a similarly named meeting. If the exact dated occurrence cannot be verified, return {"story":null,"people":{}}. Also search for directly supporting evidence from the surrounding work: Teams discussions, email threads, SharePoint/OneDrive documents or slides, and real Azure DevOps/GitHub repository, pull-request, commit, or work-item links mentioned in those sources. Use only evidence you can actually retrieve. Never invent a URL, timestamp, screenshot, quote, audio clip, or source.
+
+Create a compact AI-edited newscast: context → key discussion/turning points → decisions → unresolved questions → owned actions. Every key segment should cite retrieved evidence where possible. Return ONLY valid JSON under 20000 characters (no prose, no code fence) with this exact shape:
+{"story":{"title":string,"sourceSubject":string (exact retrieved meeting title),"sourceDate":"YYYY-MM-DD" (exact retrieved occurrence date),"identityVerified":true,"subtitle":string,"date":string,"editorialThroughline":string,"evidenceSynthesis":string,"closingSynthesis":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"whyItMatters":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]}},
+"people":{"<speakerKey>":{"name":string,"role":string,"email":string|null,"gender":"m"|"f","color":string hex,"key":string}}}
+Also include story.evidence as an array of {"id":string,"type":"recording"|"transcript"|"slide"|"document"|"image"|"teams"|"email"|"repository"|"pull-request"|"commit"|"work-item"|"link","title":string,"summary":string,"excerpt":string,"highlights":[string],"citations":[{"text":string exact quote,"locator":string page/slide/section,"context":string}],"visuals":[{"kind":"chart"|"graph"|"table"|"diagram"|"image"|"slide","title":string,"caption":string,"locator":string,"imageUrl":string direct image only,"labels":[string],"series":[{"name":string,"values":[number]}],"unit":string}],"relevance":string,"url":string,"source":string,"author":string,"timestamp":string,"imageUrl":string,"confidence":number 0..1}. For every non-transcript source, inspect its content and capture exact locator-aware citations plus relevant source-native charts, graphs, tables, diagrams, or slide figures. If no direct image is available, preserve exact chart labels, numeric series, units, caption, and page/slide locator for faithful redraw. Do not merely list a source name, use a title as a citation, or invent a visual/value. Each segment may add "chapter", "timestamp", "confidence", "evidenceIds", and "audioClipId". Include story.media as {"recordingUrl":string,"audioClips":[{"id":string,"url":string,"label":string,"start":number seconds,"end":number seconds,"speaker":string,"transcript":string}]}.
+Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". The screen already contains the facts, quotes, bullets, decisions, and action text: NEVER make narration read or paraphrase that visible text. Write each narration as 2–4 lively broadcast sentences that add connective tissue: explain what changed, the tension or tradeoff, how the evidence corroborates it, the implication, and the transition to the next chapter. editorialThroughline should frame the meeting's arc rather than repeat the overview. evidenceSynthesis should explain what the mix of sources lets us conclude rather than list source titles. closingSynthesis should connect decisions, unresolved risk, and next ownership rather than read the action list. Keep the delivery confident, warm, and energetic without hype. Write whyItMatters as one factual sentence connecting that moment to delivery, risk, customers, cost, schedule, or the team's next decision; omit it rather than speculate. Quotes MUST be verbatim from the transcript — never fabricate. Evidence IDs must resolve to story.evidence. Return at most 8 evidence items. Do not infer emotional reactions. Include audioClips only when WorkIQ returns a real directly playable recording-media URL; transcript timestamps alone are not audio. Pick a plausible gender per person only for a fallback avatar. Use 3–6 evidence-backed segments. If the transcript is unavailable or sourceSubject/sourceDate do not exactly match the requested occurrence, return {"story":null,"people":{}}.`;
+    // Keep transcript extraction compact and deterministic. The evidence pass below
+    // independently gathers rich supporting material; asking one WorkIQ call to do
+    // both jobs produced oversized answers and false "no transcript" fallbacks.
+    const compactPrompt = `Use WorkIQ to read the Teams transcript or recap for exactly this completed meeting occurrence:
+- title: "${String(subject || '').slice(0, 200)}"
+- date: "${String(date || '').slice(0, 40)}"
+
+Never substitute another occurrence or a similarly named meeting. Return ONLY compact valid JSON (no prose or code fence):
+{"available":true,"sourceSubject":"exact retrieved title","sourceDate":"YYYY-MM-DD","identityVerified":true,"summary":"concise factual recap","editorialThroughline":"the meeting's arc and what changed","evidenceSynthesis":"what the transcript and chat together support","closingSynthesis":"decisions, unresolved risk, and next ownership","organizer":"name","participants":[{"name":"name","role":"role if known","email":"email if known"}],"highlights":[{"speaker":"name","point":"key turning point","quote":"short verbatim transcript quote","narration":"2-4 lively sentences adding context, tradeoff, implication, and transition","whyItMatters":"one factual impact sentence","timestamp":"if known","confidence":0.0}],"decisions":["decision"],"questions":["unresolved question"],"actions":[{"owner":"name","text":"action"}]}.
+
+Use 3-6 substantive highlights. Quotes must be verbatim. Narration must add connective editorial value and must not read or paraphrase the visible quote, point, decisions, or actions. Do not invent facts, people, timestamps, decisions, actions, or impact. If this exact occurrence cannot be verified, return {"available":false,"sourceSubject":"","sourceDate":"","identityVerified":false}.`;
+    const evidencePrompt = `Find the ${date ? `completed ${String(date).slice(0, 40)} occurrence` : 'most recent completed, transcribed occurrence'} of the Microsoft 365 meeting titled exactly "${String(subject || '').slice(0, 200)}". Identify its exact Teams meeting/transcript or chat URL. Then find directly supporting sources from the meeting chat and surrounding work: Teams messages, email threads, SharePoint/OneDrive documents or slides, and real Azure DevOps/GitHub repositories, pull requests, commits, or work items.
+
+Do not stop at source names. Open and inspect each relevant document, presentation, spreadsheet, or message that WorkIQ can retrieve. Pull out the exact material the newscast should put on screen:
+- 1–3 verbatim citations with a useful locator (page, slide, section heading, worksheet/table, message date, or paragraph context).
+- Relevant source-native visuals: charts, graphs, tables, diagrams, screenshots, or slide figures. When a directly loadable image/thumbnail URL is available, return it. Otherwise transcribe a chart's exact title, labels, numeric values/series, unit, caption, and page/slide locator so Meetings.AI can faithfully redraw it.
+- A concise factual relevance statement explaining what the citation or visual proves about this meeting. Do not use a document title as a citation.
+
+Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string,"summary":string,"excerpt":string,"highlights":[string],"citations":[{"text":string exact quote,"locator":string,"context":string}],"visuals":[{"kind":"chart"|"graph"|"table"|"diagram"|"image"|"slide","title":string,"caption":string,"locator":string,"imageUrl":string,"labels":[string],"series":[{"name":string,"values":[number]}],"unit":string}],"relevance":string,"url":string,"source":string,"author":string,"timestamp":string,"imageUrl":string,"confidence":number}]}. Include only visual values that appear in the retrieved source. An imageUrl must be a direct browser-loadable image, not the document's normal web URL. Do not include generic Office profile/search links. Do not invent URLs, excerpts, locators, charts, values, images, or sources. Explicitly say when recording media or another source type is unavailable.`;
+    const [text, evidenceText] = await Promise.all([
+      _meetingsWorkIqAsk(compactPrompt, 120000),
+      _meetingsWorkIqAsk(evidencePrompt, 120000).catch(() => ''),
+    ]);
     const obj = _connectExtractJson(text);
-    const shaped = obj && obj.story
+    const evidenceObj = evidenceText ? _connectExtractJson(evidenceText) : null;
+    const supplementalEvidence = Array.isArray(evidenceObj)
+      ? evidenceObj
+      : (evidenceObj && Array.isArray(evidenceObj.evidence) ? evidenceObj.evidence : _meetingsEvidenceFromText(evidenceText));
+    const base = obj && obj.story
       ? { story: obj.story, people: obj.people }
       : _meetingsStoryFromWorkIq(obj, subject, date);
+    if (base && base.story && supplementalEvidence.length) {
+      base.story.evidence = [...(Array.isArray(base.story.evidence) ? base.story.evidence : []), ...supplementalEvidence];
+    }
+    if (!base && !(obj && obj.available === false)) {
+      throw new Error('WorkIQ did not return a usable transcript recap for the exact occurrence.');
+    }
+    const shaped = base && _meetingsNormalizeNewscast(base.story, base.people, subject, date);
     if (shaped && shaped.story && Array.isArray(shaped.story.segments) && shaped.story.segments.length && shaped.people && typeof shaped.people === 'object') {
+      const sourceSubject = String(shaped.story.sourceSubject || '').trim();
+      const sourceDate = String(shaped.story.sourceDate || '').trim().slice(0, 10);
+      if (subject && (shaped.story.identityVerified !== true || !_meetingsSubjectsMatch(subject, sourceSubject))) {
+        throw new Error(`WorkIQ returned a different meeting ("${sourceSubject || shaped.story.title || 'unknown'}") for "${subject}".`);
+      }
+      if (date && sourceDate !== String(date).slice(0, 10)) {
+        throw new Error(`WorkIQ returned the ${sourceDate || 'unknown-date'} occurrence instead of ${String(date).slice(0, 10)}.`);
+      }
       return { story: shaped.story, people: shaped.people, demo: false };
     }
   } catch (e) { reason = 'error'; error = (e && e.message) || 'Could not read the transcript.'; }
@@ -33712,13 +34314,8 @@ app.get('/api/meetings/recent', async (req, res) => {
     if (cached && (now - cached.at) < ttl) {
       return res.json({ ok: true, days, range: key, meetings: _meetingsWithBriefStatus(cached.meetings), demo: cached.demo });
     }
-    let meetings = isRange ? await _meetingsGatherRange(start, end) : await _meetingsGatherRecent(days);
-    let demo = false;
-    if (!meetings.length) {
-      // Only fall back to sample meetings for the CURRENT window (so a brand-new user
-      // sees the demo). Empty PAST weeks should honestly say "no meetings", not samples.
-      if (isCurrent) { meetings = _meetingsSeedRecent(); demo = true; }
-    }
+    const meetings = isRange ? await _meetingsGatherRange(start, end) : await _meetingsGatherRecent(days);
+    const demo = false;
     _meetingsRecentCache.set(key, { at: now, meetings, demo });
     // Bound the cache — drop the oldest entries beyond 40 windows.
     if (_meetingsRecentCache.size > 40) {
@@ -33738,6 +34335,7 @@ app.get('/api/meetings/recent', async (req, res) => {
 // Pass { force:true } to bypass the cache and rebuild.
 const _meetingsRecapCache = new Map();
 const _MEETINGS_RECAP_DIR = path.join(dataPath('meetings'), 'recaps');
+const _MEETINGS_RECAP_SCHEMA_VERSION = 5;
 function _meetingsRecapFile(meetingId) {
   const hash = require('crypto').createHash('sha256').update(String(meetingId || '')).digest('hex');
   return path.join(_MEETINGS_RECAP_DIR, `${hash}.json`);
@@ -33748,27 +34346,323 @@ function _meetingsGetCachedRecap(meetingId) {
   if (_meetingsRecapCache.has(id)) return _meetingsRecapCache.get(id);
   try {
     const stored = JSON.parse(fs.readFileSync(_meetingsRecapFile(id), 'utf8'));
-    if (stored && stored.meetingId === id && stored.recap && stored.recap.story && !stored.recap.empty) {
-      _meetingsRecapCache.set(id, stored.recap);
-      return stored.recap;
+    if (stored && stored.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION && stored.meetingId === id && stored.recap && stored.recap.story && !stored.recap.empty) {
+      const expectedSubject = String(stored.recap.requestedSubject || '').trim();
+      const expectedDate = String(stored.recap.requestedDate || '').trim().slice(0, 10);
+      if (expectedSubject && (stored.recap.story.identityVerified !== true || !_meetingsSubjectsMatch(expectedSubject, stored.recap.story.sourceSubject))) {
+        throw new Error('cached recap subject does not match its requested meeting');
+      }
+      if (expectedDate && String(stored.recap.story.sourceDate || '').slice(0, 10) !== expectedDate) {
+        throw new Error('cached recap date does not match its requested occurrence');
+      }
+      const shaped = _meetingsNormalizeNewscast(
+        stored.recap.story,
+        stored.recap.people,
+        stored.recap.story.title,
+        stored.recap.story.date,
+      );
+      const recap = shaped
+        ? { ...stored.recap, story: shaped.story, people: shaped.people }
+        : stored.recap;
+      _meetingsRecapCache.set(id, recap);
+      return recap;
     }
-  } catch (_) { /* not cached on disk */ }
+  } catch (error) {
+    if (fs.existsSync(_meetingsRecapFile(id))) console.warn('[meetings] could not read cached recap —', error && error.message);
+  }
   return null;
 }
 function _meetingsCacheRecap(meetingId, recap) {
   const id = String(meetingId || '').trim();
   if (!id || !recap || !recap.story || recap.empty) return;
+  if (recap.requestedSubject && (recap.story.identityVerified !== true || !_meetingsSubjectsMatch(recap.requestedSubject, recap.story.sourceSubject))) {
+    console.warn('[meetings] refused to cache recap with a mismatched subject');
+    return;
+  }
+  if (recap.requestedDate && String(recap.story.sourceDate || '').slice(0, 10) !== String(recap.requestedDate).slice(0, 10)) {
+    console.warn('[meetings] refused to cache recap with a mismatched occurrence date');
+    return;
+  }
   _meetingsRecapCache.set(id, recap);
   try {
     fs.mkdirSync(_MEETINGS_RECAP_DIR, { recursive: true });
     const file = _meetingsRecapFile(id);
     const tmp = file + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify({ meetingId: id, cachedAt: Date.now(), recap }));
+    fs.writeFileSync(tmp, JSON.stringify({ schemaVersion: _MEETINGS_RECAP_SCHEMA_VERSION, meetingId: id, cachedAt: Date.now(), recap }));
     fs.renameSync(tmp, file);
   } catch (e) {
     console.warn('[meetings] could not persist recap cache —', e && e.message);
   }
 }
+function _meetingsRecapQualityScore(recap) {
+  const story = recap && recap.story;
+  if (!story || recap.empty) return 0;
+  const quality = story.newscast || {};
+  return (quality.hasAuthenticAudio ? 10000 : 0)
+    + Math.min(5, Number(quality.linkedSourceCount) || 0) * 100
+    + Math.min(12, Number(quality.citationCount) || 0) * 25
+    + Math.min(8, Number(quality.visualCount) || 0) * 40
+    + (Number(quality.evidenceLinkedSegments) || 0) * 5
+    + (Array.isArray(story.segments) ? story.segments.length : 0);
+}
+const _meetingsPhotoCache = new Map();
+const _meetingsPhotoEnrichment = new Map();
+let _meetingsGraphTokenPromise = null;
+async function _meetingsGraphTokenAsync() {
+  const now = Date.now();
+  if (_graphTokenCache.token && now < _graphTokenCache.expiresAt - 120_000) return _graphTokenCache.token;
+  if (_meetingsGraphTokenPromise) return _meetingsGraphTokenPromise;
+  _meetingsGraphTokenPromise = new Promise((resolve, reject) => {
+    require('child_process').exec(
+      'az account get-access-token --resource https://graph.microsoft.com -o json',
+      { encoding: 'utf-8', timeout: 30_000, shell: true },
+      (error, stdout) => error ? reject(error) : resolve(stdout)
+    );
+  }).then(raw => {
+    const parsed = JSON.parse(String(raw || '').trim());
+    const token = String(parsed.accessToken || '').trim();
+    if (!token) throw new Error('Azure CLI returned no Graph access token.');
+    let expiresAt = 0;
+    if (parsed.expires_on) expiresAt = Number(parsed.expires_on) * 1000;
+    else if (parsed.expiresOn) {
+      const value = Date.parse(parsed.expiresOn);
+      if (!Number.isNaN(value)) expiresAt = value;
+    }
+    _graphTokenCache = { token, expiresAt: expiresAt || (Date.now() + 3_000_000) };
+    return token;
+  }).finally(() => { _meetingsGraphTokenPromise = null; });
+  return _meetingsGraphTokenPromise;
+}
+async function _meetingsProfilePhotos(people) {
+  const entries = Object.entries((people && typeof people === 'object') ? people : {}).slice(0, 12);
+  if (!entries.length) return {};
+  let token;
+  try { token = await _meetingsGraphTokenAsync(); } catch (_) { return {}; }
+  const headers = {};
+  headers.Authorization = ['Bearer', token].join(' ');
+  const fetchGraph = async url => fetch(url, { headers, signal: AbortSignal.timeout(8000) });
+  const loadOne = async ([key, person]) => {
+    const name = String((person && person.name) || '').trim();
+    const direct = String((person && (person.email || person.userPrincipalName || person.upn)) || '').trim();
+    const cacheKey = (direct || name).toLowerCase();
+    if (!cacheKey) return null;
+    if (_meetingsPhotoCache.has(cacheKey)) {
+      const value = _meetingsPhotoCache.get(cacheKey);
+      return value ? [key, value] : null;
+    }
+    try {
+      let userId = direct;
+      if (!userId && name) {
+        const filter = `displayName eq '${name.replace(/'/g, "''")}'`;
+        const params = new URLSearchParams({ '$filter': filter, '$select': 'id,displayName,mail,userPrincipalName', '$top': '2' });
+        const lookup = await fetchGraph(`https://graph.microsoft.com/v1.0/users?${params}`);
+        if (lookup.ok) {
+          const body = await lookup.json();
+          const exact = (Array.isArray(body.value) ? body.value : []).filter(user => String(user.displayName || '').localeCompare(name, undefined, { sensitivity: 'base' }) === 0);
+          if (exact.length === 1) userId = exact[0].id;
+        }
+      }
+      if (!userId) {
+        _meetingsPhotoCache.set(cacheKey, '');
+        return null;
+      }
+      let response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photos/96x96/$value`);
+      if (!response.ok) response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photo/$value`);
+      if (!response.ok) {
+        _meetingsPhotoCache.set(cacheKey, '');
+        return null;
+      }
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (!bytes.length || bytes.length > 512 * 1024) return null;
+      const contentType = String(response.headers.get('content-type') || 'image/jpeg').split(';')[0];
+      if (!/^image\//i.test(contentType)) return null;
+      const dataUri = `data:${contentType};base64,${bytes.toString('base64')}`;
+      _meetingsPhotoCache.set(cacheKey, dataUri);
+      return [key, dataUri];
+    } catch (_) {
+      _meetingsPhotoCache.set(cacheKey, '');
+      return null;
+    }
+  };
+  const resolved = await Promise.all(entries.map(loadOne));
+  return Object.fromEntries(resolved.filter(Boolean));
+}
+function _meetingsEnrichCachedPhotos(meetingId, recap) {
+  if (!recap || (recap.photos && Object.keys(recap.photos).length) || _meetingsPhotoEnrichment.has(meetingId)) return;
+  const work = new Promise(resolve => setTimeout(resolve, 1000)).then(() => _meetingsProfilePhotos(recap.people)).then(photos => {
+    if (!Object.keys(photos).length) return;
+    recap.photos = photos;
+    _meetingsCacheRecap(meetingId, recap);
+  }).catch(error => console.warn('[meetings] could not enrich cached profile photos —', error && error.message))
+    .finally(() => _meetingsPhotoEnrichment.delete(meetingId));
+  _meetingsPhotoEnrichment.set(meetingId, work);
+}
+
+// Azure neural narration is synthesized server-side so credentials never reach
+// the browser. Audio is content-addressed and persisted: replaying a recap (or
+// reopening it after a restart) does not incur another synthesis call.
+const _MEETINGS_NARRATION_DIR = path.join(dataPath('meetings'), 'narration');
+const _MEETINGS_NEURAL_VOICES = [
+  { id: 'en-US-JennyNeural', label: 'Jenny - warm broadcast', styles: ['newscast', 'cheerful', 'friendly', 'assistant'] },
+  { id: 'en-US-AriaNeural', label: 'Aria - polished broadcast', styles: ['newscast-formal', 'newscast-casual', 'narration-professional', 'cheerful'] },
+  { id: 'en-US-GuyNeural', label: 'Guy - confident broadcast', styles: ['newscast', 'cheerful', 'friendly', 'hopeful'] },
+  { id: 'en-US-AvaMultilingualNeural', label: 'Ava - natural conversational', styles: ['general'] },
+  { id: 'en-US-AndrewMultilingualNeural', label: 'Andrew - natural conversational', styles: ['general'] },
+];
+let _meetingsSpeechKeyCache = { signature: '', key: '', at: 0 };
+const _meetingsNarrationRate = new Map();
+
+function _meetingsNarrationConfig() {
+  const saved = settings.getSettings().meetingsNarration || {};
+  const requestedVoice = String(saved.voice || 'en-US-JennyNeural');
+  const voice = _MEETINGS_NEURAL_VOICES.find(v => v.id === requestedVoice) || _MEETINGS_NEURAL_VOICES[0];
+  const requestedStyle = String(saved.style || '');
+  const style = voice.styles.includes(requestedStyle) ? requestedStyle : voice.styles[0];
+  const subscriptionId = String(saved.subscriptionId || '').trim();
+  const region = String(process.env.AZURE_SPEECH_REGION || saved.region || '').trim().toLowerCase();
+  const resourceGroup = String(saved.resourceGroup || '').trim();
+  const account = String(saved.account || '').trim();
+  const provider = saved.provider === 'system' ? 'system' : 'azure';
+  const configured = !!(region && (process.env.AZURE_SPEECH_KEY || (subscriptionId && resourceGroup && account)));
+  return { provider, voice: voice.id, style, subscriptionId, region, resourceGroup, account, configured };
+}
+
+async function _meetingsSpeechKey(cfg) {
+  const envKey = String(process.env.AZURE_SPEECH_KEY || '').trim();
+  if (envKey) return envKey;
+  if (!cfg.subscriptionId || !cfg.resourceGroup || !cfg.account) {
+    throw new Error('Azure neural narration needs an Azure AI Services resource or AZURE_SPEECH_KEY.');
+  }
+  const signature = `${cfg.subscriptionId}\n${cfg.resourceGroup}\n${cfg.account}`;
+  if (_meetingsSpeechKeyCache.signature === signature && _meetingsSpeechKeyCache.key && Date.now() - _meetingsSpeechKeyCache.at < 10 * 60 * 1000) {
+    return _meetingsSpeechKeyCache.key;
+  }
+  const { DefaultAzureCredential } = require('@azure/identity');
+  const credential = new DefaultAzureCredential();
+  const token = await credential.getToken('https://management.azure.com/.default');
+  const resourceId = `/subscriptions/${encodeURIComponent(cfg.subscriptionId)}/resourceGroups/${encodeURIComponent(cfg.resourceGroup)}/providers/Microsoft.CognitiveServices/accounts/${encodeURIComponent(cfg.account)}`;
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 20000);
+  let response;
+  try {
+    response = await fetch(`https://management.azure.com${resourceId}/listKeys?api-version=2023-05-01`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token.token}` },
+      signal: ac.signal,
+    });
+  } finally { clearTimeout(timer); }
+  if (!response.ok) throw new Error('Could not access the configured Azure AI Services resource. Check Azure sign-in and permissions.');
+  const keys = await response.json();
+  const key = String(keys.key1 || keys.key2 || '').trim();
+  if (!key) throw new Error('The configured Azure AI Services resource did not return a Speech key.');
+  _meetingsSpeechKeyCache = { signature, key, at: Date.now() };
+  return key;
+}
+
+function _meetingsSsmlEscape(value) {
+  return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _meetingsNarrationAllowed(req) {
+  const key = String(req.ip || req.socket.remoteAddress || 'local');
+  const now = Date.now();
+  const recent = (_meetingsNarrationRate.get(key) || []).filter(at => now - at < 60 * 1000);
+  if (recent.length >= 30) return false;
+  recent.push(now);
+  _meetingsNarrationRate.set(key, recent);
+  return true;
+}
+
+app.get('/api/meetings/narration/config', (req, res) => {
+  const cfg = _meetingsNarrationConfig();
+  res.json({
+    provider: cfg.provider,
+    voice: cfg.voice,
+    style: cfg.style,
+    configured: cfg.configured,
+    voices: _MEETINGS_NEURAL_VOICES,
+    setupHint: cfg.configured ? '' : 'Configure an Azure AI Services resource or AZURE_SPEECH_KEY and AZURE_SPEECH_REGION.',
+  });
+});
+
+app.put('/api/meetings/narration/config', (req, res) => {
+  try {
+    const current = _meetingsNarrationConfig();
+    const requestedVoice = String((req.body && req.body.voice) || current.voice);
+    const voice = _MEETINGS_NEURAL_VOICES.find(v => v.id === requestedVoice);
+    if (!voice) return res.status(400).json({ error: 'Unsupported Azure neural voice.' });
+    const requestedStyle = String((req.body && req.body.style) || current.style);
+    if (!voice.styles.includes(requestedStyle)) return res.status(400).json({ error: 'That speaking style is not supported by this voice.' });
+    const provider = req.body && req.body.provider === 'system' ? 'system' : 'azure';
+    settings.updateSettings({ meetingsNarration: { provider, voice: voice.id, style: requestedStyle } });
+    const cfg = _meetingsNarrationConfig();
+    res.json({ ok: true, provider: cfg.provider, voice: cfg.voice, style: cfg.style, configured: cfg.configured, voices: _MEETINGS_NEURAL_VOICES });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+app.post('/api/meetings/narration/synthesize', async (req, res) => {
+  try {
+    if (!_meetingsNarrationAllowed(req)) return res.status(429).json({ error: 'Narration is being generated too quickly. Wait a moment and retry.' });
+    const text = String((req.body && req.body.text) || '').replace(/\s+/g, ' ').trim();
+    if (!text) return res.status(400).json({ error: 'Narration text is required.' });
+    if (text.length > 2600) return res.status(400).json({ error: 'Narration text is too long.' });
+    const cfg = _meetingsNarrationConfig();
+    if (cfg.provider !== 'azure' || !cfg.configured) {
+      return res.status(409).json({ error: 'Azure neural narration is not configured.', setupHint: 'Configure an Azure AI Services resource or AZURE_SPEECH_KEY and AZURE_SPEECH_REGION.' });
+    }
+    const digest = require('crypto').createHash('sha256').update(JSON.stringify({ voice: cfg.voice, style: cfg.style, text })).digest('hex');
+    const file = `${digest}.mp3`;
+    const full = path.join(_MEETINGS_NARRATION_DIR, file);
+    const cacheHit = fs.existsSync(full);
+    if (!cacheHit) {
+      const key = await _meetingsSpeechKey(cfg);
+      const styleOpen = cfg.style === 'general' ? '' : `<mstts:express-as style="${_meetingsSsmlEscape(cfg.style)}">`;
+      const styleClose = cfg.style === 'general' ? '' : '</mstts:express-as>';
+      const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="http://www.w3.org/2001/mstts" xml:lang="en-US"><voice name="${_meetingsSsmlEscape(cfg.voice)}">${styleOpen}${_meetingsSsmlEscape(text)}${styleClose}</voice></speak>`;
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), 30000);
+      let response;
+      try {
+        response = await fetch(`https://${encodeURIComponent(cfg.region)}.tts.speech.microsoft.com/cognitiveservices/v1`, {
+          method: 'POST',
+          headers: {
+            'Ocp-Apim-Subscription-Key': key,
+            'Content-Type': 'application/ssml+xml',
+            'X-Microsoft-OutputFormat': 'audio-24khz-48kbitrate-mono-mp3',
+            'User-Agent': 'TheOffice.AI',
+          },
+          body: ssml,
+          signal: ac.signal,
+        });
+      } finally { clearTimeout(timer); }
+      if (!response.ok) {
+        const detail = String(await response.text()).replace(/\s+/g, ' ').trim().slice(0, 300);
+        throw new Error(`Azure Speech synthesis failed (${response.status})${detail ? ': ' + detail : ''}`);
+      }
+      const audio = Buffer.from(await response.arrayBuffer());
+      if (!audio.length || audio.length > 4 * 1024 * 1024) throw new Error('Azure Speech returned invalid audio.');
+      fs.mkdirSync(_MEETINGS_NARRATION_DIR, { recursive: true });
+      const tmp = full + '.tmp';
+      fs.writeFileSync(tmp, audio);
+      fs.renameSync(tmp, full);
+    }
+    res.json({ ok: true, url: `/api/meetings/narration/audio/${file}`, voice: cfg.voice, style: cfg.style, cached: cacheHit });
+  } catch (err) {
+    const status = err && err.name === 'AbortError' ? 504 : 502;
+    res.status(status).json({ error: err && err.name === 'AbortError' ? 'Azure Speech synthesis timed out.' : err.message });
+  }
+});
+
+app.get('/api/meetings/narration/audio/:file', (req, res) => {
+  const file = String(req.params.file || '');
+  if (!/^[a-f0-9]{64}\.mp3$/.test(file)) return res.status(404).end();
+  const full = path.join(_MEETINGS_NARRATION_DIR, file);
+  if (!fs.existsSync(full)) return res.status(404).end();
+  res.setHeader('Content-Type', 'audio/mpeg');
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.sendFile(full);
+});
+
 app.post('/api/meetings/recap', async (req, res) => {
   try {
     const meetingId = String((req.body && req.body.meetingId) || '').trim();
@@ -33776,16 +34670,29 @@ app.post('/api/meetings/recap', async (req, res) => {
     const date = String((req.body && req.body.date) || '').trim();
     const force = !!(req.body && req.body.force);
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
-    const cached = !force && _meetingsGetCachedRecap(meetingId);
+    if (_meetingsIsTransientId(meetingId)) return res.status(409).json({ error: 'This meeting link is stale. Reload Meetings.AI to select the dated occurrence.' });
+    const prior = _meetingsGetCachedRecap(meetingId);
+    const cached = !force && prior;
     if (cached) {
       const c = cached;
-      return res.json({ ok: true, meetingId, story: c.story, people: c.people, demo: !!c.demo, empty: !!c.empty, cached: true });
+      const photos = (c.photos && typeof c.photos === 'object') ? c.photos : {};
+      if (!Object.keys(photos).length) _meetingsEnrichCachedPhotos(meetingId, c);
+      return res.json({ ok: true, meetingId, story: c.story, people: c.people, photos, demo: !!c.demo, empty: !!c.empty, quality: c.story && c.story.newscast, cached: true });
     }
-    const built = await _meetingsBuildRecap(meetingId, subject, date);
-    if (built && built.story && !built.empty) {
-      _meetingsCacheRecap(meetingId, { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
+    const builtRaw = await _meetingsBuildRecap(meetingId, subject, date);
+    const built = builtRaw && builtRaw.story
+      ? { story: builtRaw.story, people: builtRaw.people, demo: !!builtRaw.demo, empty: !!builtRaw.empty, reason: builtRaw.reason || '', error: builtRaw.error || '', requestedSubject: subject, requestedDate: date }
+      : builtRaw;
+    if (built && built.empty && built.reason === 'error') {
+      return res.status(502).json({ error: built.error || 'Could not read the meeting transcript.', meetingId, retryable: true });
     }
-    res.json({ ok: true, meetingId, story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty });
+    const best = _meetingsRecapQualityScore(prior) > _meetingsRecapQualityScore(built) ? prior : built;
+    const photos = (best.photos && typeof best.photos === 'object' && Object.keys(best.photos).length)
+      ? best.photos
+      : await _meetingsProfilePhotos(best.people);
+    const payload = { ...best, photos };
+    if (payload.story && !payload.empty) _meetingsCacheRecap(meetingId, payload);
+    res.json({ ok: true, meetingId, story: payload.story, people: payload.people, photos, demo: !!payload.demo, empty: !!payload.empty, quality: payload.story && payload.story.newscast });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -33805,6 +34712,28 @@ function _meetingsBriefFromRecap(rec) {
     questions: Array.isArray(s.questions) ? s.questions.filter(Boolean) : [],
     actions: Array.isArray(s.actions) ? s.actions.filter(a => a && a.text) : [],
     highlights,
+    evidence: Array.isArray(s.evidence) ? s.evidence.filter(Boolean).slice(0, 20) : [],
+    newscast: s.newscast || { ready: false, grade: 'transcript-only', evidenceCount: 0, hasAuthenticAudio: false },
+  };
+}
+function _meetingsBriefMeetingMeta(meetingId, rec, state) {
+  const story = (rec && rec.story) || {};
+  const people = (rec && rec.people) || {};
+  const st = state || {};
+  return {
+    meetingId,
+    subject: String(story.sourceSubject || st.subject || story.title || '').slice(0, 240),
+    date: String(story.date || st.date || '').slice(0, 40),
+    organizer: people[story.organizer] && people[story.organizer].name
+      ? String(people[story.organizer].name).slice(0, 160)
+      : '',
+    attendees: (Array.isArray(story.attendees) ? story.attendees : [])
+      .map(key => people[key] && people[key].name ? String(people[key].name).slice(0, 160) : '')
+      .filter(Boolean)
+      .slice(0, 40),
+    hasTranscript: rec && rec.empty ? false : null,
+    recordingUrl: String((story.media && story.media.recordingUrl) || '').slice(0, 800),
+    webLink: '',
   };
 }
 
@@ -33883,6 +34812,7 @@ function _meetingsSetBriefState(id, patch) {
 function _meetingsEnsureRecap(meetingId, subject, date) {
   const id = String(meetingId || '').trim();
   if (!id) return Promise.resolve({ story: null, people: {}, empty: true });
+  if (_meetingsIsTransientId(id)) return Promise.resolve({ story: null, people: {}, empty: true, reason: 'stale-id', error: 'Reload Meetings.AI to select the dated occurrence.' });
   const cached = _meetingsGetCachedRecap(id);
   if (cached) return Promise.resolve(cached);
   if (_meetingsBriefPromises.has(id)) return _meetingsBriefPromises.get(id);
@@ -33892,7 +34822,7 @@ function _meetingsEnsureRecap(meetingId, subject, date) {
   _meetingsSetBriefState(id, { status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj, date: meetingDate });
   const p = (async () => {
     const built = await _meetingsBuildRecap(id, subj, meetingDate);
-    const rec = { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty };
+    const rec = { story: built.story, people: built.people, demo: !!built.demo, empty: !!built.empty, requestedSubject: subj, requestedDate: meetingDate };
     if (rec.story && !rec.empty) {
       _meetingsCacheRecap(id, rec);
       _meetingsSetBriefState(id, { status: 'ready', at: Date.now(), error: '' });
@@ -33951,14 +34881,16 @@ app.get('/api/meetings/brief', (req, res) => {
   try {
     const meetingId = String(req.query.meetingId || '').trim();
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+    if (_meetingsIsTransientId(meetingId)) return res.status(409).json({ error: 'This meeting link is stale. Reload Meetings.AI to select the dated occurrence.' });
     if (meetingId === _MEETINGS_SEED_ID) {
-      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap({ story: _MEETINGS_SEED_STORY }) });
+      const rec = { story: _MEETINGS_SEED_STORY, people: _MEETINGS_SEED_PEOPLE };
+      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec), meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
     }
     const cached = _meetingsGetCachedRecap(meetingId);
     if (cached) {
       const rec = cached;
-      if (rec.empty) return res.json({ ok: true, meetingId, status: 'empty' });
-      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
+      if (rec.empty) return res.json({ ok: true, meetingId, status: 'empty', meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
+      return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec), meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
     }
     // Durable state from a build that already ran (survives the user navigating away
     // AND a server restart, since the state is persisted to disk).
@@ -33972,25 +34904,25 @@ app.get('/api/meetings/brief', (req, res) => {
         if (!inflight && age > _MEETINGS_BRIEF_STALE_MS) {
           try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || ''); } catch (_) {}
         }
-        return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: st.startedAt || st.at || 0 });
+        return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: st.startedAt || st.at || 0, meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
       }
       if (st.status === 'queued') {
         const inflight = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
         if (!inflight) {
           _meetingsEnsureRecap(meetingId, st.subject || '', st.date || '').catch(() => {});
           const active = _meetingsBriefState.get(meetingId) || st;
-          return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: active.startedAt || active.at || Date.now() });
+          return res.json({ ok: true, meetingId, status: 'pending', phase: 'building', startedAt: active.startedAt || active.at || Date.now(), meeting: _meetingsBriefMeetingMeta(meetingId, null, active) });
         }
-        return res.json({ ok: true, meetingId, status: 'pending', phase: 'queued', startedAt: st.queuedAt || st.at || 0 });
+        return res.json({ ok: true, meetingId, status: 'pending', phase: 'queued', startedAt: st.queuedAt || st.at || 0, meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
       }
-      if (st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || 0, error: st.error || '' });
-      if (st.status === 'empty') return res.json({ ok: true, meetingId, status: 'empty', at: st.at || 0 });
+      if (st.status === 'error') return res.json({ ok: true, meetingId, status: 'error', at: st.at || 0, error: st.error || '', meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
+      if (st.status === 'empty') return res.json({ ok: true, meetingId, status: 'empty', at: st.at || 0, meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
       if (st.status === 'ready') {
         // 'ready' but the recap cache is gone (it's in-memory and dies on restart).
         // Re-kick the build rather than falling through to 'none' — which would make
         // the "Load summary" button silently reappear. Report 'pending' meanwhile.
         try { _meetingsEnsureRecap(meetingId, st.subject || '', st.date || ''); } catch (_) {}
-        return res.json({ ok: true, meetingId, status: 'pending', startedAt: Date.now() });
+        return res.json({ ok: true, meetingId, status: 'pending', startedAt: Date.now(), meeting: _meetingsBriefMeetingMeta(meetingId, null, st) });
       }
     }
     const pending = _meetingsBriefPromises.has(meetingId) || _meetingsBriefQueue.some(q => q.meetingId === meetingId);
@@ -34009,6 +34941,7 @@ app.post('/api/meetings/brief', (req, res) => {
     const subject = String((req.body && req.body.subject) || '').trim();
     const date = String((req.body && req.body.date) || '').trim();
     if (!meetingId) return res.status(400).json({ error: 'meetingId is required' });
+    if (_meetingsIsTransientId(meetingId)) return res.status(409).json({ error: 'This meeting link is stale. Reload Meetings.AI to select the dated occurrence.' });
     if (meetingId === _MEETINGS_SEED_ID) {
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap({ story: _MEETINGS_SEED_STORY }) });
     }

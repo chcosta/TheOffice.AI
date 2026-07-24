@@ -127,6 +127,7 @@ function compareSemver(av, bv) {
 // --- release lookup ---------------------------------------------------------
 
 let _checkCache = { at: 0, current: '', result: null };
+const _releaseCache = new Map();
 
 async function fetchJson(url) {
   // Node's fetch has NO default timeout: a slow, throttled, or (on a corporate
@@ -153,6 +154,29 @@ async function fetchJson(url) {
   }
   if (!res.ok) throw new Error(`GitHub API ${res.status} ${res.statusText}`);
   return res.json();
+}
+
+async function releaseForVersion(version) {
+  const normalized = String(version || '').trim().replace(/^v/i, '');
+  if (!parseSemver(normalized)) return null;
+  if (_releaseCache.has(normalized)) return _releaseCache.get(normalized);
+  try {
+    const rel = await fetchJson(`https://api.github.com/repos/${REPO}/releases/tags/v${encodeURIComponent(normalized)}`);
+    const result = rel && !rel.draft ? {
+      version: normalized,
+      name: rel.name || rel.tag_name || '',
+      notes: rel.body || '',
+      publishedAt: rel.published_at || '',
+    } : null;
+    _releaseCache.set(normalized, result);
+    return result;
+  } catch (e) {
+    if (e && /GitHub API 404\b/.test(e.message || '')) {
+      _releaseCache.set(normalized, null);
+      return null;
+    }
+    throw e;
+  }
 }
 
 // Query GitHub for the newest release with a *-setup.exe asset and compare it
@@ -560,6 +584,7 @@ function lastApplied() {
 module.exports = {
   isDesktop,
   compareSemver,
+  releaseForVersion,
   checkForUpdate,
   startDownload,
   status,

@@ -47,6 +47,50 @@ await t.test('slugifyId falls back to "agent" for empty/blank', () => {
   t.eq(U.slugifyId('!!!'), 'agent');
 });
 
+await t.test('agent detail: CLI launch is verified + Shift+Enter inserts a growing newline', () => {
+  const srv = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/function _openAgentCliWindow\(/.test(srv) &&
+       /Start-Process -FilePath \$launcher/.test(srv) &&
+       /-PassThru -ErrorAction Stop/.test(srv) &&
+       /Windows did not return a terminal process id/.test(srv) &&
+       /pid: launch\.pid/.test(srv),
+    'the CLI endpoint confirms Windows created a terminal process before reporting success');
+  const composerStart = html.indexOf('macComposerKey(item, ev) {');
+  const composer = composerStart >= 0 ? html.slice(composerStart, composerStart + 2200) : '';
+  t.ok(/ev\.key === 'Enter' && ev\.shiftKey/.test(composer) &&
+       /ev\.preventDefault\(\)/.test(composer) &&
+       /value\.slice\(0, start\) \+ '\\n' \+ value\.slice\(end\)/.test(composer) &&
+       /el\.setSelectionRange\(start \+ 1, start \+ 1\)/.test(composer) &&
+       /this\.macComposerGrow\(el\)/.test(composer),
+    'Shift+Enter explicitly inserts a newline at the caret instead of sending or completing a mention');
+  t.ok(/@input="macMentionScan\(item, \$event\); macComposerGrow\(\$event\.target\)"/.test(html) &&
+       /Math\.min\(160, Math\.max\(38, el\.scrollHeight\)\)/.test(html),
+    'the agent composer grows as multiline content is entered');
+});
+
+await t.test('desktop: internal Code Flow PR links stay in the SPA', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/if \(!isExternal && \/\^#\\\//.test(html) &&
+       /location\.hash = u\.hash/.test(html),
+    'the desktop external-link bridge keeps same-origin SPA hash routes in the WebView');
+  t.ok(/@click\.stop="openSlotPrInFlow\(d, cfCurPr\(d\)\._slot\)">Open PR<\/button>/.test(html),
+    'dev-card Open PR actions route through Code Flow instead of target=_blank');
+  t.ok(!/<a class="cf-primeact pr"[^>]*target="_blank"[^>]*>Open PR/.test(html),
+    'the primary dev-card PR action is no longer an external-link anchor');
+});
+
+await t.test('Code Flow: You are here rows use a gold rail border', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/here: yahIsOn\('dev:' \+ card\.id\)/.test(html) &&
+       /here: yahIsOn\('pr:' \+ cfPrKey\(pr\)\)/.test(html),
+    'both dev-card and PR index rows bind the shared here state');
+  t.ok(/\.dvx-idx-row\.here, \.dvx-idx-row\.here\.sel \{[^}]*var\(--cp-warning, #f5a623\)[^}]*box-shadow:inset 0 0 0 2px/s.test(html),
+    'the here state wins over selection with a visible gold inset border');
+  t.ok(!/class="dvx-idx-here"/.test(html),
+    'the old magenta dot is removed instead of competing with the gold border');
+});
+
 await t.test('_meAiPrRefId is provider-scoped + case-insensitive (PR pin identity)', () => {
   const azdo = U._meAiPrRefId({ org: 'DncEng', project: 'Internal', repo: 'Arcade', prId: 17018 });
   t.eq(azdo, 'dnceng|internal|arcade|17018');
@@ -1711,6 +1755,26 @@ await t.test('newsletter: multi-document model (revision vs new) end to end', ()
   t.ok(!/lib\.newsletter\b(?!s)/.test(html.replace(/newsletters/g, 'NLS')), 'no stale singular lib.newsletter reference');
 });
 
+await t.test('newsletter: Shawn template leads with impact, proof, and measurement gaps', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync('server.js', 'utf8');
+  t.ok(/<option value="shawn">Shawn · impact first<\/option>/.test(html),
+    'Newsletter Studio exposes the named Shawn template');
+  t.ok(/function _newsletterTemplateGuidance\(template\)/.test(srv) &&
+       /SHAWN TEMPLATE - IMPACT FIRST, ZERO FLUFF/.test(srv),
+    'the server owns reusable Shawn editorial guidance for writer and editor');
+  t.ok(/## TL;DR - impact and proof/.test(srv) &&
+       /Structure each story as: Impact -> Evidence\/metric -> Who benefits -> How/.test(srv) &&
+       /Measurement gap:/.test(srv),
+    'Shawn leads with a skimmable impact TLDR and makes missing proof explicit');
+  t.ok(/Counts of meetings, PRs, documents, reviews, or pipeline changes are activity/.test(srv) &&
+       /Do not add a decorative hero, cartoon, or activity stat strip/.test(srv) &&
+       /target a 2-3 minute read/.test(srv),
+    'Shawn removes activity metrics and decorative fluff while enforcing a short read');
+  t.ok((srv.match(/_newsletterTemplateGuidance\(cfg\.template\)/g) || []).length >= 2,
+    'both newsletter generation and conversational revision receive the template contract');
+});
+
 await t.test('compose sources: agent task runs (pick one or more agents, fold recent runs)', () => {
   const cjs = readFileSync('compose.js', 'utf8');
   // catalog + defaults + clamp
@@ -2274,7 +2338,14 @@ await t.test('updates + Whats new: manual check bypasses the cache; release note
   t.ok(wn, '/api/whats-new route found');
   t.ok(/whatsNewBase\(e && e\.version\) === base/.test(wn), 'entries scope to the current version line (drops 1.0.4/1.0.3)');
   t.ok(/!entries\.some\(e => e && e\.version === current\)/.test(wn), 'ensures the running version is represented');
-  t.ok(/entries\.unshift\(whatsNewCurrentEntry\(current\)\)/.test(wn), 'synthesizes a current-version entry at top when the file lags the build');
+  t.ok(/updater\.releaseForVersion\(current\)/.test(wn) &&
+       /whatsNewEntryFromRelease/.test(wn),
+    'a stale bundled changelog recovers the exact current release body from GitHub');
+  t.ok(/entries\.unshift\(published \|\| whatsNewCurrentEntry\(current\)\)/.test(wn),
+    'the generic current-version entry is only the offline fallback');
+  t.ok(/async function releaseForVersion\(version\)/.test(upd) &&
+       /releases\/tags\/v/.test(upd),
+    'the updater exposes a cached exact-tag release lookup');
 
   const html = readFileSync('public/app.html', 'utf8');
   t.ok(/async checkForUpdate\(force\) \{/.test(html), 'SPA checkForUpdate accepts a force flag');
@@ -4104,13 +4175,36 @@ await t.test('updater: last-applied verifiable signal (server + client + parser)
   t.ok(/la\.version/.test(lbl) && /formatDateTime/.test(lbl), 'lastAppliedLabel formats version + date');
 });
 
-await t.test('meetings.ai: studio page — server recent/recap routes (seed fallback + AI timeouts) + SPA player wiring', () => {
+await t.test('Meetings.AI: Basic opt-in and Advanced opt-out experience feature', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/basicFeatures:[\s\S]{0,700}meetings: false/.test(html),
+    'Meetings.AI defaults OFF in Basic');
+  t.ok(/advancedFeatures:[\s\S]{0,700}meetings: true/.test(html),
+    'Meetings.AI defaults ON in Advanced');
+  const basicCat = _win(html, 'basicFeatureCatalog() {', 2800);
+  const advancedCat = _win(html, 'advancedFeatureCatalog() {', 3200);
+  t.ok(/key: 'meetings', label: 'Meetings\.AI'/.test(basicCat),
+    'Basic experience settings list Meetings.AI as an opt-in');
+  t.ok(/key: 'meetings', label: 'Meetings\.AI'/.test(advancedCat),
+    'Advanced experience settings list Meetings.AI as an opt-out');
+  const navKeys = _win(html, '_navDefaultKeys(scope) {', 2200);
+  t.ok((navKeys.match(/if \(en\('meetings'\)\) out\.push\('meetings'\)/g) || []).length === 2,
+    'both Basic and Advanced menus honor the Meetings.AI feature flag');
+  const basicRoutes = _win(html, 'basicRouteVisible(route) {', 1800);
+  const advancedRoutes = _win(html, 'advancedRouteVisible(route) {', 1800);
+  t.ok(/meetings: \['meetings'\]/.test(basicRoutes) &&
+       /meetings: \['meetings'\]/.test(advancedRoutes),
+    'the Meetings.AI route is gated consistently in both experiences');
+});
+
+await t.test('meetings.ai: studio page — verified calendar occurrences + AI timeouts + SPA player wiring', () => {
   const srv = readFileSync('server.js', 'utf8');
   const html = readFileSync('public/app.html', 'utf8');
+  const player = readFileSync('public/meeting-recap.html', 'utf8');
 
   // (1) SERVER — recent-meetings gather talks to WorkIQ directly and is timeout-bounded,
-  // so the route can never hang; on timeout/failure the surrounding try returns [] and seeds.
-  const gather = _win(srv, 'async function _meetingsGatherRange(', 3600) || '';
+  // so the route can never hang; on timeout/failure the surrounding try returns [] honestly.
+  const gather = _win(srv, 'async function _meetingsGatherRange(', 7000) || '';
   t.ok(gather, '_meetingsGatherRange helper exists');
   t.ok(/_meetingsWorkIqAsk\(prompt, 150000\)/.test(gather),
     'the calendar gather calls WorkIQ directly with a bounded timeout');
@@ -4120,13 +4214,16 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
 
   // (2) SERVER — recap build: seed short-circuit, AI transcript path is timeout-bounded, and the
   // dropped-then-restored _connectExtractJson is present (the bug that broke the real recap path).
-  const recap = _win(srv, 'async function _meetingsBuildRecap(', 4200) || '';
+  const recap = _win(srv, 'async function _meetingsBuildRecap(', 18000) || '';
   t.ok(recap, '_meetingsBuildRecap helper exists');
   t.ok(/id === _MEETINGS_SEED_ID/.test(recap), 'the seed meeting short-circuits to the authored SFI story');
-  t.ok(/_meetingsWorkIqAsk\(prompt, 120000\)/.test(recap),
+  t.ok(/_meetingsWorkIqAsk\(compactPrompt, 120000\)/.test(recap),
     'the transcript recap calls WorkIQ directly with a bounded timeout');
-  t.ok(/const text = await _meetingsWorkIqAsk[\s\S]{0,80}const obj = _connectExtractJson\(text\);/.test(recap),
+  t.ok(/const \[text, evidenceText\] = await Promise\.all\([\s\S]{0,240}_meetingsWorkIqAsk\(compactPrompt, 120000\)[\s\S]{0,240}const obj = _connectExtractJson\(text\);/.test(recap),
     'the AI text is parsed via _connectExtractJson (obj is defined before use — regression guard)');
+  t.ok(/asking one WorkIQ call to do[\s\S]*both jobs produced oversized answers/.test(recap) &&
+       /WorkIQ did not return a usable transcript recap for the exact occurrence/.test(recap),
+    'transcript extraction is compact and unusable responses become retryable errors rather than false no-transcript claims');
   t.ok(/return \{ story: minimal, people: \{[\s\S]*empty: true/.test(recap),
     'an unavailable transcript degrades to a minimal never-crash story with empty:true');
   const workiq = _win(srv, 'function _meetingsWorkIqAsk(', 4200) || '';
@@ -4137,50 +4234,144 @@ await t.test('meetings.ai: studio page — server recent/recap routes (seed fall
   t.ok(/commandParts\.map\(value => \/\\s\/\.test\(value\) \? `"\$\{value\}"` : value\)/.test(workiq),
     'Windows WorkIQ launch quotes safe command/argument values that contain spaces');
 
-  // (3) SERVER — routes: recent is cached (per-window TTL) with a current-window seed fallback; recap requires a meetingId.
+  // (3) SERVER — routes: recent is cached per window without inventing sample meetings; recap requires a meetingId.
   const rec = _win(srv, "app.get('/api/meetings/recent'", 2400) || '';
   t.ok(rec, 'GET /api/meetings/recent route exists');
   t.ok(/const cached = _meetingsRecentCache\.get\(key\);[\s\S]{0,120}\(now - cached\.at\) < ttl/.test(rec),
     'recent is cached per window with a TTL (10 min current / 6h past)');
-  t.ok(/if \(isCurrent\) \{ meetings = _meetingsSeedRecent\(\); demo = true; \}/.test(rec),
-    'recent falls back to the seed meetings (demo:true) only for the CURRENT window when the gather is empty');
-  const rcp = _win(srv, "app.post('/api/meetings/recap'", 1600) || '';
+  t.ok(/const demo = false/.test(rec) && !/_meetingsSeedRecent\(\)/.test(rec),
+    'an empty or failed calendar gather remains honest instead of inflating the week with samples');
+  const rcp = _win(srv, "app.post('/api/meetings/recap'", 3000) || '';
   t.ok(rcp, 'POST /api/meetings/recap route exists');
   t.ok(/if \(!meetingId\) return res\.status\(400\)/.test(rcp), 'recap 400s without a meetingId');
-  t.ok(/res\.json\(\{ ok: true, meetingId, story: built\.story, people: built\.people, demo: !!built\.demo, empty: !!built\.empty \}\)/.test(rcp),
-    'recap returns story/people/demo/empty');
+  t.ok(/await _meetingsProfilePhotos\(best\.people\)/.test(rcp) &&
+       /const payload = \{ \.\.\.best, photos \}/.test(rcp) &&
+       /story: payload\.story, people: payload\.people, photos/.test(rcp),
+    'recap returns the best durable story/people/quality payload with resolved profile photos');
 
   // (4) SPA — the Meetings.AI studio section + the data-driven iframe player + the ready handshake.
   t.ok(/route === 'meetings'/.test(html), 'the Meetings.AI section renders on the meetings route');
-  t.ok(/<iframe x-ref="mtgPlayer" src="\/meeting-recap\.html" @load="_mtgPushRecap\(\)"/.test(html),
-    'the recap player is the standalone meeting-recap.html iframe, pushed on load');
+  t.ok(/<iframe x-ref="mtgPlayer" src="\/public\/meeting-recap\.html" @load="_mtgPushRecap\(\)"/.test(html),
+    'the recap player uses the real public asset path instead of the SPA fallback, then receives its payload on load');
+  t.ok(/html,body\{margin:0;width:100%;height:100%;overflow:hidden;background:var\(--bg\)/.test(player) &&
+       /\.wrap\{height:100vh;overflow:hidden/.test(player),
+    'the recap player owns a full-height dark backdrop (no white iframe tail)');
+  t.ok(/readyTimer=setInterval\(announceReady,1200\)/.test(player) &&
+       /Recap player is still waiting/.test(player) &&
+       /id="loadingRetry"/.test(player),
+    'the player continuously retries its payload handshake and surfaces honest progress plus recovery');
+  t.ok(/function drawEvidenceBoard\(/.test(player) &&
+       /function evidenceForBeat\(/.test(player) &&
+       /id="sourceLinks"/.test(player),
+    'the newscast renders source-backed evidence and exposes clickable provenance below the stage');
+  t.ok(/html,body\{[^}]*height:100%;overflow:hidden/.test(player) &&
+       /#recap\{height:100vh;min-height:0;overflow:hidden;flex-direction:column\}/.test(player) &&
+       /document\.getElementById\('recap'\)\.style\.display='flex'/.test(player),
+    'the player uses a true viewport-fit layout instead of creating an unnecessary iframe scrollbar');
+  t.ok(/id="narrationBtn"/.test(player) &&
+       /function beatNarration\(/.test(player) &&
+       /function narrationChunks\(/.test(player) &&
+       /new SpeechSynthesisUtterance\(NARRATION_QUEUE\.shift\(\)\)/.test(player) &&
+       /utterance\.rate=1\.14; utterance\.pitch=1\.12/.test(player) &&
+       /STORY\.editorialThroughline/.test(player) &&
+       /STORY\.closingSynthesis/.test(player),
+    'the player uses a warmer upbeat voice and chunked additive editorial narration instead of reading visible slide text');
+  t.ok(/const waitingForNarrator=narrationEnabled&&!NARRATION_DONE/.test(player) &&
+       /!waitingForNarrator && !awaitingNext/.test(player) &&
+       /utterance\.onend=.*speakNarrationChunk/.test(player),
+    'chapter progression waits for every narration chunk to finish instead of cutting the host off');
+  t.ok(/\/api\/meetings\/narration\/config/.test(srv) &&
+       /\/api\/meetings\/narration\/synthesize/.test(srv) &&
+       /audio-24khz-48kbitrate-mono-mp3/.test(srv) &&
+       /_MEETINGS_NARRATION_DIR/.test(srv) &&
+       /Ocp-Apim-Subscription-Key/.test(srv),
+    'Azure neural narration is server-side, credential-isolated, and persistently audio-cached');
+  t.ok(/id="narratorProvider"/.test(player) &&
+       /id="narratorVoice"/.test(player) &&
+       /id="narratorStyle"/.test(player) &&
+       /function speakAzureNarration\(/.test(player) &&
+       /AI narration: Preparing neural voice/.test(player) &&
+       /AI narration: System fallback/.test(player),
+    'the player exposes Azure voice/style selection with an explicit system fallback');
+  t.ok(/NARRATION_AUDIO\.pause\(\)/.test(player) &&
+       /NARRATION_AUDIO\.play\(\)\.catch/.test(player) &&
+       /NARRATION_ABORT\.abort\(\)/.test(player),
+    'pause, resume, and chapter changes control neural audio and cancel stale synthesis');
+  t.ok(/id="autoBtn" class="primary-control"[\s\S]{0,120}Pause newscast/.test(player) &&
+       /let STORY=null,[\s\S]{0,180}autoplay=true/.test(player) &&
+       /window\.speechSynthesis\.pause\(\)/.test(player) &&
+       /window\.speechSynthesis\.resume\(\)/.test(player) &&
+       /pausedElapsed=Math\.max\(0,performance\.now\(\)-beatStart\)/.test(player),
+    'the narrated newscast advances continuously by default with an obvious pause/resume control that preserves the current chapter');
+  t.ok(/CLICK_TARGETS\.push\(\{x,y,w:cw,h:ch,url:item\.url/.test(player) &&
+       /function evidenceHit\(/.test(player) &&
+       /window\.open\(hit\.url,'_blank','noopener'\)/.test(player),
+    'evidence cards on the canvas are directly clickable while text source links remain available');
+  t.ok(/function evidencePriority\(/.test(player) &&
+       /const linked=evidenceForSegment\(seg\)/.test(player) &&
+       /drawEvidenceBoard\(orderedEvidence\(EVIDENCE\)/.test(player),
+    'chapter and evidence-map visuals foreground retrieved artifacts instead of repetitive transcript cards');
+  t.ok(/id="audioBtn"/.test(player) &&
+       /new Audio\(clip\.url\)/.test(player) &&
+       /original clips are labeled separately/.test(player) &&
+       /stopNarration\(\);\s*stopAudio\(\);\s*ACTIVE_AUDIO=new Audio\(clip\.url\)/.test(player),
+    'the player supports authentic source clips without inventing or implying unavailable audio');
+  const beats = _win(player, 'function buildBeats(story)', 900) || '';
+  t.ok(!/type:'wide'/.test(beats) && !/Conference room/.test(player),
+    'the recap does not waste a beat on an empty conference-room establishing shot');
+  t.ok(/Evidence-backed transcript recap with AI newscaster narration · no playable meeting audio was retrieved\./.test(player) &&
+       /Transcript-only recap with AI newscaster narration · no supporting media was retrieved\./.test(player) &&
+       /Narration is synthetic/.test(player),
+    'the player distinguishes synthetic narration from unavailable original meeting audio');
   t.ok(/if \(d && d\.type === 'mrv:ready'\) \{ try \{ this\._mtgPushRecap\(\); \} catch/.test(html),
     'the global message listener answers the player mrv:ready handshake');
+  t.ok(/Sources & evidence/.test(html) &&
+       /Watch evidence newscast/.test(html) &&
+       /No source-backed newscast is available/.test(html),
+    'meeting details surface provenance and gate the newscast when it adds no evidence-backed value');
 
   // (5) SPA — field-name reconciliation with the server shapes (the mtg-verify fixes).
-  const load = _win(html, 'async loadMeetings(', 1200) || '';
+  const load = _win(html, 'async loadMeetings(', 3200) || '';
   t.ok(/\.map\(m => \(\{ \.\.\.m, id: m\.meetingId \|\| m\.id \|\| '' \}\)\)/.test(load),
     'loadMeetings normalizes the server meetingId → client id');
+  t.ok(/const wantId = \/\^turn\\d\+search\\d\+\$\/i\.test\(rawWantId\) \? '' : rawWantId/.test(load),
+    'conversation-local WorkIQ search references are never restored as durable meeting deep links');
+  t.ok(/brief\?meetingId=\$\{encodeURIComponent\(wantId\)\}/.test(load) &&
+       /meta && meta\.subject/.test(load) &&
+       /id: wantId,\s*meetingId: wantId/.test(load),
+    'a canonical calendar-event deep link is hydrated from its durable brief instead of being discarded when the index uses a search token');
   const push = _win(html, '_mtgPushRecap() {', 700) || '';
-  t.ok(/w\._pendingRecap/.test(push) && /postMessage\(w\._pendingRecap, '\*'\)/.test(push),
-    '_mtgPushRecap posts the stashed mrv:load payload to the player');
+  t.ok(/typeof fr\.contentWindow\.startRecap === 'function'/.test(push) &&
+       /fr\.contentWindow\.startRecap\(w\._pendingRecap\.story, w\._pendingRecap\.people, w\._pendingRecap\.photos\)/.test(push),
+    '_mtgPushRecap directly invokes the same-origin player instead of relying on a lossy message handoff');
+  t.ok(/postMessage\(w\._pendingRecap, '\*'\)/.test(push),
+    '_mtgPushRecap retains postMessage as a load-timing fallback');
   const fmt = _win(html, 'mtgFmtWhen(m) {', 400) || '';
   t.ok(/const t = m\.start \|\| m\.time/.test(fmt), 'mtgFmtWhen reads the server start field');
+  t.ok(/class="mtg-nav-list"/.test(html) &&
+       /\.mtg-nav-list\{[^}]*overflow-y:auto/.test(html) &&
+       /mtgStartNavResize\(\$event\)/.test(html) &&
+       /mtgToggleNav\(\)/.test(html) &&
+       /meetings-nav-width/.test(html) &&
+       /meetings-nav-collapsed/.test(html),
+    'the meeting index has its own scrollbar and persistent resize/collapse controls');
 
-  // (6) SPA — routing / nav / tier registration (flagship top-level page, always-on in both tiers).
-  t.ok(/if \(first === 'meetings' && second\) return \{ route: 'meetings', param: second \}/.test(html),
-    'parseHash handles the meetings deep link');
+  // (6) SPA — routing / nav registration. Experience-level defaults are covered separately.
+  t.ok(/if \(\(first === 'meetings' \|\| first === 'meetings-ai'\) && second\) return \{ route: 'meetings', param: second \}/.test(html) &&
+       /if \(first === 'meetings-ai'\) return \{ route: 'meetings', param: null \}/.test(html),
+    'parseHash handles canonical and legacy Meetings.AI deep links');
   t.ok(/else if \(this\.route === 'meetings'\) \{[\s\S]{0,80}this\.loadMeetings\(/.test(html),
     'handleRouteChange dispatches meetings → loadMeetings');
   t.ok(/case 'meetings': return mk\('Meetings\.AI', '🎬', '#\/meetings', 'meetings'\)/.test(html),
     'the nav item is registered');
-  t.ok(/const out = \['home', 'boards', 'codeflow', 'meetings'\]/.test(html),
-    'meetings is an always-on Basic nav default');
+  t.ok(/if \(en\('meetings'\)\) out\.push\('meetings'\)/.test(html),
+    'the Meetings.AI nav item follows its experience feature flag');
 });
 
 await t.test('meetings.ai: durable brief state — a summary that already ran (empty/error/pending) survives navigate-away-and-back (server.js + settings.js + app.html)', () => {
   const srv = readFileSync('server.js', 'utf8');
   const html = readFileSync('public/app.html', 'utf8');
+  const player = readFileSync('public/meeting-recap.html', 'utf8');
   const settings = readFileSync('settings.js', 'utf8');
 
   // SERVER — a module-level durable state map is the source of truth (not just the in-flight promise).
@@ -4193,6 +4384,92 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/function _meetingsPersistBriefState\(/.test(srv), 'a persist helper writes the state to disk');
   t.ok(/function _meetingsCacheRecap\(/.test(srv) && /function _meetingsGetCachedRecap\(/.test(srv),
     'completed recap payloads are cached on disk, not only in process memory');
+  t.ok(/_MEETINGS_RECAP_SCHEMA_VERSION = 5/.test(srv) &&
+       /stored\.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION/.test(srv),
+    'the durable cache invalidates older recaps that lack verified occurrence identity or source extracts');
+  t.ok(/function _meetingsRecapQualityScore\(/.test(srv) &&
+       /_meetingsRecapQualityScore\(prior\) > _meetingsRecapQualityScore\(built\)/.test(srv),
+    'a forced retry can improve but never downgrade a richer cached newscast');
+  t.ok(/function _meetingsBriefMeetingMeta\(/.test(srv) &&
+       /meeting: _meetingsBriefMeetingMeta\(meetingId, rec\)/.test(srv),
+    'brief probes return enough canonical meeting metadata to restore durable deep links');
+  t.ok(/const trivialQuote = quoteWords\.length < 4/.test(srv) &&
+       /Meeting transcript or chat/.test(srv) &&
+       srv.includes("meeting recording.*\\.(mp4|m4a|wav)"),
+    'the edit removes trivial acknowledgements and distinguishes recording references from playable audio');
+  t.ok(/function _meetingsNormalizeEvidence\(/.test(srv) &&
+       /function _meetingsEvidenceUrlKey\(/.test(srv) &&
+       /function _meetingsEvidenceFromStory\(/.test(srv) &&
+       /function _meetingsEvidenceFromText\(/.test(srv) &&
+       /function _meetingsLinkEvidence\(/.test(srv) &&
+       /function _meetingsNormalizeNewscast\(/.test(srv),
+    'newscast generation normalizes JSON or Markdown evidence, classifies engineering links, and attaches relevant sources to chapters');
+  t.ok(srv.includes("const excerpt = String(raw.excerpt || raw.quote || raw.snippet") &&
+       srv.includes('const highlights = (Array.isArray(raw.highlights)') &&
+       srv.includes('prior.highlights = [...new Set([...prior.highlights, ...item.highlights])].slice(0, 4)') &&
+       srv.includes('const contextAround = (start, end) =>') &&
+       player.includes('const detail=item.excerpt?') &&
+       player.includes('STORY.evidenceSynthesis'),
+    'retrieved source excerpts and key highlights survive normalization, render in evidence cards, and inform editorial synthesis');
+  t.ok(/function _meetingsNormalizeCitations\(/.test(srv) &&
+       /function _meetingsNormalizeVisuals\(/.test(srv) &&
+       /Open and inspect each relevant document/.test(srv) &&
+       /verbatim citations with a useful locator/.test(srv) &&
+       /transcribe a chart's exact title, labels, numeric values\/series/.test(srv) &&
+       /citationCount/.test(srv) &&
+       /visualCount/.test(srv),
+    'evidence retrieval preserves exact locator-aware document citations and non-fabricated source-native visual data');
+  t.ok(/const transcriptCitations = highlights\.map/.test(srv) &&
+       /id: 'meeting-transcript'/.test(srv) &&
+       /ready: hasAuthenticAudio \|\| linkedSourceCount > 0 \|\| citationCount > 0 \|\| visualCount > 0/.test(srv),
+    'verbatim transcript quotes remain first-class citations even when no supporting document is retrievable');
+  t.ok(/if \(base && base\.story && supplementalEvidence\.length\)/.test(srv) &&
+       /base\.story\.evidence = \[\.\.\.\(Array\.isArray\(base\.story\.evidence\)/.test(srv),
+    'the independent evidence pass joins both full-story and compact transcript recap shapes');
+  t.ok(/function drawSourceExtract\(/.test(player) &&
+       /function drawEvidenceChart\(/.test(player) &&
+       /type:'source'/.test(player) &&
+       /SOURCE EXTRACT/.test(player) &&
+       /beat\.type==='source'/.test(player) &&
+       /sourceBeats\.slice\(0,6\)/.test(player) &&
+       /citationIndex/.test(player) &&
+       /Includes \$\{Number\(\(STORY\.newscast/.test(player) &&
+       /exact citations and \$\{Number\(\(STORY\.newscast/.test(player),
+    'the newscast gives citations and retrieved charts dedicated clickable narrated source beats');
+  t.ok(/async function _meetingsProfilePhotos\(/.test(srv) &&
+       /async function _meetingsGraphTokenAsync\(/.test(srv) &&
+       /child_process'\)\.exec\(/.test(_win(srv, 'async function _meetingsGraphTokenAsync(', 2200) || '') &&
+       /token = await _meetingsGraphTokenAsync\(\)/.test(srv) &&
+       /displayName eq/.test(_win(srv, 'async function _meetingsProfilePhotos(', 4200) || '') &&
+       /\/photos\/96x96\/\$value/.test(srv) &&
+       /data:\$\{contentType\};base64/.test(srv) &&
+       /function _meetingsEnrichCachedPhotos\(/.test(srv) &&
+       /new Promise\(resolve => setTimeout\(resolve, 1000\)\)\.then\(\(\) => _meetingsProfilePhotos/.test(srv) &&
+       /_meetingsCacheRecap\(meetingId, recap\)/.test(srv),
+    'production recaps resolve and durably cache bounded Microsoft Graph profile photos, with non-blocking enrichment and avatar fallback');
+  t.ok(/Teams discussions, email threads, SharePoint\/OneDrive documents or slides/.test(srv) &&
+       /Never invent a URL, timestamp, screenshot, quote, audio clip, or source/.test(srv),
+    'the WorkIQ edit requests cross-system evidence while explicitly forbidding fabricated media');
+  t.ok(/"whyItMatters":string/.test(srv) &&
+       /NEVER make narration read or paraphrase that visible text/.test(srv) &&
+       /editorialThroughline should frame the meeting's arc/.test(srv) &&
+       /omit it rather than speculate/.test(srv),
+    'future newscasts add editorial connective tissue without reading slides or inventing impact');
+  t.ok(/function _meetingsOccurrenceId\(/.test(srv) &&
+       /function _meetingsSubjectsMatch\(/.test(srv) &&
+       /function _meetingsIsTransientId\(/.test(srv) &&
+       /subject: String\(story\.sourceSubject \|\| st\.subject \|\| story\.title/.test(srv) &&
+       /sourceSubject/.test(srv) &&
+       /sourceDate/.test(srv) &&
+       /refused to cache recap with a mismatched subject/.test(srv) &&
+       /Reload Meetings\.AI to select the dated occurrence/.test(srv),
+    'meeting occurrences use stable derived IDs and mismatched or transient recap identities are rejected');
+  const gatherRange = _win(srv, 'async function _meetingsGatherRange(', 6500) || '';
+  t.ok(/Include meetings whether or not I attended them; attendance is not a requirement/.test(gatherRange) &&
+       /if \(!subject \|\| !sd\.date \|\| !sd\.hm \|\| !ed\.hm\) continue/.test(gatherRange) &&
+       /endedAt > end \|\| endedAt > new Date\(\)/.test(gatherRange) &&
+       /seen\.has\(occurrenceKey\)/.test(gatherRange),
+    'the weekly index includes attended or unattended meetings but only verified, in-range, deduplicated occurrences');
   t.ok(/_meetingsPersistBriefState\(\);/.test(_win(srv, 'function _meetingsSetBriefState(', 260) || ''),
     'every state mutation persists to disk');
   const ensure = _win(srv, 'function _meetingsEnsureRecap(', 1800) || '';
