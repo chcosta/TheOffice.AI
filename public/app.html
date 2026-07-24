@@ -21280,7 +21280,8 @@
                     </div>
                     <div class="mtg-nav-list">
                       <div x-show="meetings.loading" class="mtg-empty">Reading your calendar…</div>
-                      <div x-show="!meetings.loading && !meetings.list.length" class="mtg-empty">No completed meetings this week.</div>
+                      <div x-show="!meetings.loading && meetings.refreshing && !meetings.list.length" class="mtg-empty">Refreshing calendar in the background…</div>
+                      <div x-show="!meetings.loading && !meetings.refreshing && !meetings.list.length" class="mtg-empty">No completed meetings this week.</div>
                       <div x-show="!meetings.loading && meetings.list.length && !mtgFilteredList().length" class="mtg-empty">No meetings match “<span x-text="meetings.query"></span>”.</div>
                       <template x-for="m in mtgFilteredList()" :key="m.id">
                         <button type="button" class="mtg-item" :class="{ active: m.id === meetings.selectedId }" @click="mtgSelect(m.id)">
@@ -33302,7 +33303,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Meetings.AI — studio layout: left index of recent meetings, right detail + animated recap.
         meetings: {
-          loaded: false, loading: false, error: '',
+          loaded: false, loading: false, refreshing: false, error: '',
           days: 7,
           weekOffset: 0,          // 0 = current work week; +1 = last week, etc.
           query: '',              // search/filter over the loaded week's meetings
@@ -33314,6 +33315,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           recapLoading: false, recap: null, people: null, recapDemo: false, recapEmpty: false,
           _pendingRecap: null,   // recap payload awaiting the iframe player's mrv:ready handshake
           brief: null, briefStatus: '', briefPhase: '', briefLoading: false, _briefPoll: null, briefError: '', briefAt: 0, briefStartedAt: 0,
+          rangeKey: '', _loadSeq: 0, _calendarPoll: null,
         },
         chainModalOpen: false,
         chainSearch: '',
@@ -41668,14 +41670,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // meeting on the next collection. Never hydrate or preserve those stale links.
           const wantId = /^turn\d+search\d+$/i.test(rawWantId) ? '' : rawWantId;
           const wantRecap = slash >= 0 && rawParam.slice(slash + 1) === 'recap';
-          w.loading = true; w.error = '';
+          const range = this.mtgWeekRange(w.weekOffset);
+          const rangeKey = `${range.startISO}|${range.endISO}`;
+          if (w._calendarPoll) { clearTimeout(w._calendarPoll); w._calendarPoll = null; }
+          if (w.rangeKey !== rangeKey) {
+            w.rangeKey = rangeKey;
+            w.list = [];
+            w.selectedId = '';
+            w.loaded = false;
+          }
+          const loadSeq = ++w._loadSeq;
+          w.loading = !w.loaded && !w.list.length;
+          w.refreshing = false;
+          w.error = '';
           try {
-            const range = this.mtgWeekRange(w.weekOffset);
             const r = await this.request(`/api/meetings/recent?start=${encodeURIComponent(range.startISO)}&end=${encodeURIComponent(range.endISO)}`);
+            if (loadSeq !== w._loadSeq || w.rangeKey !== rangeKey) return;
             const arr = Array.isArray(r && r.meetings) ? r.meetings : [];
             // Normalize: the server keys meetings by `meetingId`; alias to `id`.
             w.list = arr.map(m => ({ ...m, id: m.meetingId || m.id || '' }));
             w.demo = !!(r && r.demo);
+            w.refreshing = !!(r && r.refreshing);
             w.loaded = true;
             // A durable deep link can carry the real calendar event id while the bulk
             // WorkIQ index still exposes a transient search-result token. Preserve the
@@ -41703,11 +41718,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (pick) this.mtgSelect(pick);
             // Restore the recap view if the hash asked for it (instant via server cache).
             if (pick && wantRecap) this.$nextTick(() => this.mtgGenerateRecap());
+            if (w.refreshing) {
+              w._calendarPoll = setTimeout(() => {
+                if (this.route === 'meetings' && w._loadSeq === loadSeq && w.rangeKey === rangeKey) {
+                  this.loadMeetings(w.selectedId);
+                }
+              }, 1500);
+            }
           } catch (e) {
+            if (loadSeq !== w._loadSeq) return;
             w.error = (e && e.message) ? e.message : 'Failed to load meetings.';
-            w.list = [];
+            if (!w.loaded) w.list = [];
           } finally {
-            w.loading = false;
+            if (loadSeq === w._loadSeq) w.loading = false;
           }
         },
         mtgSelected() {

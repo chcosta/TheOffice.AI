@@ -34320,9 +34320,91 @@ Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string
 }
 
 // Keyed by window (range or rolling-days) so week-by-week navigation each get
-// their own cache slot. Past weeks are immutable → long TTL; the current window
-// → 10 min so newly-ended meetings show up.
+// their own cache slot. Persist it so desktop sidecar restarts do not turn the
+// first Meetings.AI navigation into a blocking WorkIQ collection.
 const _meetingsRecentCache = new Map();
+const _meetingsRecentRefreshes = new Map();
+const _MEETINGS_RECENT_CACHE_FILE = path.join(dataPath('meetings'), 'recent-cache.json');
+const _MEETINGS_RECENT_CACHE_SCHEMA_VERSION = 1;
+function _meetingsPersistRecentCache() {
+  try {
+    const entries = [..._meetingsRecentCache.entries()]
+      .sort((a, b) => Number(b[1] && b[1].at) - Number(a[1] && a[1].at))
+      .slice(0, 40);
+    fs.mkdirSync(path.dirname(_MEETINGS_RECENT_CACHE_FILE), { recursive: true });
+    const tmp = `${_MEETINGS_RECENT_CACHE_FILE}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify({ schemaVersion: _MEETINGS_RECENT_CACHE_SCHEMA_VERSION, entries }));
+    fs.renameSync(tmp, _MEETINGS_RECENT_CACHE_FILE);
+  } catch (e) {
+    console.warn('[meetings] could not persist calendar cache —', e && e.message);
+  }
+}
+function _meetingsSetRecentCache(key, value) {
+  if (!key || !value || !Array.isArray(value.meetings)) return;
+  _meetingsRecentCache.set(key, {
+    at: Number(value.at) || Date.now(),
+    meetings: value.meetings.slice(0, 500),
+    demo: !!value.demo,
+    startAt: Number(value.startAt) || 0,
+    endAt: Number(value.endAt) || 0,
+  });
+  if (_meetingsRecentCache.size > 40) {
+    const oldest = [..._meetingsRecentCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) _meetingsRecentCache.delete(oldest[0]);
+  }
+  _meetingsPersistRecentCache();
+}
+(function _meetingsLoadRecentCache() {
+  try {
+    const stored = JSON.parse(fs.readFileSync(_MEETINGS_RECENT_CACHE_FILE, 'utf8'));
+    if (!stored || stored.schemaVersion !== _MEETINGS_RECENT_CACHE_SCHEMA_VERSION || !Array.isArray(stored.entries)) return;
+    for (const entry of stored.entries.slice(0, 40)) {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !entry[1] || !Array.isArray(entry[1].meetings)) continue;
+      _meetingsRecentCache.set(entry[0], {
+        at: Number(entry[1].at) || 0,
+        meetings: entry[1].meetings.slice(0, 500),
+        demo: !!entry[1].demo,
+        startAt: Number(entry[1].startAt) || 0,
+        endAt: Number(entry[1].endAt) || 0,
+      });
+    }
+  } catch (_) { /* first run / no cache yet */ }
+})();
+function _meetingsFilterRange(meetings, start, end) {
+  const startAt = start.getTime();
+  const endAt = end.getTime();
+  return (Array.isArray(meetings) ? meetings : []).filter((meeting) => {
+    const when = _meetingsWhen(meeting && meeting.start, meeting && meeting.date);
+    const at = Date.parse(`${when.date}T${when.hm || '00:00'}:00`);
+    return Number.isFinite(at) && at >= startAt && at <= endAt;
+  });
+}
+function _meetingsRollingCacheForRange(start, end) {
+  const rolling = _meetingsRecentCache.get('d:7');
+  if (!rolling || !rolling.startAt || start.getTime() < rolling.startAt) return null;
+  return { ...rolling, meetings: _meetingsFilterRange(rolling.meetings, start, end) };
+}
+function _meetingsRefreshRecent(key, options) {
+  if (_meetingsRecentRefreshes.has(key)) return _meetingsRecentRefreshes.get(key);
+  const refresh = (async () => {
+    const meetings = options.isRange
+      ? await _meetingsGatherRange(options.start, options.end)
+      : await _meetingsGatherRecent(options.days);
+    _meetingsSetRecentCache(key, {
+      at: Date.now(),
+      meetings,
+      demo: false,
+      startAt: options.start ? options.start.getTime() : Date.now() - options.days * 24 * 60 * 60 * 1000,
+      endAt: options.end ? options.end.getTime() : Date.now(),
+    });
+    try { _meetingsEnqueueBriefs(meetings); } catch (_) {}
+    return meetings;
+  })();
+  _meetingsRecentRefreshes.set(key, refresh);
+  refresh.catch(e => console.warn('[meetings] calendar refresh failed —', e && e.message))
+    .finally(() => _meetingsRecentRefreshes.delete(key));
+  return refresh;
+}
 app.get('/api/meetings/recent', async (req, res) => {
   try {
     const now = Date.now();
@@ -34342,20 +34424,23 @@ app.get('/api/meetings/recent', async (req, res) => {
     const ttl = isCurrent ? 10 * 60 * 1000 : 6 * 60 * 60 * 1000;
     const cached = _meetingsRecentCache.get(key);
     if (cached && (now - cached.at) < ttl) {
-      return res.json({ ok: true, days, range: key, meetings: _meetingsWithBriefStatus(cached.meetings), demo: cached.demo });
+      return res.json({ ok: true, days, range: key, meetings: _meetingsWithBriefStatus(cached.meetings), demo: cached.demo, cached: true, refreshing: false });
     }
-    const meetings = isRange ? await _meetingsGatherRange(start, end) : await _meetingsGatherRecent(days);
-    const demo = false;
-    _meetingsRecentCache.set(key, { at: now, meetings, demo });
-    // Bound the cache — drop the oldest entries beyond 40 windows.
-    if (_meetingsRecentCache.size > 40) {
-      const oldest = [..._meetingsRecentCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-      if (oldest) _meetingsRecentCache.delete(oldest[0]);
-    }
-    // Real meetings with a transcript: warm their briefs/recaps in the background
-    // so the summary is ready by the time the user opens them.
-    if (!demo) { try { _meetingsEnqueueBriefs(meetings); } catch (_) {} }
-    res.json({ ok: true, days, range: key, meetings: _meetingsWithBriefStatus(meetings), demo });
+    const fallback = cached || (isRange ? _meetingsRollingCacheForRange(start, end) : null);
+    _meetingsRefreshRecent(key, { isRange, start, end, days });
+    // Stale-while-revalidate: navigation never waits on the 25–35 second WorkIQ
+    // collection. A cold install gets an immediate empty response and the SPA
+    // briefly polls until the background refresh publishes the first cache.
+    res.json({
+      ok: true,
+      days,
+      range: key,
+      meetings: _meetingsWithBriefStatus(fallback ? fallback.meetings : []),
+      demo: !!(fallback && fallback.demo),
+      cached: !!fallback,
+      refreshing: true,
+      cold: !fallback,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -35072,10 +35157,14 @@ async function _meetingsHourlySweep() {
     if (!s || !s.connectConsent) return;                // background M365 access requires consent
     if (_anyAgentBusy()) return;                         // don't collide with a live agent run
     _meetingsSweepBusy = true;
-    const meetings = await _meetingsGatherRecent(7);
+    const end = new Date();
+    const start = new Date(end.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const meetings = await _meetingsGatherRange(start, end);
     if (Array.isArray(meetings) && meetings.length) {
       // Refresh the recent cache so an immediate page open is instant + real.
-      _meetingsRecentCache.set('d:7', { at: Date.now(), meetings, demo: false });
+      _meetingsSetRecentCache('d:7', {
+        at: Date.now(), meetings, demo: false, startAt: start.getTime(), endAt: end.getTime(),
+      });
       _meetingsEnqueueBriefs(meetings);
     }
   } catch (e) { console.warn('[meetings] hourly sweep skipped —', e && e.message); }

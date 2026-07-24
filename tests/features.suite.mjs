@@ -4235,11 +4235,19 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
     'Windows WorkIQ launch quotes safe command/argument values that contain spaces');
 
   // (3) SERVER — routes: recent is cached per window without inventing sample meetings; recap requires a meetingId.
-  const rec = _win(srv, "app.get('/api/meetings/recent'", 2400) || '';
+  const rec = _win(srv, "app.get('/api/meetings/recent'", 7000) || '';
   t.ok(rec, 'GET /api/meetings/recent route exists');
-  t.ok(/const cached = _meetingsRecentCache\.get\(key\);[\s\S]{0,120}\(now - cached\.at\) < ttl/.test(rec),
-    'recent is cached per window with a TTL (10 min current / 6h past)');
-  t.ok(/const demo = false/.test(rec) && !/_meetingsSeedRecent\(\)/.test(rec),
+  t.ok(/const cached = _meetingsRecentCache\.get\(key\);[\s\S]{0,240}\(now - cached\.at\) < ttl/.test(rec) &&
+       /const fallback = cached \|\| \(isRange \? _meetingsRollingCacheForRange\(start, end\) : null\)/.test(rec) &&
+       /_meetingsRefreshRecent\(key,[\s\S]{0,500}refreshing: true/.test(rec) &&
+       !/await _meetingsGather(?:Range|Recent)/.test(rec),
+    'recent serves fresh, stale, or rolling cached rows immediately and refreshes off the request path');
+  t.ok(/_MEETINGS_RECENT_CACHE_FILE\s*=\s*path\.join\(dataPath\('meetings'\), 'recent-cache\.json'\)/.test(srv) &&
+       /function _meetingsLoadRecentCache\(/.test(srv) &&
+       /function _meetingsPersistRecentCache\(/.test(srv) &&
+       /function _meetingsSetRecentCache\(/.test(srv),
+    'calendar windows persist across desktop sidecar restarts');
+  t.ok(/demo: !!\(fallback && fallback\.demo\)/.test(rec) && !/_meetingsSeedRecent\(\)/.test(rec),
     'an empty or failed calendar gather remains honest instead of inflating the week with samples');
   const rcp = _win(srv, "app.post('/api/meetings/recap'", 3000) || '';
   t.ok(rcp, 'POST /api/meetings/recap route exists');
@@ -4331,7 +4339,7 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
     'meeting details surface provenance and gate the newscast when it adds no evidence-backed value');
 
   // (5) SPA — field-name reconciliation with the server shapes (the mtg-verify fixes).
-  const load = _win(html, 'async loadMeetings(', 3200) || '';
+  const load = _win(html, 'async loadMeetings(', 5200) || '';
   t.ok(/\.map\(m => \(\{ \.\.\.m, id: m\.meetingId \|\| m\.id \|\| '' \}\)\)/.test(load),
     'loadMeetings normalizes the server meetingId → client id');
   t.ok(/const wantId = \/\^turn\\d\+search\\d\+\$\/i\.test\(rawWantId\) \? '' : rawWantId/.test(load),
@@ -4340,6 +4348,11 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
        /meta && meta\.subject/.test(load) &&
        /id: wantId,\s*meetingId: wantId/.test(load),
     'a canonical calendar-event deep link is hydrated from its durable brief instead of being discarded when the index uses a search token');
+  t.ok(/w\.loading = !w\.loaded && !w\.list\.length/.test(load) &&
+       /w\.refreshing = !!\(r && r\.refreshing\)/.test(load) &&
+       /w\._calendarPoll = setTimeout/.test(load) &&
+       /loadSeq !== w\._loadSeq \|\| w\.rangeKey !== rangeKey/.test(load),
+    'navigation paints cached meetings immediately and polls a cold background refresh without stale-week races');
   const push = _win(html, '_mtgPushRecap() {', 700) || '';
   t.ok(/typeof fr\.contentWindow\.startRecap === 'function'/.test(push) &&
        /fr\.contentWindow\.startRecap\(w\._pendingRecap\.story, w\._pendingRecap\.people, w\._pendingRecap\.photos\)/.test(push),
