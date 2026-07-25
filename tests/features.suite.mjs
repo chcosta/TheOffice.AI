@@ -4214,25 +4214,29 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
 
   // (2) SERVER — recap build: seed short-circuit, AI transcript path is timeout-bounded, and the
   // dropped-then-restored _connectExtractJson is present (the bug that broke the real recap path).
-  const recap = _win(srv, 'async function _meetingsBuildRecap(', 18000) || '';
+  const recap = _win(srv, 'async function _meetingsBuildRecap(', 30000) || '';
   t.ok(recap, '_meetingsBuildRecap helper exists');
   t.ok(/id === _MEETINGS_SEED_ID/.test(recap), 'the seed meeting short-circuits to the authored SFI story');
   t.ok(/_meetingsWorkIqAsk\(compactPrompt, 120000\)/.test(recap),
-    'the transcript recap calls WorkIQ directly with a bounded timeout');
-  t.ok(/const \[text, evidenceText\] = await Promise\.all\([\s\S]{0,240}_meetingsWorkIqAsk\(compactPrompt, 120000\)[\s\S]{0,240}const obj = _connectExtractJson\(text\);/.test(recap),
-    'the AI text is parsed via _connectExtractJson (obj is defined before use — regression guard)');
+    'the WorkIQ transcript fallback remains bounded when direct VTT retrieval is unavailable');
+  t.ok(/const analysisPromise = directBundle && directBundle\.transcriptVtt/.test(recap) &&
+       /_meetingsWorkIqAsk\(compactPrompt, 120000\)\.then\(_connectExtractJson\)/.test(recap) &&
+       /const \[obj, evidenceText\] = await Promise\.all/.test(recap),
+    'direct or fallback transcript analysis is parsed before shaping the recap');
   t.ok(/asking one WorkIQ call to do[\s\S]*both jobs produced oversized answers/.test(recap) &&
        /WorkIQ did not return a usable transcript recap for the exact occurrence/.test(recap),
     'transcript extraction is compact and unusable responses become retryable errors rather than false no-transcript claims');
   t.ok(/return \{ story: minimal, people: \{[\s\S]*empty: true/.test(recap),
     'an unavailable transcript degrades to a minimal never-crash story with empty:true');
-  const workiq = _win(srv, 'function _meetingsWorkIqAsk(', 4200) || '';
+  const workiq = _win(srv, 'function _meetingsWorkIqTool(', 5200) || '';
   t.ok(/spawnSync\('taskkill', \['\/PID', String\(child\.pid\), '\/T', '\/F'\]/.test(workiq),
     'Windows WorkIQ cleanup terminates the bounded subprocess tree by PID');
   t.ok(/child\.stdin\.end\(\)/.test(workiq),
     'successful WorkIQ calls close stdin so the MCP server can exit cleanly');
   t.ok(/commandParts\.map\(value => \/\\s\/\.test\(value\) \? `"\$\{value\}"` : value\)/.test(workiq),
     'Windows WorkIQ launch quotes safe command/argument values that contain spaces');
+  t.ok(/arguments: toolArgs \|\| \{\}/.test(workiq) && /const commandArgs = Array\.isArray\(workiq\.args\)/.test(workiq),
+    'the MCP command arguments cannot shadow the structured arguments sent to the WorkIQ tool');
 
   // (3) SERVER — routes: recent is cached per window without inventing sample meetings; recap requires a meetingId.
   const rec = _win(srv, "app.get('/api/meetings/recent'", 7000) || '';
@@ -4252,10 +4256,36 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
   const rcp = _win(srv, "app.post('/api/meetings/recap'", 3000) || '';
   t.ok(rcp, 'POST /api/meetings/recap route exists');
   t.ok(/if \(!meetingId\) return res\.status\(400\)/.test(rcp), 'recap 400s without a meetingId');
+  t.ok(/const force = !!\(req\.body && req\.body\.force\)/.test(rcp) &&
+       /const cached = !force && prior/.test(rcp) &&
+       /const best = force && built && built\.story && !built\.empty/.test(rcp),
+    'force regeneration bypasses the durable cache and replaces it only with a valid rebuilt story');
   t.ok(/await _meetingsProfilePhotos\(best\.people\)/.test(rcp) &&
        /const payload = \{ \.\.\.best, photos \}/.test(rcp) &&
-       /story: payload\.story, people: payload\.people, photos/.test(rcp),
+       /const served = _meetingsWithLocalMedia\(meetingId, payload\)/.test(rcp) &&
+       /story: served\.story, people: served\.people, photos/.test(rcp),
     'recap returns the best durable story/people/quality payload with resolved profile photos');
+  const mediaCache = _win(srv, 'const _MEETINGS_MEDIA_DIR', 7000) || '';
+  t.ok(/function _meetingsReadLocalMediaManifest\(/.test(mediaCache) &&
+       /_meetingsMediaToken\(meetingId\) !== token/.test(mediaCache) &&
+       /requestedFile !== file/.test(mediaCache) &&
+       /path\.resolve\(_MEETINGS_MEDIA_DIR, token\)/.test(mediaCache),
+    'private meeting media manifests are meeting-bound and reject unsafe file paths');
+  t.ok(/function _meetingsWithLocalMedia\(/.test(mediaCache) &&
+       /localClips\.find\(item => item\.segmentIndex === index\)/.test(mediaCache) &&
+       /return clip \? \{ \.\.\.segment, audioClipId: clip\.id \} : segment/.test(mediaCache) &&
+       /grade: 'authentic-media', hasAuthenticAudio: true, ready: true/.test(mediaCache),
+    'validated local clips attach deterministically to their authored story segments');
+  const mediaRoute = _win(srv, "app.get('/api/meetings/media/:token/:file'", 2600) || '';
+  t.ok(/_meetingsReadLocalMediaManifest\(token\)/.test(mediaRoute) &&
+       /loaded\.manifest\.clips\.some/.test(mediaRoute) &&
+       /Cache-Control', 'private, max-age=86400'/.test(mediaRoute) &&
+       /Content-Type', _meetingsLocalMediaContentType\(file\)/.test(mediaRoute) &&
+       /res\.sendFile\(full\)/.test(mediaRoute),
+    'the private media route serves only manifest-listed files through seekable Express sendFile responses');
+  const briefRoute = _win(srv, "app.get('/api/meetings/brief'", 2500) || '';
+  t.ok(/const rec = _meetingsWithLocalMedia\(meetingId, cached\)/.test(briefRoute),
+    'the read-first brief reports authentic cached media consistently with the player payload');
 
   // (4) SPA — the Meetings.AI studio section + the data-driven iframe player + the ready handshake.
   t.ok(/route === 'meetings'/.test(html), 'the Meetings.AI section renders on the meetings route');
@@ -4281,13 +4311,22 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
        /function narrationChunks\(/.test(player) &&
        /new SpeechSynthesisUtterance\(NARRATION_QUEUE\.shift\(\)\)/.test(player) &&
        /utterance\.rate=1\.14; utterance\.pitch=1\.12/.test(player) &&
+       /STORY\.openingNarration/.test(player) &&
        /STORY\.editorialThroughline/.test(player) &&
+       /STORY\.decisionSynthesis/.test(player) &&
        /STORY\.closingSynthesis/.test(player),
     'the player uses a warmer upbeat voice and chunked additive editorial narration instead of reading visible slide text');
-  t.ok(/const waitingForNarrator=narrationEnabled&&!NARRATION_DONE/.test(player) &&
-       /!waitingForNarrator && !awaitingNext/.test(player) &&
+  const beatNarration = _win(player, 'function beatNarration(beat)', 2600) || '';
+  t.ok(/text=seg\.narration\|\|''/.test(beatNarration) &&
+       /text=proof\|\|''/.test(beatNarration) &&
+       !/Now the story turns/.test(beatNarration) &&
+       !/Now we open/.test(beatNarration) &&
+       !/The conversation converted/.test(beatNarration),
+    'the player trusts the authored continuous script instead of injecting repetitive stock transitions');
+  t.ok(/const waitingForNarrator=!clip&&narrationEnabled&&!NARRATION_DONE/.test(player) &&
+       /!waitingForNarrator && !waitingForMedia && !awaitingNext/.test(player) &&
        /utterance\.onend=.*speakNarrationChunk/.test(player),
-    'chapter progression waits for every narration chunk to finish instead of cutting the host off');
+    'chapter progression waits for narration or authentic media to finish instead of cutting either source off');
   t.ok(/\/api\/meetings\/narration\/config/.test(srv) &&
        /\/api\/meetings\/narration\/synthesize/.test(srv) &&
        /audio-24khz-48kbitrate-mono-mp3/.test(srv) &&
@@ -4305,38 +4344,139 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
        /NARRATION_AUDIO\.play\(\)\.catch/.test(player) &&
        /NARRATION_ABORT\.abort\(\)/.test(player),
     'pause, resume, and chapter changes control neural audio and cancel stale synthesis');
-  t.ok(/id="autoBtn" class="primary-control"[\s\S]{0,120}Pause newscast/.test(player) &&
+  t.ok(/class="studio"/.test(player) &&
+       !/class="anchor-zone"/.test(player) &&
+       /\.screen-zone\{width:100%;height:100%/.test(player) &&
+       /id="cameraRig"/.test(player) &&
+       /id="lowerThird"/.test(player) &&
+       /id="chapterLabel"/.test(player),
+    'the production player gives story visuals the full stage without a decorative newscaster frame');
+  t.ok(/id="sourceVideo"/.test(player) &&
+       /function clipForBeat\(/.test(player) &&
+       /function startOriginalMedia\(/.test(player) &&
+       /const isVideo=clip\.mediaType==='video'/.test(player) &&
+       /if\(isVideo\)/.test(player) &&
+       /if\(playing&&clip\)[\s\S]{0,180}startOriginalMedia\(clip\)/.test(player) &&
+       /else if\(narrationEnabled&&playing\)[\s\S]{0,180}speakBeat/.test(player),
+    'authentic video beats start source playback instead of synthetic narration');
+  t.ok(/const waitingForMedia=!!clip&&!MEDIA_DONE/.test(player) &&
+       /if\(t>=\(\(b&&b\.dur\)\|\|3000\) && !waitingForNarrator && !waitingForMedia && !awaitingNext\)/.test(player) &&
+       /video\.onended=finishOriginalMedia/.test(player),
+    'the timeline cannot advance past a source beat until its recording clip finishes');
+  t.ok(/<div class="media-footage">[\s\S]*<video id="sourceVideo"[\s\S]*<\/div>[\s\S]*<div class="media-caption">/.test(player) &&
+       /id="mediaQuote"/.test(player) &&
+       /\.media-caption\{/.test(player),
+    'verbatim quotes render in a dedicated caption rail below, never over, source footage');
+  t.ok(/id="autoBtn" class="primary-control"[\s\S]{0,180}aria-label="Pause newscast"/.test(player) &&
        /let STORY=null,[\s\S]{0,180}autoplay=true/.test(player) &&
        /window\.speechSynthesis\.pause\(\)/.test(player) &&
        /window\.speechSynthesis\.resume\(\)/.test(player) &&
        /pausedElapsed=Math\.max\(0,performance\.now\(\)-beatStart\)/.test(player),
     'the narrated newscast advances continuously by default with an obvious pause/resume control that preserves the current chapter');
+  t.ok(/class="transport"/.test(player) &&
+       /id="prevBtn"/.test(player) &&
+       /id="nextBtn"/.test(player) &&
+       /class="player-menu"/.test(player) &&
+       /class="player-menu-panel"/.test(player) &&
+       !/class="controls"/.test(player),
+    'previous, pause, and next stay visible while replay and narration options move into a compact overflow menu');
+  t.ok(/\.transport\{[^}]*opacity:0/.test(player) &&
+       /\.transport:hover,\.transport:focus-within,\.transport:has\(\.player-menu\[open\]\)\{opacity:1\}/.test(player) &&
+       /@media \(hover:none\)\{\.transport\{opacity:1\}\}/.test(player),
+    'the playback transport stays invisible until hover or focus, with a touch-device accessibility fallback');
+  t.ok(/class="ticker-track"/.test(player) &&
+       /@keyframes ticker-scroll/.test(player) &&
+       /\.studio\{position:absolute;inset:30px 0 32px/.test(player) &&
+       /track\.style\.setProperty\('--ticker-duration'/.test(player),
+    'scene descriptions scroll through a reserved themed ticker lane instead of obscuring scene content');
+  t.ok(/window\.parent\.getComputedStyle\(source\)/.test(player) &&
+       /--cp-accent/.test(player) &&
+       /data-appearance/.test(player) &&
+       /data-corners/.test(player) &&
+       /background:var\(--cp-panel-strong\)/.test(player),
+    'player chrome inherits the live parent theme, appearance palette, and corner preference');
   t.ok(/CLICK_TARGETS\.push\(\{x,y,w:cw,h:ch,url:item\.url/.test(player) &&
        /function evidenceHit\(/.test(player) &&
        /window\.open\(hit\.url,'_blank','noopener'\)/.test(player),
     'evidence cards on the canvas are directly clickable while text source links remain available');
+  const beats = _win(player, 'function buildBeats(story)', 6200) || '';
   t.ok(/function evidencePriority\(/.test(player) &&
        /const linked=evidenceForSegment\(seg\)/.test(player) &&
-       /drawEvidenceBoard\(orderedEvidence\(EVIDENCE\)/.test(player),
-    'chapter and evidence-map visuals foreground retrieved artifacts instead of repetitive transcript cards');
+       !/B\.push\(\{type:'evidence'/.test(beats) &&
+       !/Evidence map/.test(player),
+    'retrieved artifacts support narrative scenes without forcing a standalone evidence-map scene');
   t.ok(/id="audioBtn"/.test(player) &&
+       /function startOriginalMedia\(clip\)/.test(player) &&
+       /stopNarration\(\)/.test(player) &&
        /new Audio\(clip\.url\)/.test(player) &&
+       /video\.src=clip\.url/.test(player) &&
        /original clips are labeled separately/.test(player) &&
-       /stopNarration\(\);\s*stopAudio\(\);\s*ACTIVE_AUDIO=new Audio\(clip\.url\)/.test(player),
-    'the player supports authentic source clips without inventing or implying unavailable audio');
-  const beats = _win(player, 'function buildBeats(story)', 900) || '';
+       /Original meeting recording/.test(player),
+    'the player supports authentic source audio or video without inventing or mislabeling either');
   t.ok(!/type:'wide'/.test(beats) && !/Conference room/.test(player),
     'the recap does not waste a beat on an empty conference-room establishing shot');
+  t.ok(/story\.scenePlan/.test(beats) &&
+       /purpose/.test(beats) &&
+       /if\(B\.length>=2\) return B/.test(beats) &&
+       /meaningfulText/.test(beats),
+    'the model-authored scene plan controls the edit while a selective fallback omits empty or redundant beats');
   t.ok(/Evidence-backed transcript recap with AI newscaster narration · no playable meeting audio was retrieved\./.test(player) &&
        /Transcript-only recap with AI newscaster narration · no supporting media was retrieved\./.test(player) &&
        /Narration is synthetic/.test(player),
     'the player distinguishes synthetic narration from unavailable original meeting audio');
   t.ok(/if \(d && d\.type === 'mrv:ready'\) \{ try \{ this\._mtgPushRecap\(\); \} catch/.test(html),
     'the global message listener answers the player mrv:ready handshake');
+  t.ok(/function stopRecapPlayback\(\)/.test(player) &&
+       /stopNarration\(\);\s*stopAudio\(\)/.test(player) &&
+       /d\.type==='mrv:stop'/.test(player) &&
+       /window\.addEventListener\('pagehide',stopRecapPlayback\)/.test(player) &&
+       /visibilitychange/.test(player),
+    'the player tears down narration and original media when hidden, unloaded, or explicitly stopped');
+  const stopRecap = _win(html, '_mtgStopRecap() {', 900) || '';
+  t.ok(/if \(changed && this\.meetings && this\.meetings\.view === 'recap'\) this\._mtgStopRecap\(\)/.test(html) &&
+       /mtgBackToDetail\(\)[\s\S]{0,120}this\._mtgStopRecap\(\)/.test(html) &&
+       /typeof fr\.contentWindow\.stopRecapPlayback === 'function'/.test(stopRecap) &&
+       /type: 'mrv:stop'/.test(stopRecap),
+    'SPA navigation and Back to details stop iframe playback before leaving the newscast');
   t.ok(/Sources & evidence/.test(html) &&
-       /Watch evidence newscast/.test(html) &&
+       /Watch AI-edited recap/.test(html) &&
        /No source-backed newscast is available/.test(html),
-    'meeting details surface provenance and gate the newscast when it adds no evidence-backed value');
+    'meeting details surface provenance while presenting the player as an AI edit, not an evidence tour');
+  const meetingDetail = _win(html, 'class="mtg-detail-head"', 18000) || '';
+  t.ok(/class="mtg-watch"/.test(meetingDetail) &&
+       /@click="mtgGenerateRecap\(\)"/.test(meetingDetail) &&
+       meetingDetail.indexOf('class="mtg-watch"') < meetingDetail.indexOf('<!-- AI brief:'),
+    'the primary watch action appears beside the meeting title before the full recap');
+  const regenerate = _win(html, 'async mtgGenerateRecap(force = false)', 2200) || '';
+  t.ok(/@click="mtgGenerateRecap\(true\)"/.test(html) &&
+       /Regenerate from sources/.test(html) &&
+       /force: !!force/.test(regenerate) &&
+       /await this\.mtgLoadBriefStatus\(m\.id\)/.test(regenerate) &&
+       /Recap regenerated from the latest transcript and evidence/.test(regenerate),
+    'a selected completed meeting can explicitly rebuild its cached recap from current sources');
+  t.ok(/<a class="mtg-evidence-row" :href="e\.url"[^>]+@click\.prevent\.stop="openMeetingEvidence\(e\.url, \$event\)"/.test(html) &&
+       /openMeetingEvidence\(url, event\)/.test(html) &&
+       /window\.location\.assign\(href\)/.test(html) &&
+       /evidence\.filter\(item => item && item\.url\)/.test(srv),
+    'every source row explicitly opens its destination, with same-window fallback when new tabs are unavailable');
+  t.ok(/function _meetingsDirectSourceBundle\(/.test(srv) &&
+       /\?\$format=text\/vtt/.test(srv) &&
+       /callRecordingEventMessageDetail/.test(srv) &&
+       /detail\.callRecordingUrl/.test(srv),
+    'the exact Teams occurrence resolves raw Graph VTT plus the human recording link');
+  const directAnalysis = _win(srv, 'async function _meetingsAnalyzeDirectTranscript(', 5000) || '';
+  t.ok(/availableTools: \[\]/.test(directAnalysis) &&
+       /Analyze this exact Microsoft Teams VTT transcript locally/.test(directAnalysis) &&
+       /_meetingsGroundDirectAnalysis\(/.test(directAnalysis) &&
+       /Every quote must be copied verbatim from the VTT/.test(directAnalysis),
+    'raw transcript analysis runs without tools and deterministically grounds every displayed quote');
+  t.ok(/openingNarration/.test(directAnalysis) &&
+       /decisionSynthesis/.test(directAnalysis) &&
+       /scenePlan/.test(directAnalysis) &&
+       /one continuous editorial script/.test(directAnalysis) &&
+       /Never use stock transitions/.test(directAnalysis) &&
+       /openingNarration hooks the viewer/.test(srv),
+    'new recap generation writes one meeting-specific narrative arc instead of independent generic recap beats');
 
   // (5) SPA — field-name reconciliation with the server shapes (the mtg-verify fixes).
   const load = _win(html, 'async loadMeetings(', 5200) || '';
@@ -4397,9 +4537,9 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/function _meetingsPersistBriefState\(/.test(srv), 'a persist helper writes the state to disk');
   t.ok(/function _meetingsCacheRecap\(/.test(srv) && /function _meetingsGetCachedRecap\(/.test(srv),
     'completed recap payloads are cached on disk, not only in process memory');
-  t.ok(/_MEETINGS_RECAP_SCHEMA_VERSION = 7/.test(srv) &&
+  t.ok(/_MEETINGS_RECAP_SCHEMA_VERSION = 8/.test(srv) &&
        /stored\.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION/.test(srv),
-    'the durable cache invalidates older recaps that lack verified occurrence identity or source extracts');
+    'the durable cache invalidates older recaps that lack direct Graph transcript provenance and clickable sources');
   t.ok(/cached recap lacks its requested occurrence identity/.test(srv) &&
        /fs\.unlinkSync\(_meetingsRecapFile\(id\)\)/.test(srv),
     'identity-less legacy recap files are rejected and removed rather than attached by ID alone');
@@ -4442,8 +4582,8 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
        srv.includes('prior.highlights = [...new Set([...prior.highlights, ...item.highlights])].slice(0, 4)') &&
        srv.includes('const contextAround = (start, end) =>') &&
        player.includes('const detail=item.excerpt?') &&
-       player.includes('STORY.evidenceSynthesis'),
-    'retrieved source excerpts and key highlights survive normalization, render in evidence cards, and inform editorial synthesis');
+       player.includes('evidenceHasDeepExtract(item)'),
+    'retrieved source excerpts and key highlights survive normalization and remain available to selected narrative scenes');
   t.ok(/function _meetingsNormalizeCitations\(/.test(srv) &&
        /function _meetingsNormalizeVisuals\(/.test(srv) &&
        /Open and inspect each relevant document/.test(srv) &&
@@ -4456,19 +4596,20 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
        /id: 'meeting-transcript'/.test(srv) &&
        /ready: hasAuthenticAudio \|\| linkedSourceCount > 0 \|\| citationCount > 0 \|\| visualCount > 0/.test(srv),
     'verbatim transcript quotes remain first-class citations even when no supporting document is retrievable');
-  t.ok(/if \(base && base\.story && supplementalEvidence\.length\)/.test(srv) &&
-       /base\.story\.evidence = \[\.\.\.\(Array\.isArray\(base\.story\.evidence\)/.test(srv),
-    'the independent evidence pass joins both full-story and compact transcript recap shapes');
+  t.ok(/if \(base && base\.story && \(supplementalEvidence\.length \|\| directEvidence\.length\)\)/.test(srv) &&
+       /\.\.\.directEvidence,[\s\S]{0,80}\.\.\.supplementalEvidence/.test(srv),
+    'direct Teams sources and the independent evidence pass join both recap shapes');
   t.ok(/function drawSourceExtract\(/.test(player) &&
        /function drawEvidenceChart\(/.test(player) &&
        /type:'source'/.test(player) &&
        /SOURCE EXTRACT/.test(player) &&
        /beat\.type==='source'/.test(player) &&
-       /sourceBeats\.slice\(0,6\)/.test(player) &&
+       /evidenceHasDeepExtract\(item\)/.test(player) &&
+       /scenePlan/.test(player) &&
        /citationIndex/.test(player) &&
        /Includes \$\{Number\(\(STORY\.newscast/.test(player) &&
        /exact citations and \$\{Number\(\(STORY\.newscast/.test(player),
-    'the newscast gives citations and retrieved charts dedicated clickable narrated source beats');
+    'the newscast uses a source extract only when the AI edit selects evidence that advances the story');
   t.ok(/async function _meetingsProfilePhotos\(/.test(srv) &&
        /async function _meetingsGraphTokenAsync\(/.test(srv) &&
        /child_process'\)\.exec\(/.test(_win(srv, 'async function _meetingsGraphTokenAsync(', 2200) || '') &&
@@ -4485,9 +4626,12 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
     'the WorkIQ edit requests cross-system evidence while explicitly forbidding fabricated media');
   t.ok(/"whyItMatters":string/.test(srv) &&
        /NEVER make narration read or paraphrase that visible text/.test(srv) &&
-       /editorialThroughline should frame the meeting's arc/.test(srv) &&
+       /openingNarration hooks the viewer/.test(srv) &&
+       /one cohesive, meeting-specific editorial script/.test(srv) &&
+       /scenePlan is the edit decision/.test(srv) &&
+       /do not create an evidence-map scene/.test(srv) &&
        /omit it rather than speculate/.test(srv),
-    'future newscasts add editorial connective tissue without reading slides or inventing impact');
+    'future newscasts use an AI-selected plot without reading slides, inventing impact, or filling a static template');
   t.ok(/function _meetingsOccurrenceId\(/.test(srv) &&
        /function _meetingsSubjectsMatch\(/.test(srv) &&
        /function _meetingsIsTransientId\(/.test(srv) &&
@@ -4516,7 +4660,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
 
   // SERVER — GET consults the durable state before falling through to none (the actual bug),
   // and auto-heals a restart-orphaned build (stale 'building', or 'ready' with no live cache).
-  const get = _win(srv, "app.get('/api/meetings/brief'", 3600) || '';
+  const get = _win(srv, "app.get('/api/meetings/brief'", 5000) || '';
   t.ok(get, 'GET /api/meetings/brief route exists');
   t.ok(/const st = _meetingsBriefState\.get\(meetingId\)/.test(get), 'GET reads the durable state map');
   t.ok(/st\.status === 'building'[\s\S]{0,900}status: 'pending'[\s\S]{0,80}startedAt/.test(get), "building → pending (with startedAt)");

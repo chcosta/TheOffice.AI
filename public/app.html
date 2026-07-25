@@ -21222,11 +21222,13 @@
               .mtg-item .m .brief{ color:var(--mtg-accent); }
               .mtg-empty{ color:var(--cp-text-faint); font-size:13px; padding:14px 10px; }
               .mtg-detail{ background:var(--cp-surface); border:1px solid var(--cp-border); border-radius:12px; padding:20px 22px; min-height:360px; }
+              .mtg-detail-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:14px; }
+              .mtg-detail-head .copy{ min-width:0; }
               .mtg-links{ display:flex; flex-wrap:wrap; gap:18px; }
               .mtg-link{ color:var(--mtg-accent); font-size:13px; text-decoration:none; }
               .mtg-link:hover{ text-decoration:underline; }
               .mtg-detail h2{ font-size:20px; margin:0 0 6px; font-weight:650; letter-spacing:-.01em; }
-              .mtg-detail .when{ color:var(--cp-text-muted); font-size:13px; margin:0 0 14px; }
+              .mtg-detail .when{ color:var(--cp-text-muted); font-size:13px; margin:0; }
               .mtg-sec{ margin:16px 0 0; }
               .mtg-sec .lbl{ font-size:11.5px; font-weight:650; letter-spacing:.03em; text-transform:uppercase; color:var(--cp-text-muted); margin-bottom:6px; }
               .mtg-att{ display:flex; flex-wrap:wrap; gap:8px 14px; color:var(--cp-text); font-size:13.5px; }
@@ -21235,13 +21237,17 @@
               .mtg-hi{ margin:0; padding-left:18px; color:var(--cp-text); font-size:13.5px; line-height:1.55; }
               .mtg-hi li{ margin:2px 0; }
               .mtg-evidence{ display:grid; gap:10px; margin-top:8px; }
-              .mtg-evidence-row{ padding:10px 0; border-top:1px solid var(--cp-border); }
+              .mtg-evidence-row{ display:block; padding:10px 0; border-top:1px solid var(--cp-border); color:inherit; text-decoration:none; }
               .mtg-evidence-row:first-child{ border-top:0; padding-top:0; }
+              .mtg-evidence-row:hover strong{ color:var(--cp-accent); text-decoration:underline; }
               .mtg-evidence-row .meta{ color:var(--cp-text-faint); font-size:11px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:3px; }
               .mtg-evidence-row .desc{ color:var(--cp-text-muted); font-size:12.5px; line-height:1.45; margin-top:3px; }
               .mtg-gen{ margin-top:20px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-              .mtg-gen .go{ background:linear-gradient(135deg, var(--mtg-ai), var(--mtg-accent)); border:0; border-radius:8px; padding:10px 18px; font-weight:600; color:#fff; display:flex; align-items:center; gap:8px; cursor:pointer; }
-              .mtg-gen .go[disabled]{ opacity:.6; cursor:default; }
+              .mtg-watch{ flex:none; background:linear-gradient(135deg, var(--mtg-ai), var(--mtg-accent)); border:0; border-radius:8px; padding:10px 16px; font-weight:600; color:#fff; display:flex; align-items:center; gap:8px; cursor:pointer; white-space:nowrap; }
+              .mtg-watch[disabled]{ opacity:.6; cursor:default; }
+              .mtg-gen .regen{ background:transparent; border:0; border-bottom:1px solid var(--cp-border-strong); border-radius:0; padding:6px 0; color:var(--cp-text-muted); font:inherit; font-size:12.5px; cursor:pointer; }
+              .mtg-gen .regen:hover{ color:var(--cp-text); border-bottom-color:var(--cp-text); }
+              .mtg-gen .regen[disabled]{ opacity:.55; cursor:default; }
               .mtg-gen .hint{ color:var(--cp-text-faint); font-size:12.5px; }
               .mtg-err{ color:#f85149; font-size:13px; margin-top:12px; }
               .mtg-recap{ background:#000; border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; }
@@ -21250,7 +21256,7 @@
               .mtg-recap-bar .back:hover{ text-decoration:underline; }
               .mtg-recap-bar .t{ font-size:13px; color:var(--cp-text-muted); }
               .mtg-recap iframe{ width:100%; height:calc(100vh - 220px); min-height:520px; border:0; display:block; background:#000; }
-              @media (max-width: 900px){ .mtg-wrap{ grid-template-columns:1fr !important; } .mtg-nav{ position:relative; height:min(48vh,560px); } .mtg-nav-resize{ display:none; } }
+              @media (max-width: 900px){ .mtg-wrap{ grid-template-columns:1fr !important; } .mtg-nav{ position:relative; height:min(48vh,560px); } .mtg-nav-resize{ display:none; } .mtg-detail-head{ align-items:stretch; flex-direction:column; } .mtg-watch{ align-self:flex-start; } }
             </style>
             <div class="mtg">
               <div class="mtg-hero">
@@ -21302,8 +21308,16 @@
                   <div class="mtg-detail" x-show="meetings.view === 'detail'">
                     <template x-if="mtgSelected()">
                       <div>
-                        <h2 x-text="mtgSelected().subject || mtgSelected().title || 'Untitled meeting'"></h2>
-                        <p class="when" x-text="mtgFmtWhen(mtgSelected())"></p>
+                        <div class="mtg-detail-head">
+                          <div class="copy">
+                            <h2 x-text="mtgSelected().subject || mtgSelected().title || 'Untitled meeting'"></h2>
+                            <p class="when" x-text="mtgFmtWhen(mtgSelected())"></p>
+                          </div>
+                          <button type="button" class="mtg-watch" x-show="mtgSelected().demo || (meetings.brief && meetings.brief.newscast && meetings.brief.newscast.ready)" :disabled="meetings.recapLoading" @click="mtgGenerateRecap()">
+                            <span x-show="!meetings.recapLoading || meetings.recapForce">▶ Watch AI-edited recap</span>
+                            <span x-show="meetings.recapLoading && !meetings.recapForce">Opening…</span>
+                          </button>
+                        </div>
                         <div class="mtg-sec" x-show="(mtgSelected().attendees || []).length">
                           <div class="lbl">Attendees</div>
                           <div class="mtg-att">
@@ -21314,10 +21328,10 @@
                         </div>
                         <div class="mtg-sec mtg-links" x-show="!mtgSelected().demo && (mtgSelected().recordingUrl || mtgSelected().webLink)">
                           <template x-if="mtgSelected().recordingUrl">
-                            <a class="mtg-link" :href="mtgSelected().recordingUrl" target="_blank" rel="noopener">▶ Watch recording</a>
+                            <a class="mtg-link" :href="mtgSelected().recordingUrl" target="_blank" rel="noopener" @click.prevent.stop="openMeetingEvidence(mtgSelected().recordingUrl, $event)">▶ Watch recording</a>
                           </template>
                           <template x-if="mtgSelected().webLink">
-                            <a class="mtg-link" :href="mtgSelected().webLink" target="_blank" rel="noopener">↗ Open in Outlook</a>
+                            <a class="mtg-link" :href="mtgSelected().webLink" target="_blank" rel="noopener" @click.prevent.stop="openMeetingEvidence(mtgSelected().webLink, $event)">↗ Open in Outlook</a>
                           </template>
                         </div>
                         <!-- AI brief: summary/decisions/questions/actions/highlights, prefetched in the background -->
@@ -21358,12 +21372,11 @@
                                 <div class="lbl">Sources & evidence</div>
                                 <div class="mtg-evidence">
                                   <template x-for="e in (meetings.brief.evidence || [])" :key="e.id || e.url || e.title">
-                                    <div class="mtg-evidence-row">
+                                    <a class="mtg-evidence-row" :href="e.url" target="_blank" rel="noopener" @click.prevent.stop="openMeetingEvidence(e.url, $event)">
                                       <div class="meta" x-text="[e.type, e.source, e.timestamp].filter(Boolean).join(' · ')"></div>
-                                      <template x-if="e.url"><a class="mtg-link" :href="e.url" target="_blank" rel="noopener" x-text="e.title || 'Open source'"></a></template>
-                                      <template x-if="!e.url"><strong x-text="e.title || 'Supporting evidence'"></strong></template>
+                                      <strong x-text="e.title || 'Open source'"></strong>
                                       <div class="desc" x-show="e.summary" x-text="e.summary"></div>
-                                    </div>
+                                    </a>
                                   </template>
                                 </div>
                               </div>
@@ -21408,9 +21421,9 @@
                           </button>
                         </div>
                         <div class="mtg-gen">
-                          <button type="button" class="go" x-show="mtgSelected().demo || (meetings.brief && meetings.brief.newscast && meetings.brief.newscast.ready)" :disabled="meetings.recapLoading" @click="mtgGenerateRecap()">
-                            <span x-show="!meetings.recapLoading">▶ Watch evidence newscast</span>
-                            <span x-show="meetings.recapLoading">Generating…</span>
+                          <button type="button" class="regen" x-show="!mtgSelected().demo && meetings.briefStatus === 'ready'" :disabled="meetings.recapLoading" @click="mtgGenerateRecap(true)" title="Re-read the exact meeting transcript and supporting evidence, replace the cached recap, and open the newscast">
+                            <span x-show="!meetings.recapLoading || !meetings.recapForce">↻ Regenerate from sources</span>
+                            <span x-show="meetings.recapLoading && meetings.recapForce">Rebuilding from sources…</span>
                           </button>
                           <span class="hint" x-show="!mtgSelected().demo && meetings.briefStatus === 'ready' && (!meetings.brief || !meetings.brief.newscast || !meetings.brief.newscast.ready)">No source-backed newscast is available for this meeting; use the transcript summary above.</span>
                           <span class="hint" x-show="meetings.brief && meetings.brief.newscast && meetings.brief.newscast.ready" x-text="meetings.brief.newscast.hasAuthenticAudio ? 'Includes authentic meeting audio and linked evidence.' : meetings.brief.newscast.evidenceCount + ' supporting sources · transcript audio unavailable.'"></span>
@@ -33312,7 +33325,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           list: [], demo: false,
           selectedId: '',
           view: 'detail',        // 'detail' | 'recap'
-          recapLoading: false, recap: null, people: null, recapDemo: false, recapEmpty: false,
+          recapLoading: false, recapForce: false, recap: null, people: null, recapDemo: false, recapEmpty: false,
           _pendingRecap: null,   // recap payload awaiting the iframe player's mrv:ready handshake
           brief: null, briefStatus: '', briefPhase: '', briefLoading: false, _briefPoll: null, briefError: '', briefAt: 0, briefStartedAt: 0,
           rangeKey: '', _loadSeq: 0, _calendarPoll: null,
@@ -34238,6 +34251,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // incoming page in. Skipped on the initial paint, when no route actually
             // changed, when transitions are off, or under reduced-motion.
             const changed = (route !== this.app.route) || (param !== this.app.routeParam);
+            if (changed && this.meetings && this.meetings.view === 'recap') this._mtgStopRecap();
             const animate = this._navBooted && changed
               && this.navTransition && this.navTransition !== 'none'
               && !this._navReducedMotion();
@@ -41737,6 +41751,30 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const w = this.meetings;
           return w.list.find(m => m.id === w.selectedId) || null;
         },
+        openMeetingEvidence(url, event) {
+          if (event) {
+            try { event.preventDefault(); event.stopPropagation(); } catch (_) {}
+          }
+          const href = String(url || '').trim();
+          if (!/^https?:\/\//i.test(href)) {
+            this.showToast('Meetings.AI', 'This source does not have a valid web link.', 'error');
+            return;
+          }
+          try {
+            const desktop = !!window.__DESKTOP__ || !!(this.data && this.data.version && this.data.version.desktop);
+            if (desktop && typeof window.__openExternal === 'function') {
+              window.__openExternal(href);
+              return;
+            }
+            const opened = window.open('about:blank', '_blank');
+            if (opened) {
+              try { opened.opener = null; } catch (_) {}
+              opened.location.href = href;
+              return;
+            }
+          } catch (_) {}
+          window.location.assign(href);
+        },
         mtgBriefLabel(m) {
           if (!m || m.demo) return '';
           if (m.briefStatus === 'ready') return 'Summary ready';
@@ -41747,6 +41785,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         mtgSelect(id) {
           const w = this.meetings;
+          if (w.view === 'recap') this._mtgStopRecap();
           if (w.selectedId !== id) {
             // Switching meetings drops any recap tied to the old one.
             w.recap = null; w.people = null; w._pendingRecap = null; w.recapDemo = false; w.recapEmpty = false;
@@ -41851,17 +41890,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         mtgBackToDetail() {
           const w = this.meetings;
+          this._mtgStopRecap();
           w.view = 'detail';
           if (w.selectedId) {
             const h = `#/meetings/${encodeURIComponent(w.selectedId)}`;
             if (window.location.hash !== h) { try { window.history.replaceState(null, '', h); } catch (_) {} }
           }
         },
-        async mtgGenerateRecap() {
+        async mtgGenerateRecap(force = false) {
           const w = this.meetings;
           const m = this.mtgSelected();
           if (!m) return;
-          w.recapLoading = true; w.error = '';
+          w.recapLoading = true; w.recapForce = !!force; w.error = '';
           try {
             const r = await this.request('/api/meetings/recap', {
               method: 'POST',
@@ -41873,6 +41913,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 organizer: m.organizer || '',
                 attendees: Array.isArray(m.attendees) ? m.attendees : [],
                 webLink: m.webLink || '',
+                force: !!force,
               }),
             });
             if (!r || !r.story || !r.people) throw new Error('The recap came back empty.');
@@ -41883,6 +41924,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Stash for the player handoff. The same-origin player is invoked directly;
             // postMessage remains a load-timing fallback.
             w._pendingRecap = { type: 'mrv:load', story: r.story, people: r.people, photos: r.photos || {} };
+            if (force) {
+              await this.mtgLoadBriefStatus(m.id);
+              this.showToast('Meetings.AI', 'Recap regenerated from the latest transcript and evidence.', 'success');
+            }
             w.view = 'recap';
             // Persist the recap view in the hash so a reload restores it (server-cached).
             const h = `#/meetings/${encodeURIComponent(m.id)}/recap`;
@@ -41893,6 +41938,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             w.error = (e && e.message) ? e.message : 'Failed to generate the recap.';
           } finally {
             w.recapLoading = false;
+            w.recapForce = false;
           }
         },
         _mtgPushRecap() {
@@ -41907,6 +41953,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               }
             } catch (_) {}
             try { fr.contentWindow.postMessage(w._pendingRecap, '*'); } catch (_) {}
+          }
+        },
+        _mtgStopRecap() {
+          const fr = this.$refs && this.$refs.mtgPlayer;
+          if (!fr || !fr.contentWindow) return;
+          try {
+            if (typeof fr.contentWindow.stopRecapPlayback === 'function') fr.contentWindow.stopRecapPlayback();
+            else fr.contentWindow.postMessage({ type: 'mrv:stop' }, '*');
+          } catch (_) {
+            try { fr.contentWindow.postMessage({ type: 'mrv:stop' }, '*'); } catch (_) {}
           }
         },
         mtgFmtWhen(m) {

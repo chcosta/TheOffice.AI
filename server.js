@@ -33598,7 +33598,7 @@ async function _meetingsGatherRecent(days) {
   return _meetingsGatherRange(start, end);
 }
 
-function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
+function _meetingsWorkIqTool(name, toolArgs, timeoutMs = 120000) {
   return new Promise((resolve, reject) => {
     let config;
     try {
@@ -33615,8 +33615,8 @@ function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
 
     const { spawn, spawnSync } = require('child_process');
     const command = String(workiq.command);
-    const args = Array.isArray(workiq.args) ? workiq.args.map(String) : [];
-    const commandParts = [command, ...args];
+    const commandArgs = Array.isArray(workiq.args) ? workiq.args.map(String) : [];
+    const commandParts = [command, ...commandArgs];
     if (process.platform === 'win32' && commandParts.some(value => /[&|<>^"%!\r\n]/.test(value))) {
       reject(new Error('WorkIQ command contains unsupported shell characters.'));
       return;
@@ -33624,7 +33624,7 @@ function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
     const windowsCommand = commandParts.map(value => /\s/.test(value) ? `"${value}"` : value).join(' ');
     const child = process.platform === 'win32'
       ? spawn(process.env.ComSpec, ['/d', '/s', '/c', windowsCommand], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-      : spawn(command, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      : spawn(command, commandArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     let stdout = '';
     let stderr = '';
@@ -33663,7 +33663,7 @@ function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
       try { child.stdin.write(JSON.stringify(payload) + '\n'); }
       catch (e) { finish(e); }
     };
-    const timer = setTimeout(() => finish(new Error('WorkIQ meeting recap timed out')), timeoutMs);
+    const timer = setTimeout(() => finish(new Error(`WorkIQ ${name} timed out`)), timeoutMs);
 
     child.on('error', e => finish(new Error(`WorkIQ could not start: ${e.message}`)));
     child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000); });
@@ -33681,18 +33681,15 @@ function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
           if (message.error) return finish(new Error(message.error.message || 'WorkIQ initialization failed.'));
           initialized = true;
           send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} });
-          send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ask', arguments: { question } } });
+          send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name, arguments: toolArgs || {} } });
         } else if (message.id === 2) {
-          if (message.error) return finish(new Error(message.error.message || 'WorkIQ meeting recap failed.'));
+          if (message.error) return finish(new Error(message.error.message || `WorkIQ ${name} failed.`));
           const result = message.result || {};
           if (result.isError) {
             const detail = Array.isArray(result.content) ? result.content.map(x => x && x.text).filter(Boolean).join('\n') : '';
-            return finish(new Error(detail || 'WorkIQ meeting recap failed.'));
+            return finish(new Error(detail || `WorkIQ ${name} failed.`));
           }
-          const answer = result.structuredContent && result.structuredContent.answer;
-          const text = answer || (Array.isArray(result.content) ? result.content.map(x => x && x.text).filter(Boolean).join('\n') : '');
-          if (!text) return finish(new Error('WorkIQ returned an empty meeting recap.'));
-          finish(null, text);
+          finish(null, result);
         }
       }
     });
@@ -33706,6 +33703,232 @@ function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
       params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'TheOffice.AI Meetings', version: '1.0' } },
     });
   });
+}
+async function _meetingsWorkIqAsk(question, timeoutMs = 120000) {
+  const result = await _meetingsWorkIqTool('ask', { question }, timeoutMs);
+  const answer = result && result.structuredContent && result.structuredContent.answer;
+  const text = answer || (Array.isArray(result && result.content) ? result.content.map(x => x && x.text).filter(Boolean).join('\n') : '');
+  if (!text) throw new Error('WorkIQ returned an empty meeting recap.');
+  return text;
+}
+async function _meetingsWorkIqFetch(entityUrls, timeoutMs = 45000) {
+  const urls = (Array.isArray(entityUrls) ? entityUrls : []).map(String).filter(Boolean).slice(0, 6);
+  if (!urls.length) return [];
+  let result;
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      result = await _meetingsWorkIqTool('fetch', { entityUrls: urls }, timeoutMs);
+      break;
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) await new Promise(resolve => setTimeout(resolve, 350));
+    }
+  }
+  if (!result) {
+    const target = urls.map(url => String(url).split('?')[0]).join(', ');
+    throw new Error(`WorkIQ fetch failed for ${target}: ${lastError && lastError.message || 'unknown error'}`);
+  }
+  let body = result && result.structuredContent;
+  if (!body || !Array.isArray(body.results)) {
+    const text = Array.isArray(result && result.content) ? result.content.map(x => x && x.text).filter(Boolean).join('\n') : '';
+    try { body = JSON.parse(text); } catch (_) { body = null; }
+  }
+  return body && Array.isArray(body.results) ? body.results : [];
+}
+
+function _meetingsGraphValues(result) {
+  const data = result && result.data;
+  return data && Array.isArray(data.value) ? data.value : [];
+}
+function _meetingsDecodeText(value) {
+  return String(value || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ').trim();
+}
+function _meetingsParseVtt(value) {
+  const blocks = String(value || '').replace(/\r/g, '').split(/\n{2,}/);
+  const utterances = [];
+  for (const block of blocks) {
+    const lines = block.split('\n').map(line => line.trim()).filter(Boolean);
+    const timingIndex = lines.findIndex(line => /^\d{2}:\d{2}:\d{2}\.\d{3}\s+-->\s+/.test(line));
+    if (timingIndex < 0) continue;
+    const timing = lines[timingIndex].match(/^(\d{2}:\d{2}:\d{2}\.\d{3})\s+-->\s+(\d{2}:\d{2}:\d{2}\.\d{3})/);
+    if (!timing) continue;
+    const raw = lines.slice(timingIndex + 1).join(' ');
+    const speakerMatch = raw.match(/<v(?:\.[^ >]+)?\s+([^>]+)>/i);
+    const text = _meetingsDecodeText(raw);
+    if (!text) continue;
+    utterances.push({
+      start: timing[1],
+      end: timing[2],
+      speaker: _meetingsDecodeText(speakerMatch && speakerMatch[1]),
+      text,
+    });
+  }
+  return utterances.slice(0, 5000);
+}
+function _meetingsGroundDirectAnalysis(raw, utterances) {
+  if (!raw || typeof raw !== 'object') return raw;
+  const rows = Array.isArray(utterances) ? utterances : [];
+  const highlights = (Array.isArray(raw.highlights) ? raw.highlights : []).map(item => {
+    if (!item || typeof item !== 'object') return item;
+    const quote = String(item.quote || '').trim();
+    const timestamp = String(item.timestamp || '').trim();
+    let source = quote ? rows.find(row => row && String(row.text || '').includes(quote)) : null;
+    if (!source && timestamp) source = rows.find(row => row && row.start === timestamp);
+    if (!source) return { ...item, quote: '', timestamp: '' };
+    const sourceText = String(source.text || '').trim();
+    const groundedQuote = quote && sourceText.includes(quote) ? quote : sourceText.slice(0, 700).trim();
+    return {
+      ...item,
+      speaker: String(source.speaker || item.speaker || '').trim(),
+      quote: groundedQuote,
+      timestamp: String(source.start || timestamp),
+    };
+  });
+  return { ...raw, highlights };
+}
+async function _meetingsDirectSourceBundle(subject, date, occurrence) {
+  const expectedDate = String(date || '').slice(0, 10);
+  const expectedStart = String(occurrence && occurrence.start || '').slice(0, 5);
+  if (!expectedDate || !expectedStart) return null;
+  try {
+    const day = new Date(`${expectedDate}T00:00:00Z`);
+    if (Number.isNaN(day.getTime())) return null;
+    const calendarParams = new URLSearchParams({
+      startDateTime: new Date(day.getTime() - 12 * 60 * 60 * 1000).toISOString(),
+      endDateTime: new Date(day.getTime() + 36 * 60 * 60 * 1000).toISOString(),
+      '$select': 'id,subject,start,end,organizer,attendees,isOnlineMeeting,onlineMeeting,onlineMeetingUrl,webLink',
+      '$top': '50',
+    });
+    const calendarResults = await _meetingsWorkIqFetch([`/me/calendarView?${calendarParams}`], 45000);
+    const event = _meetingsGraphValues(calendarResults[0]).find(item => {
+      const when = _meetingsWhen(item && item.start, expectedDate);
+      const organizer = String(item && item.organizer && item.organizer.emailAddress && item.organizer.emailAddress.name || '');
+      const expectedOrganizer = String(occurrence && occurrence.organizer || '');
+      return _meetingsSubjectsMatch(subject, item && item.subject)
+        && when.date === expectedDate
+        && when.hm === expectedStart
+        && (!expectedOrganizer || _meetingsSubjectsMatch(expectedOrganizer, organizer));
+    });
+    if (!event) return null;
+    const joinUrl = _meetingsEvidenceUrl(
+      event.onlineMeeting && event.onlineMeeting.joinUrl
+      || event.onlineMeetingUrl
+      || occurrence && occurrence.webLink
+    );
+    const calendarWebUrl = _meetingsEvidenceUrl(event.webLink);
+    const base = {
+      eventId: String(event.id || ''),
+      joinUrl,
+      calendarWebUrl,
+      sourceUrl: calendarWebUrl || joinUrl,
+      organizer: String(event.organizer && event.organizer.emailAddress && event.organizer.emailAddress.name || ''),
+      attendees: (Array.isArray(event.attendees) ? event.attendees : [])
+        .map(item => String(item && item.emailAddress && item.emailAddress.name || '')).filter(Boolean).slice(0, 40),
+      transcriptVtt: '',
+      transcriptCount: 0,
+      recordingCount: 0,
+      recordingUrl: '',
+      onlineMeetingId: '',
+    };
+    if (!joinUrl) return base;
+
+    const meetingParams = new URLSearchParams({
+      '$filter': `JoinWebUrl eq '${joinUrl.replace(/'/g, "''")}'`,
+      '$select': 'id,subject,startDateTime,endDateTime,joinWebUrl,chatInfo',
+      '$top': '5',
+    });
+    const meetingResults = await _meetingsWorkIqFetch([`/me/onlineMeetings?${meetingParams}`], 45000);
+    const onlineMeeting = _meetingsGraphValues(meetingResults[0])[0];
+    const onlineMeetingId = String(onlineMeeting && onlineMeeting.id || '');
+    if (!onlineMeetingId) return base;
+    base.onlineMeetingId = onlineMeetingId;
+    const meetingPath = `/me/onlineMeetings/${encodeURIComponent(onlineMeetingId)}`;
+    const entityUrls = [
+      `${meetingPath}/transcripts?$select=callId,contentCorrelationId,createdDateTime,endDateTime,meetingId,transcriptContentUrl&$top=10`,
+      `${meetingPath}/recordings?$select=callId,contentCorrelationId,createdDateTime,endDateTime,meetingId,recordingContentUrl&$top=10`,
+    ];
+    const threadId = String(onlineMeeting && onlineMeeting.chatInfo && onlineMeeting.chatInfo.threadId || '');
+    if (threadId) {
+      entityUrls.push(`/chats/${encodeURIComponent(threadId)}/messages?$select=id,createdDateTime,eventDetail,webUrl&$top=50`);
+    }
+    const mediaResults = await _meetingsWorkIqFetch(entityUrls.slice(0, 2), 60000);
+    const transcripts = _meetingsGraphValues(mediaResults[0]).filter(item => item && item.transcriptContentUrl);
+    const recordings = _meetingsGraphValues(mediaResults[1]).filter(item => item && item.recordingContentUrl);
+    base.transcriptCount = transcripts.length;
+    base.recordingCount = recordings.length;
+    let messages = [];
+    if (entityUrls[2]) {
+      try {
+        const chatResults = await _meetingsWorkIqFetch([entityUrls[2]], 60000);
+        messages = _meetingsGraphValues(chatResults[0]);
+      } catch (error) {
+        console.warn('[meetings] recording-link lookup failed —', error && error.message);
+      }
+    }
+    const recordingMessage = messages.find(item => {
+      const detail = item && item.eventDetail;
+      return detail && /callRecordingEventMessageDetail$/i.test(String(detail['@odata.type'] || ''))
+        && detail.callRecordingStatus === 'success'
+        && _meetingsEvidenceUrl(detail.callRecordingUrl);
+    });
+    base.recordingUrl = _meetingsEvidenceUrl(recordingMessage && recordingMessage.eventDetail && recordingMessage.eventDetail.callRecordingUrl);
+    base.sourceUrl = base.recordingUrl || base.calendarWebUrl || base.joinUrl;
+
+    const transcript = transcripts
+      .filter(item => String(item.endDateTime || '') !== '0001-01-01T00:00:00Z')
+      .sort((a, b) => Date.parse(b.endDateTime || b.createdDateTime || 0) - Date.parse(a.endDateTime || a.createdDateTime || 0))[0]
+      || transcripts[transcripts.length - 1];
+    if (transcript && transcript.transcriptContentUrl) {
+      const contentUrl = new URL(transcript.transcriptContentUrl);
+      const contentPath = contentUrl.pathname.replace(/^\/v1\.0/i, '') + '?$format=text/vtt';
+      const contentResults = await _meetingsWorkIqFetch([contentPath], 60000);
+      if (typeof (contentResults[0] && contentResults[0].data) === 'string') {
+        base.transcriptVtt = contentResults[0].data.slice(0, 250000);
+      }
+    }
+    return base;
+  } catch (e) {
+    console.warn('[meetings] direct Teams source lookup failed —', e && e.message);
+    return null;
+  }
+}
+async function _meetingsAnalyzeDirectTranscript(bundle, subject, date) {
+  const utterances = _meetingsParseVtt(bundle && bundle.transcriptVtt);
+  if (!utterances.length) return null;
+  const transcript = utterances.map(item => `[${item.start}] ${item.speaker || 'Unknown'}: ${item.text}`).join('\n').slice(0, 180000);
+  const participants = [...new Set(utterances.map(item => item.speaker).filter(Boolean))].slice(0, 40);
+  const prompt = `Analyze this exact Microsoft Teams VTT transcript locally. Do not search for the meeting and do not use external tools.
+Meeting title: "${String(subject || '').slice(0, 240)}"
+Meeting date: "${String(date || '').slice(0, 10)}"
+Participants observed in the transcript: ${JSON.stringify(participants)}
+
+Return ONLY compact valid JSON:
+{"available":true,"sourceSubject":"${String(subject || '').replace(/"/g, '\\"').slice(0, 240)}","sourceDate":"${String(date || '').slice(0, 10)}","identityVerified":true,"summary":"concise factual recap","openingNarration":"an immediate meeting-specific hook that establishes value and central tension","editorialThroughline":"the meeting's arc and what changed","evidenceSynthesis":"what the transcript directly supports","decisionSynthesis":"how the decisions resolve the central tension and which conflict or risk remains","closingSynthesis":"decisions, unresolved risk, and next ownership","organizer":"name","participants":[{"name":"name","role":"role only when stated","email":null}],"highlights":[{"speaker":"name","point":"key turning point","quote":"short verbatim transcript quote","narration":"2-4 sentences continuing one cohesive story with context, tradeoff, implication, and a natural handoff","whyItMatters":"one factual impact sentence","timestamp":"HH:MM:SS.mmm","confidence":0.0}],"decisions":["decision"],"questions":["unresolved question"],"actions":[{"owner":"name","text":"action"}],"scenePlan":[{"kind":"opening|throughline|segment|decisions|actions","segmentIndex":0,"purpose":"how this scene advances the plot","visualTreatment":"headline|speaker|full"}]}.
+
+Use 3-6 substantive highlights. Every quote must be copied verbatim from the VTT and retain its timestamp. Distinguish explicit decisions/actions from proposals. Do not invent roles, impact, decisions, owners, or facts. Write all narration fields as one continuous editorial script: hook the viewer with why this meeting mattered, build through the real tension or disagreement, show how evidence changed the conversation, pay off the decisions, and end on owned action. Narration must add connective value rather than repeat visible text. Never use stock transitions such as "Now the story", "Now we open", "Next up", "Here is", or repeated chapter announcements. Build scenePlan as a selective 4-8 scene edit, not a fixed recap template. Include only scenes that materially advance the central tension, turning point, resolution, remaining risk, or owned next step. Omit redundant throughline, decisions, and actions scenes; never create an evidence-map scene.
+
+VTT transcript:
+${transcript}`;
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null,
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    cwd: __dirname,
+    availableTools: [],
+    onChunk: chunk => { acc += chunk; },
+    meta: { source: 'system', category: 'meetings' },
+  });
+  if (result && result.fallback) throw new Error(result.error || 'Local transcript analysis is unavailable.');
+  return _meetingsGroundDirectAnalysis(
+    _connectExtractJson(acc.trim() || (result && result.output) || ''),
+    utterances
+  );
 }
 
 function _meetingsEvidenceUrl(value) {
@@ -33983,6 +34206,40 @@ function _meetingsLinkEvidence(segments, evidence) {
   return segments;
 }
 
+function _meetingsNormalizeScenePlan(raw, segments, evidence, story) {
+  const allowed = new Set(['opening', 'throughline', 'segment', 'source', 'decisions', 'chatter', 'actions']);
+  const evidenceIds = new Set(evidence.map(item => item.id));
+  const seen = new Set();
+  const out = [];
+  for (const value of (Array.isArray(raw) ? raw : []).slice(0, 12)) {
+    if (!value || typeof value !== 'object') continue;
+    const kind = String(value.kind || value.type || '').toLowerCase().trim();
+    if (!allowed.has(kind) || kind === 'evidence') continue;
+    const segmentIndex = Math.max(0, Math.floor(Number(value.segmentIndex) || 0));
+    const evidenceId = String(value.evidenceId || '').trim().slice(0, 48);
+    if (kind === 'segment' && !segments[segmentIndex]) continue;
+    if (kind === 'source' && !evidenceIds.has(evidenceId)) continue;
+    if (kind === 'decisions' && !(story.decisions || []).length) continue;
+    if (kind === 'chatter' && !(story.chatter && (story.chatter.items || []).length)) continue;
+    if (kind === 'actions' && !(story.actions || []).length) continue;
+    const key = kind === 'segment' ? `${kind}:${segmentIndex}`
+      : kind === 'source' ? `${kind}:${evidenceId}:${Math.max(0, Math.floor(Number(value.citationIndex) || 0))}`
+        : kind;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      kind,
+      segmentIndex: kind === 'segment' ? segmentIndex : undefined,
+      evidenceId: kind === 'source' ? evidenceId : undefined,
+      citationIndex: kind === 'source' ? Math.max(0, Math.floor(Number(value.citationIndex) || 0)) : undefined,
+      visualIndex: kind === 'source' ? Math.max(0, Math.floor(Number(value.visualIndex) || 0)) : undefined,
+      purpose: String(value.purpose || '').trim().slice(0, 500),
+      visualTreatment: String(value.visualTreatment || '').toLowerCase().trim().slice(0, 40),
+    });
+  }
+  return out;
+}
+
 function _meetingsNormalizeNewscast(story, people, subject, date) {
   if (!story || typeof story !== 'object') return null;
   const rawSegments = Array.isArray(story.segments) ? story.segments : [];
@@ -34043,6 +34300,7 @@ function _meetingsNormalizeNewscast(story, people, subject, date) {
   const linkedSourceCount = evidence.filter(x => x.url || x.imageUrl).length;
   const citationCount = evidence.reduce((total, item) => total + item.citations.length, 0);
   const visualCount = evidence.reduce((total, item) => total + item.visuals.length, 0);
+  const scenePlan = _meetingsNormalizeScenePlan(story.scenePlan, segments, evidence, story);
   const grade = hasAuthenticAudio ? 'authentic-media'
     : visualCount > 0 ? 'visual-evidence'
       : citationCount > 0 ? 'source-extracted'
@@ -34056,6 +34314,7 @@ function _meetingsNormalizeNewscast(story, people, subject, date) {
       date: String(story.date || date || '').slice(0, 40),
       segments,
       evidence,
+      scenePlan,
       media: { recordingUrl, audioClips: clips },
       newscast: {
         version: 3,
@@ -34131,7 +34390,7 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
     const point = String((item && (item.point || item.heading)) || `Key moment ${index + 1}`);
     return {
       heading: point,
-      narration: String((item && item.narration) || point),
+      narration: String((item && item.narration) || ''),
       whyItMatters: String((item && item.whyItMatters) || ''),
       speaker: keyFor(speakerName),
       quote: quoteText,
@@ -34146,7 +34405,7 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
   if (!segments.length && decisions.length) {
     segments.push({
       heading: 'Decisions',
-      narration: 'The meeting produced these decisions.',
+      narration: String(raw.decisionSynthesis || raw.closingSynthesis || ''),
       speaker: keyFor(names[0]),
       quote: '',
       screen: { kind: 'bullets', title: 'Decisions', items: decisions.slice(0, 5) },
@@ -34187,9 +34446,12 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
       identityVerified: raw.identityVerified === true,
       subtitle: String(raw.subtitle || 'Meeting recap'),
       date: String(raw.date || date || ''),
+      openingNarration: String(raw.openingNarration || ''),
       editorialThroughline: String(raw.editorialThroughline || ''),
       evidenceSynthesis: String(raw.evidenceSynthesis || ''),
+      decisionSynthesis: String(raw.decisionSynthesis || ''),
       closingSynthesis: String(raw.closingSynthesis || ''),
+      scenePlan: Array.isArray(raw.scenePlan) ? raw.scenePlan : [],
       organizer: keyFor(organizerName),
       attendees: names.map(keyFor),
       overview: summary,
@@ -34205,8 +34467,8 @@ function _meetingsStoryFromWorkIq(raw, subject, date) {
   };
 }
 
-// Build a recap story for a meeting. Seed id → the authored SFI story; otherwise
-// call WorkIQ's M365 Copilot meeting recap directly and shape the result locally.
+// Build a recap story for a meeting. Prefer the exact Graph VTT transcript and
+// analyze it with our own tool-free model call; WorkIQ ask is only a fallback.
 async function _meetingsBuildRecap(meetingId, subject, date, occurrence = {}) {
   const id = String(meetingId || '').trim();
   if (!id || id === _MEETINGS_SEED_ID) {
@@ -34227,10 +34489,10 @@ async function _meetingsBuildRecap(meetingId, subject, date, occurrence = {}) {
 Use WorkIQ ask (Microsoft 365 Copilot) to find the completed meeting by its exact subject and date, then read its recap/transcript and meeting chat. Never substitute the most recent occurrence or a similarly named meeting. If the exact dated occurrence cannot be verified, return {"story":null,"people":{}}. Also search for directly supporting evidence from the surrounding work: Teams discussions, email threads, SharePoint/OneDrive documents or slides, and real Azure DevOps/GitHub repository, pull-request, commit, or work-item links mentioned in those sources. Use only evidence you can actually retrieve. Never invent a URL, timestamp, screenshot, quote, audio clip, or source.
 
 Create a compact AI-edited newscast: context → key discussion/turning points → decisions → unresolved questions → owned actions. Every key segment should cite retrieved evidence where possible. Return ONLY valid JSON under 20000 characters (no prose, no code fence) with this exact shape:
-{"story":{"title":string,"sourceSubject":string (exact retrieved meeting title),"sourceDate":"YYYY-MM-DD" (exact retrieved occurrence date),"identityVerified":true,"subtitle":string,"date":string,"editorialThroughline":string,"evidenceSynthesis":string,"closingSynthesis":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"whyItMatters":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]}},
+{"story":{"title":string,"sourceSubject":string (exact retrieved meeting title),"sourceDate":"YYYY-MM-DD" (exact retrieved occurrence date),"identityVerified":true,"subtitle":string,"date":string,"openingNarration":string,"editorialThroughline":string,"evidenceSynthesis":string,"decisionSynthesis":string,"closingSynthesis":string,"organizer":string (a speaker key),"attendees":[string speaker keys],"overview":string,"segments":[{"heading":string,"narration":string,"whyItMatters":string,"speaker":string (speaker key),"quote":string (a real verbatim quote from that speaker),"screen":{"kind":"stat"|"bullets"|"compare"|"quote","big"?:string,"label"?:string,"foot"?:string,"title"?:string,"items"?:[string],"a"?:{"who":string,"points":[string]},"b"?:{"who":string,"points":[string]}}}],"decisions":[string],"questions":[string],"actions":[{"owner":string speaker key,"text":string}],"chatter":{"intro":string,"items":[{"who":string speaker key,"text":string}]},"scenePlan":[{"kind":"opening"|"throughline"|"segment"|"source"|"decisions"|"chatter"|"actions","segmentIndex":number,"evidenceId":string,"citationIndex":number,"visualIndex":number,"purpose":string,"visualTreatment":"headline"|"speaker"|"full"}]} ,
 "people":{"<speakerKey>":{"name":string,"role":string,"email":string|null,"gender":"m"|"f","color":string hex,"key":string}}}
 Also include story.evidence as an array of {"id":string,"type":"recording"|"transcript"|"slide"|"document"|"image"|"teams"|"email"|"repository"|"pull-request"|"commit"|"work-item"|"link","title":string,"summary":string,"excerpt":string,"highlights":[string],"citations":[{"text":string exact quote,"locator":string page/slide/section,"context":string}],"visuals":[{"kind":"chart"|"graph"|"table"|"diagram"|"image"|"slide","title":string,"caption":string,"locator":string,"imageUrl":string direct image only,"labels":[string],"series":[{"name":string,"values":[number]}],"unit":string}],"relevance":string,"url":string,"source":string,"author":string,"timestamp":string,"imageUrl":string,"confidence":number 0..1}. For every non-transcript source, inspect its content and capture exact locator-aware citations plus relevant source-native charts, graphs, tables, diagrams, or slide figures. If no direct image is available, preserve exact chart labels, numeric series, units, caption, and page/slide locator for faithful redraw. Do not merely list a source name, use a title as a citation, or invent a visual/value. Each segment may add "chapter", "timestamp", "confidence", "evidenceIds", and "audioClipId". Include story.media as {"recordingUrl":string,"audioClips":[{"id":string,"url":string,"label":string,"start":number seconds,"end":number seconds,"speaker":string,"transcript":string}]}.
-Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". The screen already contains the facts, quotes, bullets, decisions, and action text: NEVER make narration read or paraphrase that visible text. Write each narration as 2–4 lively broadcast sentences that add connective tissue: explain what changed, the tension or tradeoff, how the evidence corroborates it, the implication, and the transition to the next chapter. editorialThroughline should frame the meeting's arc rather than repeat the overview. evidenceSynthesis should explain what the mix of sources lets us conclude rather than list source titles. closingSynthesis should connect decisions, unresolved risk, and next ownership rather than read the action list. Keep the delivery confident, warm, and energetic without hype. Write whyItMatters as one factual sentence connecting that moment to delivery, risk, customers, cost, schedule, or the team's next decision; omit it rather than speculate. Quotes MUST be verbatim from the transcript — never fabricate. Evidence IDs must resolve to story.evidence. Return at most 8 evidence items. Do not infer emotional reactions. Include audioClips only when WorkIQ returns a real directly playable recording-media URL; transcript timestamps alone are not audio. Pick a plausible gender per person only for a fallback avatar. Use 3–6 evidence-backed segments. If the transcript is unavailable or sourceSubject/sourceDate do not exactly match the requested occurrence, return {"story":null,"people":{}}.`;
+Rules: derive a short lowercase "speaker key" for each participant (e.g. first name). Every segment.speaker / actions.owner / chatter.who / attendees entry MUST be a key present in "people". The screen already contains the facts, quotes, bullets, decisions, and action text: NEVER make narration read or paraphrase that visible text. The narration fields must read consecutively as one cohesive, meeting-specific editorial script: openingNarration hooks the viewer with the value and central tension; editorialThroughline establishes the arc; segment narrations build through evidence, tradeoffs, disagreement, and turning points; decisionSynthesis pays off what was settled versus what remains in conflict; closingSynthesis lands on ownership and the next proof point. Write each segment narration as 2–4 lively broadcast sentences that naturally continue the prior thought. Never use stock transitions such as "Now the story", "Now we open", "Next up", "Here is", "The conversation converted", or repeated chapter announcements. evidenceSynthesis should explain what the mix of sources lets us conclude rather than list source titles. scenePlan is the edit decision: choose 4-8 scenes in the strongest dramatic order and include only scenes that change the viewer's understanding of the central tension, evidence, turning point, resolution, remaining risk, or ownership. Do not mechanically include every available section, do not create an evidence-map scene, and omit a separate throughline, source, decisions, chatter, or actions scene when it would repeat an adjacent scene. A source scene is justified only when its exact passage or visual changes the story. Keep the delivery confident, warm, and energetic without hype. Write whyItMatters as one factual sentence connecting that moment to delivery, risk, customers, cost, schedule, or the team's next decision; omit it rather than speculate. Quotes MUST be verbatim from the transcript — never fabricate. Evidence IDs must resolve to story.evidence. Return at most 8 evidence items. Do not infer emotional reactions. Include audioClips only when WorkIQ returns a real directly playable recording-media URL; transcript timestamps alone are not audio. Pick a plausible gender per person only for a fallback avatar. Use 3-6 evidence-backed segments. If the transcript is unavailable or sourceSubject/sourceDate do not exactly match the requested occurrence, return {"story":null,"people":{}}.`;
     // Keep transcript extraction compact and deterministic. The evidence pass below
     // independently gathers rich supporting material; asking one WorkIQ call to do
     // both jobs produced oversized answers and false "no transcript" fallbacks.
@@ -34238,25 +34500,27 @@ Rules: derive a short lowercase "speaker key" for each participant (e.g. first n
     const occurrenceOrganizer = String(occurrence.organizer || '').trim().slice(0, 160);
     const occurrenceAttendees = (Array.isArray(occurrence.attendees) ? occurrence.attendees : []).map(String).filter(Boolean).slice(0, 40);
     const occurrenceUrl = String(occurrence.webLink || occurrence.meetingUrl || '').trim().slice(0, 1200);
+    const directBundle = await _meetingsDirectSourceBundle(subject, date, occurrence);
+    const exactSourceUrl = String(directBundle && directBundle.sourceUrl || occurrenceUrl).slice(0, 1200);
     const compactPrompt = `Use WorkIQ to read the Teams transcript or recap for exactly this completed meeting occurrence:
 - title: "${String(subject || '').slice(0, 200)}"
 - date: "${String(date || '').slice(0, 40)}"
 - local start time: "${occurrenceStart}"
 - organizer: "${occurrenceOrganizer}"
 - expected participants: ${JSON.stringify(occurrenceAttendees)}
-- exact Teams occurrence URL: "${occurrenceUrl}"
+- exact Teams occurrence URL: "${exactSourceUrl}"
 
 When an exact Teams URL is supplied, open that occurrence directly; do not use a title search result as the transcript source. Verify title, date, start time, organizer, and participants against the calendar occurrence before summarizing. Never substitute another occurrence or a similarly named meeting. Return ONLY compact valid JSON (no prose or code fence):
-{"available":true,"sourceSubject":"exact retrieved title","sourceDate":"YYYY-MM-DD","sourceStart":"HH:mm","sourceOrganizer":"exact organizer name","sourceMeetingUrl":"exact Teams occurrence URL","identityVerified":true,"summary":"concise factual recap","editorialThroughline":"the meeting's arc and what changed","evidenceSynthesis":"what the transcript and chat together support","closingSynthesis":"decisions, unresolved risk, and next ownership","organizer":"name","participants":[{"name":"name","role":"role if known","email":"email if known"}],"highlights":[{"speaker":"name","point":"key turning point","quote":"short verbatim transcript quote","narration":"2-4 lively sentences adding context, tradeoff, implication, and transition","whyItMatters":"one factual impact sentence","timestamp":"if known","confidence":0.0}],"decisions":["decision"],"questions":["unresolved question"],"actions":[{"owner":"name","text":"action"}]}.
+{"available":true,"sourceSubject":"exact retrieved title","sourceDate":"YYYY-MM-DD","sourceStart":"HH:mm","sourceOrganizer":"exact organizer name","sourceMeetingUrl":"exact Teams occurrence URL","identityVerified":true,"summary":"concise factual recap","openingNarration":"an immediate meeting-specific hook that establishes value and central tension","editorialThroughline":"the meeting's arc and what changed","evidenceSynthesis":"what the transcript and chat together support","decisionSynthesis":"how the decisions resolve the central tension and which conflict or risk remains","closingSynthesis":"decisions, unresolved risk, and next ownership","organizer":"name","participants":[{"name":"name","role":"role if known","email":"email if known"}],"highlights":[{"speaker":"name","point":"key turning point","quote":"short verbatim transcript quote","narration":"2-4 lively sentences continuing one cohesive story with context, tradeoff, implication, and a natural handoff","whyItMatters":"one factual impact sentence","timestamp":"if known","confidence":0.0}],"decisions":["decision"],"questions":["unresolved question"],"actions":[{"owner":"name","text":"action"}],"scenePlan":[{"kind":"opening|throughline|segment|decisions|actions","segmentIndex":0,"purpose":"how this scene advances the plot","visualTreatment":"headline|speaker|full"}]}.
 
-Use 3-6 substantive highlights. Quotes must be verbatim. Narration must add connective editorial value and must not read or paraphrase the visible quote, point, decisions, or actions. Do not invent facts, people, timestamps, decisions, actions, or impact. If this exact occurrence cannot be verified, return {"available":false,"sourceSubject":"","sourceDate":"","identityVerified":false}.`;
+Use 3-6 substantive highlights. Quotes must be verbatim. Write all narration fields as one continuous editorial script that hooks on the meeting's value, develops its real tension or disagreement, uses evidence to explain turning points, pays off decisions, and lands on owned action. Narration must add connective editorial value and must not read or paraphrase the visible quote, point, decisions, or actions. Never use stock transitions such as "Now the story", "Now we open", "Next up", "Here is", or repeated chapter announcements. Build scenePlan as a selective 4-8 scene edit rather than a fixed recap checklist. Every included scene must advance the central tension, turning point, resolution, remaining risk, or ownership; omit redundant sections and never include an evidence map. Do not invent facts, people, timestamps, decisions, actions, or impact. If this exact occurrence cannot be verified, return {"available":false,"sourceSubject":"","sourceDate":"","identityVerified":false}.`;
     const evidencePrompt = `Find exactly this completed Microsoft 365 meeting occurrence:
 - title: "${String(subject || '').slice(0, 200)}"
 - date: "${String(date || '').slice(0, 40)}"
 - local start time: "${occurrenceStart}"
 - organizer: "${occurrenceOrganizer}"
 - expected participants: ${JSON.stringify(occurrenceAttendees)}
-- exact Teams occurrence URL: "${occurrenceUrl}"
+- exact Teams occurrence URL: "${exactSourceUrl}"
 
 When an exact Teams URL is supplied, open that occurrence directly. Verify the title, date, start time, organizer, and participants before using its meeting chat or surrounding work. Never substitute another occurrence or a similarly named meeting. Then find directly supporting sources from the meeting chat and surrounding work: Teams messages, email threads, SharePoint/OneDrive documents or slides, and real Azure DevOps/GitHub repositories, pull requests, commits, or work items.
 
@@ -34266,20 +34530,56 @@ Do not stop at source names. Open and inspect each relevant document, presentati
 - A concise factual relevance statement explaining what the citation or visual proves about this meeting. Do not use a document title as a citation.
 
 Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string,"summary":string,"excerpt":string,"highlights":[string],"citations":[{"text":string exact quote,"locator":string,"context":string}],"visuals":[{"kind":"chart"|"graph"|"table"|"diagram"|"image"|"slide","title":string,"caption":string,"locator":string,"imageUrl":string,"labels":[string],"series":[{"name":string,"values":[number]}],"unit":string}],"relevance":string,"url":string,"source":string,"author":string,"timestamp":string,"imageUrl":string,"confidence":number}]}. Include only visual values that appear in the retrieved source. An imageUrl must be a direct browser-loadable image, not the document's normal web URL. Do not include generic Office profile/search links. Do not invent URLs, excerpts, locators, charts, values, images, or sources. Explicitly say when recording media or another source type is unavailable.`;
-    const [text, evidenceText] = await Promise.all([
-      _meetingsWorkIqAsk(compactPrompt, 120000),
+    const analysisPromise = directBundle && directBundle.transcriptVtt
+      ? _meetingsAnalyzeDirectTranscript(directBundle, subject, date)
+        .then(value => {
+          if (!value || value.available !== true) throw new Error('Local VTT analysis returned no recap.');
+          return value;
+        })
+        .catch(() => _meetingsWorkIqAsk(compactPrompt, 120000).then(_connectExtractJson))
+      : _meetingsWorkIqAsk(compactPrompt, 120000).then(_connectExtractJson);
+    const [obj, evidenceText] = await Promise.all([
+      analysisPromise,
       _meetingsWorkIqAsk(evidencePrompt, 120000).catch(() => ''),
     ]);
-    const obj = _connectExtractJson(text);
     const evidenceObj = evidenceText ? _connectExtractJson(evidenceText) : null;
     const supplementalEvidence = Array.isArray(evidenceObj)
       ? evidenceObj
       : (evidenceObj && Array.isArray(evidenceObj.evidence) ? evidenceObj.evidence : _meetingsEvidenceFromText(evidenceText));
+    const directEvidence = [];
+    if (directBundle && directBundle.transcriptCount && directBundle.sourceUrl) {
+      directEvidence.push({
+        id: 'teams-transcript',
+        type: 'transcript',
+        title: `${String(subject || 'Meeting')} transcript`,
+        summary: 'Raw Microsoft Teams VTT transcript retrieved directly from Graph and analyzed locally.',
+        url: directBundle.sourceUrl,
+        source: 'Microsoft Teams recap',
+        timestamp: String(date || '').slice(0, 10),
+        confidence: 1,
+      });
+    }
+    if (directBundle && directBundle.recordingUrl) {
+      directEvidence.push({
+        id: 'teams-recording',
+        type: 'recording',
+        title: `${String(subject || 'Meeting')} recording`,
+        summary: 'Open the original Microsoft Teams meeting recording.',
+        url: directBundle.recordingUrl,
+        source: 'Microsoft Teams recording',
+        timestamp: String(date || '').slice(0, 10),
+        confidence: 1,
+      });
+    }
     const base = obj && obj.story
       ? { story: obj.story, people: obj.people }
       : _meetingsStoryFromWorkIq(obj, subject, date);
-    if (base && base.story && supplementalEvidence.length) {
-      base.story.evidence = [...(Array.isArray(base.story.evidence) ? base.story.evidence : []), ...supplementalEvidence];
+    if (base && base.story && (supplementalEvidence.length || directEvidence.length)) {
+      base.story.evidence = [
+        ...(Array.isArray(base.story.evidence) ? base.story.evidence : []),
+        ...directEvidence,
+        ...supplementalEvidence,
+      ];
     }
     if (!base && !(obj && obj.available === false)) {
       throw new Error('WorkIQ did not return a usable transcript recap for the exact occurrence.');
@@ -34288,8 +34588,8 @@ Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string
     if (shaped && shaped.story && Array.isArray(shaped.story.segments) && shaped.story.segments.length && shaped.people && typeof shaped.people === 'object') {
       const sourceSubject = String(shaped.story.sourceSubject || '').trim();
       const sourceDate = String(shaped.story.sourceDate || '').trim().slice(0, 10);
-      const sourceStart = String(obj && obj.sourceStart || '').trim().slice(0, 5);
-      const sourceOrganizer = String(obj && obj.sourceOrganizer || obj && obj.organizer || '').trim();
+      const sourceStart = String(obj && obj.sourceStart || occurrenceStart).trim().slice(0, 5);
+      const sourceOrganizer = String(obj && obj.sourceOrganizer || directBundle && directBundle.organizer || obj && obj.organizer || occurrenceOrganizer).trim();
       if (subject && (shaped.story.identityVerified !== true || !_meetingsSubjectsMatch(subject, sourceSubject))) {
         throw new Error(`WorkIQ returned a different meeting ("${sourceSubject || shaped.story.title || 'unknown'}") for "${subject}".`);
       }
@@ -34304,7 +34604,11 @@ Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string
       }
       shaped.story.sourceStart = sourceStart;
       shaped.story.sourceOrganizer = sourceOrganizer;
-      shaped.story.sourceMeetingUrl = String(obj && obj.sourceMeetingUrl || shaped.story.sourceMeetingUrl || '').trim().slice(0, 1200);
+      shaped.story.sourceMeetingUrl = String(directBundle && directBundle.sourceUrl || obj && obj.sourceMeetingUrl || shaped.story.sourceMeetingUrl || '').trim().slice(0, 1200);
+      shaped.story.transcriptSource = directBundle && directBundle.transcriptVtt ? 'direct-graph-vtt' : 'workiq-recap';
+      if (directBundle && directBundle.recordingUrl) {
+        shaped.story.media = { ...(shaped.story.media || {}), recordingPageUrl: directBundle.recordingUrl };
+      }
       return { story: shaped.story, people: shaped.people, demo: false };
     }
   } catch (e) { reason = 'error'; error = (e && e.message) || 'Could not read the transcript.'; }
@@ -34450,7 +34754,7 @@ app.get('/api/meetings/recent', async (req, res) => {
 // Pass { force:true } to bypass the cache and rebuild.
 const _meetingsRecapCache = new Map();
 const _MEETINGS_RECAP_DIR = path.join(dataPath('meetings'), 'recaps');
-const _MEETINGS_RECAP_SCHEMA_VERSION = 7;
+const _MEETINGS_RECAP_SCHEMA_VERSION = 8;
 function _meetingsRecapFile(meetingId) {
   const hash = require('crypto').createHash('sha256').update(String(meetingId || '')).digest('hex');
   return path.join(_MEETINGS_RECAP_DIR, `${hash}.json`);
@@ -34528,6 +34832,92 @@ function _meetingsCacheRecap(meetingId, recap) {
   } catch (e) {
     console.warn('[meetings] could not persist recap cache —', e && e.message);
   }
+}
+const _MEETINGS_MEDIA_DIR = path.join(dataPath('meetings'), 'media');
+function _meetingsMediaToken(meetingId) {
+  return require('crypto').createHash('sha256').update(String(meetingId || '')).digest('hex');
+}
+function _meetingsLocalMediaContentType(file) {
+  const extension = path.extname(String(file || '')).toLowerCase();
+  if (extension === '.mp4') return 'video/mp4';
+  if (extension === '.webm') return 'video/webm';
+  if (extension === '.mp3') return 'audio/mpeg';
+  if (extension === '.m4a') return 'audio/mp4';
+  if (extension === '.wav') return 'audio/wav';
+  return 'application/octet-stream';
+}
+function _meetingsReadLocalMediaManifest(token) {
+  if (!/^[a-f0-9]{64}$/.test(String(token || ''))) return null;
+  const dir = path.resolve(_MEETINGS_MEDIA_DIR, token);
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+    const meetingId = String((manifest && manifest.meetingId) || '').trim();
+    if (!meetingId || _meetingsMediaToken(meetingId) !== token || !Array.isArray(manifest.clips)) return null;
+    return { dir, manifest };
+  } catch (_) {
+    return null;
+  }
+}
+function _meetingsLocalMediaClips(meetingId) {
+  const id = String(meetingId || '').trim();
+  if (!id) return [];
+  const token = _meetingsMediaToken(id);
+  const loaded = _meetingsReadLocalMediaManifest(token);
+  if (!loaded || loaded.manifest.meetingId !== id) return [];
+  const { dir, manifest } = loaded;
+  try {
+    return manifest.clips.slice(0, 12).flatMap((raw, index) => {
+      if (!raw || typeof raw !== 'object') return [];
+      const requestedFile = String(raw.file || '');
+      const file = path.basename(requestedFile);
+      if (requestedFile !== file) return [];
+      if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(mp4|webm|mp3|m4a|wav)$/i.test(file)) return [];
+      const full = path.join(dir, file);
+      if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return [];
+      const extension = path.extname(file).toLowerCase();
+      const mediaType = raw.mediaType === 'audio' || raw.mediaType === 'video'
+        ? raw.mediaType
+        : ['.mp4', '.webm'].includes(extension) ? 'video' : 'audio';
+      return [{
+        id: String(raw.id || `local-${index + 1}`).replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48) || `local-${index + 1}`,
+        url: `/api/meetings/media/${token}/${encodeURIComponent(file)}`,
+        label: String(raw.label || 'Original meeting clip').trim().slice(0, 160),
+        start: Math.max(0, Number(raw.start) || 0),
+        end: Math.max(0, Number(raw.end) || 0),
+        sourceStart: Math.max(0, Number(raw.sourceStart) || 0),
+        speaker: String(raw.speaker || '').trim().slice(0, 80),
+        transcript: String(raw.transcript || '').trim().slice(0, 1000),
+        mediaType,
+        segmentIndex: Number.isInteger(Number(raw.segmentIndex)) ? Number(raw.segmentIndex) : -1,
+      }];
+    });
+  } catch (_) {
+    return [];
+  }
+}
+function _meetingsWithLocalMedia(meetingId, recap) {
+  if (!recap || !recap.story) return recap;
+  const localClips = _meetingsLocalMediaClips(meetingId);
+  if (!localClips.length) return recap;
+  const story = recap.story;
+  const media = story.media && typeof story.media === 'object' ? story.media : {};
+  const existing = Array.isArray(media.audioClips) ? media.audioClips : [];
+  const localIds = new Set(localClips.map(clip => clip.id));
+  const clips = [...existing.filter(clip => !localIds.has(clip && clip.id)), ...localClips];
+  const segments = (Array.isArray(story.segments) ? story.segments : []).map((segment, index) => {
+    const clip = localClips.find(item => item.segmentIndex === index);
+    return clip ? { ...segment, audioClipId: clip.id } : segment;
+  });
+  const newscast = story.newscast && typeof story.newscast === 'object' ? story.newscast : {};
+  return {
+    ...recap,
+    story: {
+      ...story,
+      segments,
+      media: { ...media, audioClips: clips },
+      newscast: { ...newscast, grade: 'authentic-media', hasAuthenticAudio: true, ready: true },
+    },
+  };
 }
 function _meetingsRecapQualityScore(recap) {
   const story = recap && recap.story;
@@ -34798,6 +35188,24 @@ app.get('/api/meetings/narration/audio/:file', (req, res) => {
   res.sendFile(full);
 });
 
+app.get('/api/meetings/media/:token/:file', (req, res) => {
+  const token = String(req.params.token || '');
+  const requestedFile = String(req.params.file || '');
+  const file = path.basename(requestedFile);
+  if (requestedFile !== file || !/^[a-f0-9]{64}$/.test(token) || !/^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(mp4|webm|mp3|m4a|wav)$/i.test(file)) {
+    return res.status(404).end();
+  }
+  const loaded = _meetingsReadLocalMediaManifest(token);
+  if (!loaded) return res.status(404).end();
+  const listed = loaded.manifest.clips.some(clip => clip && String(clip.file || '') === file);
+  if (!listed) return res.status(404).end();
+  const full = path.join(loaded.dir, file);
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) return res.status(404).end();
+  res.setHeader('Content-Type', _meetingsLocalMediaContentType(file));
+  res.setHeader('Cache-Control', 'private, max-age=86400');
+  res.sendFile(full);
+});
+
 app.post('/api/meetings/recap', async (req, res) => {
   try {
     const meetingId = String((req.body && req.body.meetingId) || '').trim();
@@ -34816,9 +35224,10 @@ app.post('/api/meetings/recap', async (req, res) => {
     const cached = !force && prior;
     if (cached) {
       const c = cached;
+      const served = _meetingsWithLocalMedia(meetingId, c);
       const photos = (c.photos && typeof c.photos === 'object') ? c.photos : {};
       if (!Object.keys(photos).length) _meetingsEnrichCachedPhotos(meetingId, c);
-      return res.json({ ok: true, meetingId, story: c.story, people: c.people, photos, demo: !!c.demo, empty: !!c.empty, quality: c.story && c.story.newscast, cached: true });
+      return res.json({ ok: true, meetingId, story: served.story, people: served.people, photos, demo: !!served.demo, empty: !!served.empty, quality: served.story && served.story.newscast, cached: true });
     }
     const builtRaw = await _meetingsBuildRecap(meetingId, subject, date, occurrence);
     const built = builtRaw && builtRaw.story
@@ -34833,13 +35242,16 @@ app.post('/api/meetings/recap', async (req, res) => {
     if (built && built.empty && built.reason === 'error') {
       return res.status(502).json({ error: built.error || 'Could not read the meeting transcript.', meetingId, retryable: true });
     }
-    const best = _meetingsRecapQualityScore(prior) > _meetingsRecapQualityScore(built) ? prior : built;
+    const best = force && built && built.story && !built.empty
+      ? built
+      : _meetingsRecapQualityScore(prior) > _meetingsRecapQualityScore(built) ? prior : built;
     const photos = (best.photos && typeof best.photos === 'object' && Object.keys(best.photos).length)
       ? best.photos
       : await _meetingsProfilePhotos(best.people);
     const payload = { ...best, photos };
     if (payload.story && !payload.empty) _meetingsCacheRecap(meetingId, payload);
-    res.json({ ok: true, meetingId, story: payload.story, people: payload.people, photos, demo: !!payload.demo, empty: !!payload.empty, quality: payload.story && payload.story.newscast });
+    const served = _meetingsWithLocalMedia(meetingId, payload);
+    res.json({ ok: true, meetingId, story: served.story, people: served.people, photos, demo: !!served.demo, empty: !!served.empty, quality: served.story && served.story.newscast });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -34859,7 +35271,9 @@ function _meetingsBriefFromRecap(rec) {
     questions: Array.isArray(s.questions) ? s.questions.filter(Boolean) : [],
     actions: Array.isArray(s.actions) ? s.actions.filter(a => a && a.text) : [],
     highlights,
-    evidence: Array.isArray(s.evidence) ? s.evidence.filter(Boolean).slice(0, 20) : [],
+    // "Sources & evidence" is an investigation surface, not a provenance claim
+    // graveyard. Only expose sources the user can actually open.
+    evidence: Array.isArray(s.evidence) ? s.evidence.filter(item => item && item.url).slice(0, 20) : [],
     newscast: s.newscast || { ready: false, grade: 'transcript-only', evidenceCount: 0, hasAuthenticAudio: false },
   };
 }
@@ -35063,7 +35477,7 @@ app.get('/api/meetings/brief', (req, res) => {
     }
     const cached = _meetingsGetCachedRecap(meetingId);
     if (cached) {
-      const rec = cached;
+      const rec = _meetingsWithLocalMedia(meetingId, cached);
       if (rec.empty) return res.json({ ok: true, meetingId, status: 'empty', meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec), meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
     }
@@ -35129,7 +35543,7 @@ app.post('/api/meetings/brief', (req, res) => {
     // Already built — hand it back at once.
     const cached = _meetingsGetCachedRecap(meetingId);
     if (cached) {
-      const rec = cached;
+      const rec = _meetingsWithLocalMedia(meetingId, cached);
       if (rec && rec.story && !rec.empty) return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
     }
     // Kick off (or join) the build without blocking the request.
