@@ -34538,8 +34538,12 @@ Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string
         })
         .catch(() => _meetingsWorkIqAsk(compactPrompt, 120000).then(_connectExtractJson))
       : _meetingsWorkIqAsk(compactPrompt, 120000).then(_connectExtractJson);
+    const analysisWithBrief = analysisPromise.then((value) => {
+      _meetingsPublishInterimBrief(id, value, subject, date, occurrence, directBundle);
+      return value;
+    });
     const [obj, evidenceText] = await Promise.all([
-      analysisPromise,
+      analysisWithBrief,
       _meetingsWorkIqAsk(evidencePrompt, 120000).catch(() => ''),
     ]);
     const evidenceObj = evidenceText ? _connectExtractJson(evidenceText) : null;
@@ -34829,6 +34833,7 @@ function _meetingsCacheRecap(meetingId, recap) {
     const tmp = file + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify({ schemaVersion: _MEETINGS_RECAP_SCHEMA_VERSION, meetingId: id, cachedAt: Date.now(), recap }));
     fs.renameSync(tmp, file);
+    _meetingsCacheBrief(id, recap, { allowNewscast: true });
   } catch (e) {
     console.warn('[meetings] could not persist recap cache —', e && e.message);
   }
@@ -35298,6 +35303,173 @@ function _meetingsBriefMeetingMeta(meetingId, rec, state) {
   };
 }
 
+// Read-first summaries have a deliberately independent cache contract. A newscast
+// schema change may require rebuilding the richer player payload, but it must never
+// make an already-generated summary disappear or send it back through the queue.
+const _MEETINGS_BRIEF_CACHE_SCHEMA_VERSION = 1;
+const _MEETINGS_BRIEF_CACHE_FILE = path.join(dataPath('meetings'), 'brief-cache.json');
+const _meetingsBriefCache = new Map();
+let _meetingsBriefCacheSaveTimer = null;
+function _meetingsBriefIdentity(meta) {
+  const source = meta && typeof meta === 'object' ? meta : {};
+  const subject = String(source.subject || source.requestedSubject || source.sourceSubject || '').trim();
+  const when = _meetingsWhen(source.start || source.requestedStart || source.sourceStart, source.date || source.requestedDate || source.sourceDate);
+  const organizer = String(source.organizer || source.requestedOrganizer || source.sourceOrganizer || '').trim();
+  if (!subject || !when.date || !when.hm) return '';
+  return _meetingsOccurrenceId(subject, when.date, when.hm, organizer);
+}
+function _meetingsBriefHasContent(brief) {
+  return !!(brief && (
+    String(brief.summary || '').trim()
+    || (Array.isArray(brief.decisions) && brief.decisions.length)
+    || (Array.isArray(brief.questions) && brief.questions.length)
+    || (Array.isArray(brief.actions) && brief.actions.length)
+    || (Array.isArray(brief.highlights) && brief.highlights.length)
+  ));
+}
+function _meetingsBriefScore(record) {
+  const brief = record && record.brief;
+  if (!_meetingsBriefHasContent(brief)) return 0;
+  return String(brief.summary || '').length
+    + (Array.isArray(brief.decisions) ? brief.decisions.length * 40 : 0)
+    + (Array.isArray(brief.actions) ? brief.actions.length * 40 : 0)
+    + (Array.isArray(brief.highlights) ? brief.highlights.length * 20 : 0)
+    + (brief.newscast && brief.newscast.ready ? 1000 : 0);
+}
+function _meetingsPersistBriefCache() {
+  if (_meetingsBriefCacheSaveTimer) return;
+  _meetingsBriefCacheSaveTimer = setTimeout(() => {
+    _meetingsBriefCacheSaveTimer = null;
+    try {
+      fs.mkdirSync(path.dirname(_MEETINGS_BRIEF_CACHE_FILE), { recursive: true });
+      const entries = [..._meetingsBriefCache.entries()]
+        .sort((a, b) => (Number(b[1] && b[1].cachedAt) || 0) - (Number(a[1] && a[1].cachedAt) || 0))
+        .slice(0, 500);
+      const tmp = _MEETINGS_BRIEF_CACHE_FILE + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({ schemaVersion: _MEETINGS_BRIEF_CACHE_SCHEMA_VERSION, entries }));
+      fs.renameSync(tmp, _MEETINGS_BRIEF_CACHE_FILE);
+    } catch (e) {
+      console.warn('[meetings] could not persist brief cache —', e && e.message);
+    }
+  }, 400);
+}
+function _meetingsCacheBrief(meetingId, recap, options = {}) {
+  if (!recap || !recap.story || recap.empty) return null;
+  const story = recap.story || {};
+  const meta = _meetingsBriefMeetingMeta(meetingId, recap, {
+    subject: recap.requestedSubject,
+    date: recap.requestedDate,
+    start: recap.requestedStart,
+    organizer: recap.requestedOrganizer,
+    attendees: recap.requestedAttendees,
+    webLink: recap.requestedWebLink,
+  });
+  meta.subject = String(recap.requestedSubject || story.sourceSubject || meta.subject || '').trim();
+  meta.date = String(recap.requestedDate || story.sourceDate || meta.date || '').trim();
+  meta.start = String(recap.requestedStart || story.sourceStart || meta.start || '').trim();
+  meta.organizer = String(recap.requestedOrganizer || story.sourceOrganizer || meta.organizer || '').trim();
+  const key = _meetingsBriefIdentity(meta) || String(meetingId || '').trim();
+  if (!key) return null;
+  const brief = _meetingsBriefFromRecap(recap);
+  if (!_meetingsBriefHasContent(brief)) return null;
+  if (options.allowNewscast === false) {
+    brief.newscast = {
+      ...(brief.newscast || {}),
+      ready: false,
+      stale: true,
+      grade: 'summary-cache',
+      hasAuthenticAudio: false,
+    };
+  }
+  const record = { brief, meeting: { ...meta, meetingId: key }, cachedAt: Number(options.cachedAt) || Date.now() };
+  const prior = _meetingsBriefCache.get(key);
+  if (!prior || _meetingsBriefScore(record) >= _meetingsBriefScore(prior)) {
+    _meetingsBriefCache.set(key, record);
+    _meetingsPersistBriefCache();
+    return record;
+  }
+  return prior;
+}
+function _meetingsGetCachedBrief(meetingId, meeting) {
+  const id = String(meetingId || '').trim();
+  const key = _meetingsBriefIdentity(meeting) || id;
+  return _meetingsBriefCache.get(key) || (id && _meetingsBriefCache.get(id)) || null;
+}
+function _meetingsPublishInterimBrief(meetingId, raw, subject, date, occurrence, directBundle) {
+  try {
+    const base = raw && raw.story
+      ? { story: raw.story, people: raw.people }
+      : _meetingsStoryFromWorkIq(raw, subject, date);
+    const shaped = base && _meetingsNormalizeNewscast(base.story, base.people, subject, date);
+    if (!shaped || !shaped.story || !Array.isArray(shaped.story.segments) || !shaped.story.segments.length) return;
+    const expectedDate = String(date || '').slice(0, 10);
+    const expectedStart = String(occurrence && occurrence.start || '').slice(0, 5);
+    const expectedOrganizer = String(occurrence && occurrence.organizer || '').trim();
+    const sourceSubject = String(shaped.story.sourceSubject || '').trim();
+    const sourceDate = String(shaped.story.sourceDate || '').slice(0, 10);
+    const sourceStart = String(raw && raw.sourceStart || expectedStart).slice(0, 5);
+    const sourceOrganizer = String(
+      raw && raw.sourceOrganizer
+      || directBundle && directBundle.organizer
+      || raw && raw.organizer
+      || expectedOrganizer
+    ).trim();
+    if (subject && (shaped.story.identityVerified !== true || !_meetingsSubjectsMatch(subject, sourceSubject))) return;
+    if (expectedDate && sourceDate !== expectedDate) return;
+    if (expectedStart && sourceStart !== expectedStart) return;
+    if (expectedOrganizer && !_meetingsSubjectsMatch(expectedOrganizer, sourceOrganizer)) return;
+    shaped.story.sourceStart = sourceStart;
+    shaped.story.sourceOrganizer = sourceOrganizer;
+    shaped.story.sourceMeetingUrl = String(directBundle && directBundle.sourceUrl || raw && raw.sourceMeetingUrl || '').slice(0, 1200);
+    const recap = {
+      story: shaped.story,
+      people: shaped.people,
+      requestedSubject: subject,
+      requestedDate: date,
+      requestedStart: expectedStart,
+      requestedOrganizer: expectedOrganizer,
+      requestedAttendees: Array.isArray(occurrence && occurrence.attendees) ? occurrence.attendees : [],
+      requestedWebLink: String(occurrence && (occurrence.webLink || occurrence.meetingUrl) || ''),
+    };
+    if (_meetingsCacheBrief(meetingId, recap, { allowNewscast: false })) {
+      _meetingsSetBriefState(meetingId, { status: 'ready', recapStatus: 'building', at: Date.now(), error: '' });
+    }
+  } catch (_) {}
+}
+(function _meetingsLoadBriefCache() {
+  let migrated = false;
+  try {
+    const stored = JSON.parse(fs.readFileSync(_MEETINGS_BRIEF_CACHE_FILE, 'utf8'));
+    if (stored && stored.schemaVersion === _MEETINGS_BRIEF_CACHE_SCHEMA_VERSION && Array.isArray(stored.entries)) {
+      for (const entry of stored.entries) {
+        if (Array.isArray(entry) && entry[0] && entry[1] && _meetingsBriefHasContent(entry[1].brief)) {
+          _meetingsBriefCache.set(String(entry[0]), entry[1]);
+        }
+      }
+    }
+  } catch (_) { /* first run / no cache yet */ }
+  // One-time/backward-compatible recovery: old recap schemas are not safe to play,
+  // but their occurrence-verified summaries remain useful. Import those summaries
+  // under the stable occurrence ID without mutating or deleting the old recap files.
+  try {
+    for (const file of fs.readdirSync(_MEETINGS_RECAP_DIR)) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const stored = JSON.parse(fs.readFileSync(path.join(_MEETINGS_RECAP_DIR, file), 'utf8'));
+        const recap = stored && stored.recap;
+        if (!recap || !recap.story || recap.empty) continue;
+        const before = _meetingsBriefCache.size;
+        _meetingsCacheBrief(stored.meetingId, recap, {
+          allowNewscast: stored.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION,
+          cachedAt: stored.cachedAt,
+        });
+        migrated = migrated || _meetingsBriefCache.size > before;
+      } catch (_) {}
+    }
+  } catch (_) {}
+  if (migrated) _meetingsPersistBriefCache();
+})();
+
 // Build-or-reuse a recap for a meeting, deduped so the background worker and an
 // on-demand "Load summary" click never build the same meeting twice — the second
 // caller awaits the first's in-flight promise. Non-empty results are cached in
@@ -35305,8 +35477,8 @@ function _meetingsBriefMeetingMeta(meetingId, rec, state) {
 // recap instant too).
 const _meetingsBriefPromises = new Map();
 // Durable per-meeting brief state so a build's progress + outcome survive the user
-// navigating away and coming back (in-memory; the hourly sweep repopulates it after a
-// restart). status: 'building' | 'ready' | 'empty' | 'error'. Without this a build that
+// navigating away and coming back (and persisted across process restarts).
+// status: 'building' | 'ready' | 'empty' | 'error'. Without this a build that
 // produced an empty/failed result left NO trace, so GET fell back to 'none' and the
 // "Load summary" button silently reappeared as if nothing had ever happened.
 const _meetingsBriefState = new Map();
@@ -35315,6 +35487,7 @@ function _meetingsWithBriefStatus(meetings) {
     const id = String((meeting && (meeting.meetingId || meeting.id)) || '').trim();
     if (!id || meeting.demo) return meeting;
     if (_meetingsGetCachedRecap(id)) return { ...meeting, briefStatus: 'ready' };
+    if (_meetingsGetCachedBrief(id, meeting)) return { ...meeting, briefStatus: 'ready', briefPhase: 'cached' };
     const state = _meetingsBriefState.get(id);
     if (!state || !state.status) return { ...meeting, briefStatus: 'none' };
     const status = state.status === 'building' || state.status === 'queued' ? 'pending' : state.status;
@@ -35394,8 +35567,11 @@ function _meetingsEnsureRecap(meetingId, subject, date, occurrence = {}) {
   const subj = String(subject || '').trim() || priorState.subject || '';
   const meetingDate = String(date || '').trim() || priorState.date || '';
   const exactOccurrence = _meetingsOccurrenceFromState(priorState, occurrence);
+  const cachedBrief = _meetingsGetCachedBrief(id, {
+    subject: subj, date: meetingDate, start: exactOccurrence.start, organizer: exactOccurrence.organizer,
+  });
   _meetingsSetBriefState(id, {
-    status: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj, date: meetingDate,
+    status: cachedBrief ? 'ready' : 'building', recapStatus: 'building', startedAt: Date.now(), at: Date.now(), error: '', subject: subj, date: meetingDate,
     start: exactOccurrence.start, organizer: exactOccurrence.organizer,
     attendees: exactOccurrence.attendees, webLink: exactOccurrence.webLink,
   });
@@ -35409,15 +35585,33 @@ function _meetingsEnsureRecap(meetingId, subject, date, occurrence = {}) {
     };
     if (rec.story && !rec.empty) {
       _meetingsCacheRecap(id, rec);
-      _meetingsSetBriefState(id, { status: 'ready', at: Date.now(), error: '' });
+      _meetingsSetBriefState(id, { status: 'ready', recapStatus: 'ready', at: Date.now(), error: '' });
     } else {
       const failed = built && built.reason === 'error';
-      _meetingsSetBriefState(id, { status: failed ? 'error' : 'empty', at: Date.now(), error: (built && built.error) || '' });
+      const hasBrief = cachedBrief || _meetingsGetCachedBrief(id, {
+        subject: subj, date: meetingDate, start: exactOccurrence.start, organizer: exactOccurrence.organizer,
+      });
+      _meetingsSetBriefState(id, {
+        status: hasBrief ? 'ready' : (failed ? 'error' : 'empty'),
+        recapStatus: failed ? 'error' : 'empty',
+        at: Date.now(),
+        error: hasBrief ? '' : ((built && built.error) || ''),
+      });
     }
     return rec;
   })();
   _meetingsBriefPromises.set(id, p);
-  p.catch((e) => { _meetingsSetBriefState(id, { status: 'error', at: Date.now(), error: (e && e.message) || 'Could not build the summary.' }); })
+  p.catch((e) => {
+    const hasBrief = cachedBrief || _meetingsGetCachedBrief(id, {
+      subject: subj, date: meetingDate, start: exactOccurrence.start, organizer: exactOccurrence.organizer,
+    });
+    _meetingsSetBriefState(id, {
+      status: hasBrief ? 'ready' : 'error',
+      recapStatus: 'error',
+      at: Date.now(),
+      error: hasBrief ? '' : ((e && e.message) || 'Could not build the summary.'),
+    });
+  })
    .finally(() => _meetingsBriefPromises.delete(id));
   return p;
 }
@@ -35440,9 +35634,10 @@ function _meetingsEnqueueBriefs(meetings) {
     if (_meetingsGetCachedRecap(id)) continue;
     if (_meetingsBriefPromises.has(id)) continue;
     if (_meetingsBriefQueue.some(q => q.meetingId === id)) continue;
+    const cachedBrief = _meetingsGetCachedBrief(id, m);
     _meetingsBriefQueue.push({ meetingId: id, subject: m.subject || '', date: m.date || '', occurrence: m });
     _meetingsSetBriefState(id, {
-      status: 'queued', queuedAt: Date.now(), at: Date.now(), error: '',
+      status: cachedBrief ? 'ready' : 'queued', recapStatus: 'queued', queuedAt: Date.now(), at: Date.now(), error: '',
       subject: m.subject || '', date: m.date || '', start: m.start || '',
       organizer: m.organizer || '', attendees: Array.isArray(m.attendees) ? m.attendees : [],
       webLink: m.webLink || m.meetingUrl || '',
@@ -35481,9 +35676,20 @@ app.get('/api/meetings/brief', (req, res) => {
       if (rec.empty) return res.json({ ok: true, meetingId, status: 'empty', meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec), meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
     }
+    const st = _meetingsBriefState.get(meetingId);
+    const cachedBrief = _meetingsGetCachedBrief(meetingId, st);
+    if (cachedBrief) {
+      return res.json({
+        ok: true,
+        meetingId,
+        status: 'ready',
+        phase: 'cached',
+        brief: cachedBrief.brief,
+        meeting: { ...cachedBrief.meeting, meetingId },
+      });
+    }
     // Durable state from a build that already ran (survives the user navigating away
     // AND a server restart, since the state is persisted to disk).
-    const st = _meetingsBriefState.get(meetingId);
     if (st && st.status) {
       if (st.status === 'building') {
         // If nothing is actually in flight and the build is stale, it's a restart
@@ -35546,6 +35752,10 @@ app.post('/api/meetings/brief', (req, res) => {
       const rec = _meetingsWithLocalMedia(meetingId, cached);
       if (rec && rec.story && !rec.empty) return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec) });
     }
+    const cachedBrief = _meetingsGetCachedBrief(meetingId, { subject, date, ...occurrence });
+    if (cachedBrief) {
+      return res.json({ ok: true, meetingId, status: 'ready', phase: 'cached', brief: cachedBrief.brief });
+    }
     // Kick off (or join) the build without blocking the request.
     _meetingsEnsureRecap(meetingId, subject, date, occurrence).catch(() => {});
     const st = _meetingsBriefState.get(meetingId);
@@ -35587,6 +35797,19 @@ async function _meetingsHourlySweep() {
 setInterval(() => { _meetingsHourlySweep().catch(() => {}); }, 60 * 60 * 1000);
 // First sweep shortly after boot (once leader election + WorkIQ auth settle).
 setTimeout(() => { _meetingsHourlySweep().catch(() => {}); }, 90 * 1000);
+// Resume work from the durable calendar index almost immediately. This avoids
+// waiting 90 seconds (or opening Meetings.AI) before a restarted desktop sidecar
+// continues warming meetings that ended before the restart.
+setTimeout(() => {
+  try {
+    const s = settings.getSettings();
+    const recent = _meetingsRecentCache.get('d:7');
+    if (leaderCheck() && s && s.connectConsent && s.meetingsAutoSummarize !== false
+        && recent && Array.isArray(recent.meetings)) {
+      _meetingsEnqueueBriefs(recent.meetings);
+    }
+  } catch (_) {}
+}, 5 * 1000);
 
 // GET /api/me-ai/pulse/monitoring → current selection.
 // POST /api/me-ai/pulse/monitoring { teams:[{teamId,teamName,channels?:[{id,name}]}] }

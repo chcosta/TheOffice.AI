@@ -4537,6 +4537,20 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/function _meetingsPersistBriefState\(/.test(srv), 'a persist helper writes the state to disk');
   t.ok(/function _meetingsCacheRecap\(/.test(srv) && /function _meetingsGetCachedRecap\(/.test(srv),
     'completed recap payloads are cached on disk, not only in process memory');
+  t.ok(/_MEETINGS_BRIEF_CACHE_SCHEMA_VERSION = 1/.test(srv) &&
+       /function _meetingsBriefIdentity\(/.test(srv) &&
+       /function _meetingsCacheBrief\(/.test(srv) &&
+       /function _meetingsGetCachedBrief\(/.test(srv),
+    'read-first summaries use an occurrence-keyed cache independent from the richer newscast schema');
+  t.ok(/const analysisWithBrief = analysisPromise\.then/.test(srv) &&
+       /_meetingsPublishInterimBrief\(id, value, subject, date, occurrence, directBundle\)/.test(srv) &&
+       /status: 'ready', recapStatus: 'building'/.test(srv),
+    'core transcript analysis publishes the summary before slower evidence/newscast enrichment finishes');
+  const loadBriefCache = _win(srv, 'function _meetingsLoadBriefCache()', 2600) || '';
+  t.ok(/fs\.readdirSync\(_MEETINGS_RECAP_DIR\)/.test(loadBriefCache) &&
+       /allowNewscast: stored\.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION/.test(loadBriefCache) &&
+       /without mutating or deleting the old recap files/.test(loadBriefCache),
+    'startup migrates summaries from old recap schemas while refusing to expose those stale payloads as playable newscasts');
   t.ok(/_MEETINGS_RECAP_SCHEMA_VERSION = 8/.test(srv) &&
        /stored\.schemaVersion === _MEETINGS_RECAP_SCHEMA_VERSION/.test(srv),
     'the durable cache invalidates older recaps that lack direct Graph transcript provenance and clickable sources');
@@ -4651,18 +4665,28 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
     'every state mutation persists to disk');
   const ensure = _win(srv, 'function _meetingsEnsureRecap(', 3200) || '';
   t.ok(ensure, '_meetingsEnsureRecap exists');
-  t.ok(/status: 'building', startedAt/.test(ensure), 'a kicked build stamps a durable building state with startedAt');
+  t.ok(/status: cachedBrief \? 'ready' : 'building'[\s\S]{0,80}startedAt/.test(ensure),
+    'a kicked build stamps a durable building state unless a read-first summary is already cached');
   t.ok(/subject: subj/.test(ensure), 'the building state stores the subject so a restart-orphan re-kick still has it');
-  t.ok(/status: 'ready'/.test(ensure) && /failed \? 'error' : 'empty'/.test(ensure) && /status: 'error'/.test(ensure),
-    'the build resolves to a durable ready/empty/error state');
-  t.ok(/status: 'queued'/.test(_win(srv, 'function _meetingsEnqueueBriefs(', 1200) || ''),
-    'background jobs stamp queued state before the worker reaches them');
+  t.ok(/status: 'ready'/.test(ensure) &&
+       /status: hasBrief \? 'ready' : \(failed \? 'error' : 'empty'\)/.test(ensure) &&
+       /status: hasBrief \? 'ready' : 'error'/.test(ensure),
+    'the build resolves to a durable ready/empty/error state without discarding a cached summary');
+  t.ok(/status: cachedBrief \? 'ready' : 'queued'/.test(_win(srv, 'function _meetingsEnqueueBriefs(', 1800) || ''),
+    'background jobs stamp queued state before the worker reaches them unless a summary is already cached');
+  const enqueueBriefs = _win(srv, 'function _meetingsEnqueueBriefs(', 1800) || '';
+  t.ok(/const cachedBrief = _meetingsGetCachedBrief\(id, m\)/.test(enqueueBriefs) &&
+       /status: cachedBrief \? 'ready' : 'queued'/.test(enqueueBriefs),
+    'background newscast enrichment never downgrades an already-cached summary to Queued');
 
   // SERVER — GET consults the durable state before falling through to none (the actual bug),
   // and auto-heals a restart-orphaned build (stale 'building', or 'ready' with no live cache).
   const get = _win(srv, "app.get('/api/meetings/brief'", 5000) || '';
   t.ok(get, 'GET /api/meetings/brief route exists');
   t.ok(/const st = _meetingsBriefState\.get\(meetingId\)/.test(get), 'GET reads the durable state map');
+  t.ok(/const cachedBrief = _meetingsGetCachedBrief\(meetingId, st\)/.test(get) &&
+       /phase: 'cached'[\s\S]{0,120}brief: cachedBrief\.brief/.test(get),
+    'GET returns the stable summary cache immediately even when the full newscast needs rebuilding');
   t.ok(/st\.status === 'building'[\s\S]{0,900}status: 'pending'[\s\S]{0,80}startedAt/.test(get), "building → pending (with startedAt)");
   t.ok(/age > _MEETINGS_BRIEF_STALE_MS[\s\S]{0,120}_meetingsEnsureRecap/.test(get), 'a stale orphaned building state re-kicks the build');
   t.ok(/st\.status === 'queued'[\s\S]{0,500}!inflight[\s\S]{0,160}_meetingsEnsureRecap/.test(get),
@@ -4673,7 +4697,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
 
   // SERVER — POST is NON-BLOCKING: it kicks the build and returns immediately (no long await),
   // so a navigated-away user is never hit by the client request timeout firing later as fatal.
-  const post = _win(srv, "app.post('/api/meetings/brief'", 2200) || '';
+  const post = _win(srv, "app.post('/api/meetings/brief'", 3200) || '';
   t.ok(post, 'POST /api/meetings/brief route exists');
   t.ok(/app\.post\('\/api\/meetings\/brief', \(req, res\) =>/.test(srv), 'POST is not async/awaiting the build (non-blocking)');
   t.ok(/_meetingsEnsureRecap\(meetingId, subject, date, occurrence\)\.catch\(/.test(post), 'POST kicks the build fire-and-forget');
@@ -4683,6 +4707,8 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   // SETTINGS — the hourly auto-summarize sweep is discoverable + opt-out (default ON).
   t.ok(/meetingsAutoSummarize: true/.test(settings), 'meetingsAutoSummarize defaults ON (opt-out)');
   t.ok(/s\.meetingsAutoSummarize === false/.test(srv), 'the sweep honors the opt-out flag');
+  t.ok(/_meetingsRecentCache\.get\('d:7'\)[\s\S]{0,300}_meetingsEnqueueBriefs\(recent\.meetings\)/.test(srv),
+    'server startup immediately resumes summary warming from the durable calendar index');
 
   // CLIENT — the three durable fields are in state, captured from GET + POST, and reset on select.
   t.ok(/briefError: ?'', ?briefAt: ?0, ?briefStartedAt: ?0/.test(html) ||
