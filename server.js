@@ -33660,12 +33660,16 @@ function _meetingsWorkIqTool(name, toolArgs, timeoutMs = 120000) {
       else resolve(value);
     };
     const send = payload => {
+      if (settled || child.exitCode !== null || child.stdin.destroyed || child.stdin.writableEnded) return;
       try { child.stdin.write(JSON.stringify(payload) + '\n'); }
       catch (e) { finish(e); }
     };
     const timer = setTimeout(() => finish(new Error(`WorkIQ ${name} timed out`)), timeoutMs);
 
     child.on('error', e => finish(new Error(`WorkIQ could not start: ${e.message}`)));
+    child.stdin.on('error', e => {
+      if (!settled) finish(new Error(`WorkIQ input stream failed: ${e.message}`));
+    });
     child.stderr.on('data', chunk => { stderr = (stderr + String(chunk)).slice(-4000); });
     child.stdout.on('data', chunk => {
       stdout += String(chunk);

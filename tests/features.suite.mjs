@@ -4233,6 +4233,9 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
     'Windows WorkIQ cleanup terminates the bounded subprocess tree by PID');
   t.ok(/child\.stdin\.end\(\)/.test(workiq),
     'successful WorkIQ calls close stdin so the MCP server can exit cleanly');
+  t.ok(/settled \|\| child\.exitCode !== null \|\| child\.stdin\.destroyed \|\| child\.stdin\.writableEnded/.test(workiq) &&
+       /child\.stdin\.on\('error'/.test(workiq),
+    'late WorkIQ responses cannot write to a closed subprocess pipe and crash the service');
   t.ok(/commandParts\.map\(value => \/\\s\/\.test\(value\) \? `"\$\{value\}"` : value\)/.test(workiq),
     'Windows WorkIQ launch quotes safe command/argument values that contain spaces');
   t.ok(/arguments: toolArgs \|\| \{\}/.test(workiq) && /const commandArgs = Array\.isArray\(workiq\.args\)/.test(workiq),
