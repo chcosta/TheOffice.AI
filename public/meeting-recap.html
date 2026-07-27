@@ -409,19 +409,38 @@ function rr(x,y,w,h,r){ r=Math.min(r,w/2,h/2); ctx.beginPath();
   ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
   ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
-/* ---- conference room ----------------------------------------------------- */
-function drawRoom(dim){
-  const g=ctx.createLinearGradient(0,0,0,H); g.addColorStop(0,'#141b26'); g.addColorStop(1,'#0b0f16');
+/* ---- scene-responsive full-stage backgrounds ---------------------------- */
+function drawBackdrop(kind,dim){
+  const palettes={
+    source:['#101b20','#071014','#7ee0c9'],
+    segment:['#151727','#090b13','#5aa9ff'],
+    decisions:['#102018','#080f0c','#57d38c'],
+    actions:['#24170f','#100b08','#ffb27a'],
+    chatter:['#20152a','#0e0913','#c58cff'],
+  };
+  const palette=palettes[kind]||palettes.segment;
+  const g=ctx.createLinearGradient(0,0,W,H);
+  g.addColorStop(0,palette[0]); g.addColorStop(1,palette[1]);
   ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
-  ctx.fillStyle='#0e1622';
-  for(let i=0;i<5;i++){ const x=80+i*168; rr(x,70,132,150,8); ctx.fill(); }
-  ctx.strokeStyle='rgba(126,224,201,.16)'; ctx.lineWidth=1.5;
-  for(let i=0;i<5;i++){ const x=80+i*168; rr(x,70,132,150,8); ctx.stroke(); }
-  for(let i=0;i<5;i++){ const x=80+i*168; const gg=ctx.createLinearGradient(0,70,0,220);
-    gg.addColorStop(0,'rgba(90,169,255,.10)'); gg.addColorStop(1,'rgba(90,169,255,0)');
-    ctx.fillStyle=gg; ctx.fillRect(x,70,132,150); }
-  ctx.fillStyle='#1a2431'; rr(150,430,660,90,40); ctx.fill();
-  ctx.strokeStyle='rgba(255,255,255,.05)'; ctx.stroke();
+  const glow=ctx.createRadialGradient(kind==='actions'?W*.72:W*.28,H*.22,10,W*.5,H*.45,W*.72);
+  glow.addColorStop(0,`${palette[2]}2b`); glow.addColorStop(1,`${palette[2]}00`);
+  ctx.fillStyle=glow; ctx.fillRect(0,0,W,H);
+  ctx.save();
+  ctx.globalAlpha=.16;
+  ctx.strokeStyle=palette[2]; ctx.lineWidth=1;
+  if(kind==='source'){
+    for(let y=-80;y<H+80;y+=48){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y+180); ctx.stroke(); }
+  }else if(kind==='decisions'){
+    for(let r=90;r<560;r+=82){ ctx.beginPath(); ctx.arc(W*.18,H*.82,r,Math.PI*1.1,Math.PI*1.92); ctx.stroke(); }
+  }else if(kind==='actions'){
+    for(let x=-120;x<W+160;x+=130){ ctx.beginPath(); ctx.moveTo(x,H); ctx.lineTo(x+300,0); ctx.stroke(); }
+  }else if(kind==='chatter'){
+    for(let r=80;r<520;r+=96){ ctx.beginPath(); ctx.arc(W*.82,H*.18,r,0,Math.PI*2); ctx.stroke(); }
+  }else{
+    ctx.lineWidth=22;
+    for(let x=-220;x<W+260;x+=250){ ctx.beginPath(); ctx.moveTo(x,H+40); ctx.lineTo(x+360,-40); ctx.stroke(); }
+  }
+  ctx.restore();
   if(dim){ ctx.fillStyle=`rgba(6,9,13,${dim})`; ctx.fillRect(0,0,W,H); }
 }
 
@@ -749,10 +768,6 @@ function buildBeats(story){
   const fromPlan=(scene,index)=>{
     const kind=String(scene&&scene.kind||'').toLowerCase();
     const common={gate:true,purpose:String(scene&&scene.purpose||''),visualTreatment:String(scene&&scene.visualTreatment||'')};
-    if(kind==='opening'&&meaningfulText(story.openingNarration||story.editorialThroughline))
-      return [{type:'title',dur:2600,...common},'opening'];
-    if(kind==='throughline'&&meaningfulText(story.editorialThroughline))
-      return [{type:'overview',dur:3600,...common},'throughline'];
     if(kind==='segment'){
       const segmentIndex=Math.max(0,Number(scene.segmentIndex)||0),seg=segments[segmentIndex];
       if(seg&&(meaningfulText(seg.narration)||seg.quote||seg.screen))
@@ -777,9 +792,6 @@ function buildBeats(story){
   });
   if(B.length>=2) return B;
 
-  add({type:'title',gate:true,dur:2600,visualTreatment:'headline'},'opening');
-  if(meaningfulText(story.editorialThroughline)&&story.editorialThroughline!==story.openingNarration)
-    add({type:'overview',gate:true,dur:3600,visualTreatment:'full'},'throughline');
   segments.forEach((seg,index)=>{
     if(!meaningfulText(seg.narration)&&!seg.quote&&!seg.screen) return;
     const treatment=seg.visualTreatment||(['stat','compare'].includes((seg.screen||{}).kind)?'full':'speaker');
@@ -806,7 +818,7 @@ function beatShotLabel(b){
 function renderBeat(b, t){
   const intro=Math.min(1, t/380);
   if(b.type==='title'){
-    drawRoom(0.35);
+    drawBackdrop('segment',0.35);
     const r=FULL_RECT;
     ctx.globalAlpha=intro; ctx.fillStyle='rgba(10,14,20,.82)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
     ctx.strokeStyle='rgba(90,169,255,.3)'; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
@@ -834,7 +846,7 @@ function renderBeat(b, t){
     return;
   }
   if(b.type==='overview'){
-    drawRoom(0.55);
+    drawBackdrop('segment',0.55);
     const r=FULL_RECT;
     ctx.globalAlpha=intro;
     ctx.fillStyle='rgba(10,14,20,.86)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
@@ -849,7 +861,7 @@ function renderBeat(b, t){
     return;
   }
   if(b.type==='source'){
-    drawRoom(0.72); ctx.globalAlpha=intro;
+    drawBackdrop('source',0.72); ctx.globalAlpha=intro;
     drawSourceExtract(b.item,FULL_RECT,b.citationIndex,b.visualIndex);
     ctx.globalAlpha=1;
     return;
@@ -857,7 +869,7 @@ function renderBeat(b, t){
   if(b.type==='segment'){
     const seg=b.seg, p=PEOPLE[seg.speaker]||{name:seg.speaker,role:'',color:'#5aa9ff',key:seg.speaker};
     const emo=detectEmotion(seg.quote);
-    drawRoom(0.62);
+    drawBackdrop('segment',0.62);
     ctx.globalAlpha=intro;
     if(b.visualTreatment==='full'){
       drawCard(FULL_RECT,seg);
@@ -877,7 +889,7 @@ function renderBeat(b, t){
     return;
   }
   if(b.type==='decisions'){
-    drawRoom(0.6); const r=FULL_RECT; ctx.globalAlpha=intro;
+    drawBackdrop('decisions',0.6); const r=FULL_RECT; ctx.globalAlpha=intro;
     ctx.fillStyle='rgba(10,14,20,.88)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
     ctx.strokeStyle='rgba(87,211,140,.3)'; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
     const pad=28, iw=r.w-pad*2, ix=r.x+pad; let y=r.y+pad;
@@ -890,7 +902,7 @@ function renderBeat(b, t){
     return;
   }
   if(b.type==='actions'){
-    drawRoom(0.6); const r=FULL_RECT; ctx.globalAlpha=intro;
+    drawBackdrop('actions',0.6); const r=FULL_RECT; ctx.globalAlpha=intro;
     ctx.fillStyle='rgba(10,14,20,.88)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
     ctx.strokeStyle='rgba(255,178,122,.3)'; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
     const pad=28, iw=r.w-pad*2, ix=r.x+pad; let y=r.y+pad;
@@ -902,7 +914,7 @@ function renderBeat(b, t){
     return;
   }
   if(b.type==='chatter'){
-    drawRoom(0.6); const r=FULL_RECT; ctx.globalAlpha=intro;
+    drawBackdrop('chatter',0.6); const r=FULL_RECT; ctx.globalAlpha=intro;
     ctx.fillStyle='rgba(10,14,20,.88)'; rr(r.x,r.y,r.w,r.h,16); ctx.fill();
     ctx.strokeStyle='rgba(197,140,255,.3)'; rr(r.x,r.y,r.w,r.h,16); ctx.stroke();
     const pad=28, iw=r.w-pad*2, ix=r.x+pad; let y=r.y+pad;
@@ -1289,6 +1301,12 @@ function beatNarration(beat){
     text=(STORY.chatter&&STORY.chatter.intro)||'';
   }else if(beat.type==='actions'){
     text=STORY.closingSynthesis||'';
+  }
+  if(beat===BEATS[0]){
+    const hook=[STORY.openingNarration,STORY.editorialThroughline]
+      .filter(part=>meaningfulText(part)&&!String(text).toLowerCase().includes(String(part).toLowerCase()))
+      .join(' ');
+    text=`${hook} ${text}`.trim();
   }
   beat._narration=text.replace(/\s+/g,' ').trim();
   return beat._narration;

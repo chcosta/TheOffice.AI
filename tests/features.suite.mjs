@@ -4421,8 +4421,13 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
   t.ok(/story\.scenePlan/.test(beats) &&
        /purpose/.test(beats) &&
        /if\(B\.length>=2\) return B/.test(beats) &&
-       /meaningfulText/.test(beats),
-    'the model-authored scene plan controls the edit while a selective fallback omits empty or redundant beats');
+       /meaningfulText/.test(beats) &&
+       !/type:'title'/.test(beats) &&
+       !/type:'overview'/.test(beats),
+    'the model-authored scene plan controls the edit and starts on substantive material without title or intro beats');
+  t.ok(/if\(beat===BEATS\[0\]\)/.test(player) &&
+       /STORY\.openingNarration,STORY\.editorialThroughline/.test(player),
+    'the narrative hook plays over the first substantive scene instead of consuming its own slide');
   t.ok(/Evidence-backed transcript recap with AI newscaster narration · no playable meeting audio was retrieved\./.test(player) &&
        /Transcript-only recap with AI newscaster narration · no supporting media was retrieved\./.test(player) &&
        /Narration is synthetic/.test(player),
@@ -4457,6 +4462,21 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
        /await this\.mtgLoadBriefStatus\(m\.id\)/.test(regenerate) &&
        /Recap regenerated from the latest transcript and evidence/.test(regenerate),
     'a selected completed meeting can explicitly rebuild its cached recap from current sources');
+  t.ok(/w\.selectedId === pick && w\.view === 'recap'/.test(html) &&
+       /if \(pick && !\(w\.selectedId === pick && w\.view === 'recap'\)\) this\.mtgSelect\(pick\)/.test(html),
+    'background calendar refreshes preserve an already-playing recap for the selected meeting');
+  t.ok(/class="mtg" :class="\{ 'recap-mode': meetings\.view === 'recap' \}"/.test(html) &&
+       /\.content:has\(\.mtg\.recap-mode\)\{ overflow:hidden/.test(html) &&
+       /\.mtg\.recap-mode\{ height:100%; min-height:0/.test(html) &&
+       /\.mtg\.recap-mode \.mtg-wrap\{ height:100%; max-width:none/.test(html) &&
+       /\.mtg\.recap-mode \.mtg-recap iframe\{ flex:1; height:auto; min-height:0/.test(html),
+    'recap mode uses the available viewport and horizontal workspace without document overflow');
+  t.ok(/function drawBackdrop\(kind,dim\)/.test(player) &&
+       /drawBackdrop\('source'/.test(player) &&
+       /drawBackdrop\('decisions'/.test(player) &&
+       /drawBackdrop\('actions'/.test(player) &&
+       !/for\(let i=0;i<5;i\+\+\)/.test(player),
+    'scene-specific backdrops replace the repetitive row of five empty stage blocks');
   t.ok(/<a class="mtg-evidence-row" :href="e\.url"[^>]+@click\.prevent\.stop="openMeetingEvidence\(e\.url, \$event\)"/.test(html) &&
        /openMeetingEvidence\(url, event\)/.test(html) &&
        /window\.location\.assign\(href\)/.test(html) &&
@@ -4646,7 +4666,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
        /openingNarration hooks the viewer/.test(srv) &&
        /one cohesive, meeting-specific editorial script/.test(srv) &&
        /scenePlan is the edit decision/.test(srv) &&
-       /do not create an evidence-map scene/.test(srv) &&
+       /never create a separate title, opening, intro, throughline, or evidence-map scene/i.test(srv) &&
        /omit it rather than speculate/.test(srv),
     'future newscasts use an AI-selected plot without reading slides, inventing impact, or filling a static template');
   t.ok(/function _meetingsOccurrenceId\(/.test(srv) &&

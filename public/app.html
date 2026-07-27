@@ -21188,6 +21188,15 @@
             <style>
               .mtg{ --mtg-accent: var(--cp-accent, #58a6ff); --mtg-ai: var(--cp-accent-2, #a371f7); }
               .mtg-wrap{ display:grid; grid-template-columns:var(--mtg-nav-w, 300px) minmax(0,1fr); gap:18px; max-width:1240px; margin:0 auto; padding:8px 4px 60px; align-items:start; }
+              .content:has(.mtg.recap-mode){ overflow:hidden; }
+              .content:has(.mtg.recap-mode) .content-inner{ height:100%; min-height:0; display:flex; flex-direction:column; }
+              .content:has(.mtg.recap-mode) .content-inner > section:has(> .mtg.recap-mode){ flex:1; min-height:0; }
+              .mtg.recap-mode{ height:100%; min-height:0; overflow:hidden; }
+              .mtg.recap-mode .mtg-hero{ display:none; }
+              .mtg.recap-mode .mtg-wrap{ height:100%; max-width:none; padding:8px 4px; align-items:stretch; }
+              .mtg.recap-mode .mtg-nav{ position:relative; top:0; height:auto; min-height:0; max-height:none; }
+              .mtg-main{ min-width:0; }
+              .mtg.recap-mode .mtg-main{ min-height:0; }
               .mtg-hero{ margin:0 auto 14px; max-width:1240px; padding:2px 4px 0; }
               .mtg-hero .kick{ color:var(--mtg-ai); font-size:12px; font-weight:650; letter-spacing:.04em; text-transform:uppercase; margin-bottom:6px; }
               .mtg-hero h1{ font-size:24px; margin:0 0 6px; font-weight:650; letter-spacing:-.01em; }
@@ -21251,14 +21260,16 @@
               .mtg-gen .hint{ color:var(--cp-text-faint); font-size:12.5px; }
               .mtg-err{ color:#f85149; font-size:13px; margin-top:12px; }
               .mtg-recap{ background:#000; border:1px solid var(--cp-border); border-radius:12px; overflow:hidden; }
+              .mtg.recap-mode .mtg-recap{ display:flex !important; height:100%; min-height:0; flex-direction:column; }
               .mtg-recap-bar{ display:flex; align-items:center; justify-content:space-between; padding:10px 14px; background:var(--cp-surface); border-bottom:1px solid var(--cp-border); }
               .mtg-recap-bar .back{ background:transparent; border:0; color:var(--cp-text); font-size:13px; cursor:pointer; display:flex; align-items:center; gap:6px; }
               .mtg-recap-bar .back:hover{ text-decoration:underline; }
               .mtg-recap-bar .t{ font-size:13px; color:var(--cp-text-muted); }
               .mtg-recap iframe{ width:100%; height:calc(100vh - 220px); min-height:520px; border:0; display:block; background:#000; }
-              @media (max-width: 900px){ .mtg-wrap{ grid-template-columns:1fr !important; } .mtg-nav{ position:relative; height:min(48vh,560px); } .mtg-nav-resize{ display:none; } .mtg-detail-head{ align-items:stretch; flex-direction:column; } .mtg-watch{ align-self:flex-start; } }
+              .mtg.recap-mode .mtg-recap iframe{ flex:1; height:auto; min-height:0; }
+              @media (max-width: 900px){ .mtg-wrap{ grid-template-columns:1fr !important; } .mtg-nav{ position:relative; height:min(48vh,560px); } .mtg.recap-mode .mtg-nav{ display:none; } .mtg-nav-resize{ display:none; } .mtg-detail-head{ align-items:stretch; flex-direction:column; } .mtg-watch{ align-self:flex-start; } }
             </style>
-            <div class="mtg">
+            <div class="mtg" :class="{ 'recap-mode': meetings.view === 'recap' }">
               <div class="mtg-hero">
                 <div class="kick">Meetings.AI</div>
                 <h1>🎬 Meeting recaps</h1>
@@ -21303,7 +21314,7 @@
                   <div class="mtg-nav-resize" x-show="!meetings.navCollapsed" title="Resize meeting list" @pointerdown.prevent="mtgStartNavResize($event)"></div>
                 </div>
                 <!-- Right panel: detail OR recap -->
-                <div>
+                <div class="mtg-main">
                   <!-- Detail view -->
                   <div class="mtg-detail" x-show="meetings.view === 'detail'">
                     <template x-if="mtgSelected()">
@@ -41729,7 +41740,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Pick the requested meeting, else keep current if still present, else first.
             let pick = wantId || w.selectedId || (w.list[0] && w.list[0].id) || '';
             if (pick && !w.list.some(m => m.id === pick)) pick = (w.list[0] && w.list[0].id) || '';
-            if (pick) this.mtgSelect(pick);
+            // A background calendar refresh must not close a recap that is already
+            // playing for the same meeting. mtgSelect intentionally opens detail.
+            if (pick && !(w.selectedId === pick && w.view === 'recap')) this.mtgSelect(pick);
             // Restore the recap view if the hash asked for it (instant via server cache).
             if (pick && wantRecap) this.$nextTick(() => this.mtgGenerateRecap());
             if (w.refreshing) {
