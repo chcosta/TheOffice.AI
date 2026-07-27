@@ -40320,7 +40320,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
           const groups = [...map.values()];
-          for (const g of groups) g.chats.sort((a, b) => ts(b) - ts(a));
+          // Agent Chats is a writable surface. Keep an app-owned thread primary
+          // when CLI mirrors also exist for the agent; mirrors remain available
+          // from the thread history but must not replace the chat composer.
+          for (const g of groups) {
+            g.chats.sort((a, b) => Number(a.source === 'cli') - Number(b.source === 'cli') || ts(b) - ts(a));
+          }
           groups.sort((a, b) => Math.max(...b.chats.map(ts)) - Math.max(...a.chats.map(ts)));
           return groups;
         },
@@ -40409,7 +40414,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           const ts = (c) => new Date(c.updatedAt || c.createdAt || 0).getTime();
           let groups = [...map.values()];
-          for (const g of groups) g.chats.sort((a, b) => ts(b) - ts(a));
+          for (const g of groups) {
+            g.chats.sort((a, b) => Number(a.source === 'cli') - Number(b.source === 'cli') || ts(b) - ts(a));
+          }
           if (q) {
             groups = groups
               .map((g) => g.name.toLowerCase().includes(q) ? g
@@ -40557,7 +40564,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // or start a new group.
         wcPickCta() {
           const n = this.chatPicker.selected.length;
-          if (n <= 1) return 'Open chat';
+          if (n <= 1) return 'Start new chat';
           const sig = this._wcRosterSig(this.chatPicker.selected.map((id) => ({ id })));
           const existing = this.data.chats.some((c) => this.chatIsGroup(c) && this._wcRosterSig(this.chatRoster(c)) === sig);
           return existing ? 'Resume group' : ('Start group chat (' + n + ')');
@@ -40566,7 +40573,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const ids = [...this.chatPicker.selected];
           if (!ids.length) return;
           this.chatPickerOpen = false;
-          if (ids.length === 1) { await this.openOrCreateChat('agent', ids[0]); return; }
+          if (ids.length === 1) { await this._createChatThread('agent', ids[0]); return; }
           const roster = ids.map((id) => ({ id, name: this.wcAgentName(id) }));
           await this._wcOpenOrCreateGroup(roster);
         },
@@ -41027,7 +41034,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         async openOrCreateChat(targetType, target) {
           // Prefer a true 1:1 thread — a group chat (roster >= 2) may still carry the
           // originating agent as its target, so never resolve "open chat" onto a group.
-          const existing = this.data.chats.find((chat) => chat.targetType === targetType && chat.target === target && !this.chatIsGroup(chat));
+          const existing = this.data.chats.find((chat) => chat.targetType === targetType
+            && chat.target === target
+            && chat.source !== 'cli'
+            && !this.chatIsGroup(chat));
           if (existing) {
             this.goTo(`#/chat/${existing.id}`);
             return;
@@ -41945,6 +41955,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Stash for the player handoff. The same-origin player is invoked directly;
             // postMessage remains a load-timing fallback.
             w._pendingRecap = { type: 'mrv:load', story: r.story, people: r.people, photos: r.photos || {} };
+            if (r.photoPending || !Object.keys(r.photos || {}).length) this._mtgRefreshRecapPhotos(m);
             if (force) {
               await this.mtgLoadBriefStatus(m.id);
               this.showToast('Meetings.AI', 'Recap regenerated from the latest transcript and evidence.', 'success');
@@ -41960,6 +41971,37 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } finally {
             w.recapLoading = false;
             w.recapForce = false;
+          }
+        },
+        async _mtgRefreshRecapPhotos(meeting, attempt = 0) {
+          if (!meeting || attempt > 3) return;
+          await new Promise(resolve => setTimeout(resolve, 1800 + attempt * 1200));
+          if (this.meetings.selectedId !== meeting.id || !this.meetings.recap) return;
+          try {
+            const r = await this.request('/api/meetings/recap', {
+              method: 'POST',
+              body: JSON.stringify({
+                meetingId: meeting.id,
+                subject: meeting.subject || meeting.title || '',
+                date: meeting.date || '',
+                start: meeting.start || '',
+                organizer: meeting.organizer || '',
+                attendees: Array.isArray(meeting.attendees) ? meeting.attendees : [],
+                webLink: meeting.webLink || '',
+              }),
+            });
+            const photos = r && r.photos && typeof r.photos === 'object' ? r.photos : {};
+            if (this.meetings._pendingRecap) this.meetings._pendingRecap.photos = photos;
+            const fr = this.$refs && this.$refs.mtgPlayer;
+            if (fr && fr.contentWindow && Object.keys(photos).length) {
+              fr.contentWindow.postMessage({ type: 'mrv:photos', photos }, '*');
+            }
+            if (r.photoPending || !Object.keys(photos).length) {
+              this._mtgRefreshRecapPhotos(meeting, attempt + 1);
+              return;
+            }
+          } catch (error) {
+            console.warn('[meetings] profile photo refresh failed', error && error.message);
           }
         },
         _mtgPushRecap() {
@@ -67761,7 +67803,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const chatId = `${targetType}-${target.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}-${Date.now().toString(36)}`;
           const chat = await this.request('/api/chats', {
             method: 'POST',
-            body: JSON.stringify({ id: chatId, title, target, targetType })
+            body: JSON.stringify({ id: chatId, title, target, targetType, initiatedBy: 'user' })
           });
           this.data.chats = [chat, ...this.data.chats];
           this.goTo(`#/chat/${chat.id}`);

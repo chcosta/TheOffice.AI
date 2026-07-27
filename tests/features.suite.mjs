@@ -4256,7 +4256,7 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
     'calendar windows persist across desktop sidecar restarts');
   t.ok(/demo: !!\(fallback && fallback\.demo\)/.test(rec) && !/_meetingsSeedRecent\(\)/.test(rec),
     'an empty or failed calendar gather remains honest instead of inflating the week with samples');
-  const rcp = _win(srv, "app.post('/api/meetings/recap'", 3000) || '';
+  const rcp = _win(srv, "app.post('/api/meetings/recap'", 5200) || '';
   t.ok(rcp, 'POST /api/meetings/recap route exists');
   t.ok(/if \(!meetingId\) return res\.status\(400\)/.test(rcp), 'recap 400s without a meetingId');
   t.ok(/const force = !!\(req\.body && req\.body\.force\)/.test(rcp) &&
@@ -4817,6 +4817,69 @@ await t.test('agenda startup: desktop request races retry and never leave a blan
   t.ok(/meai\.loaded && meai\.agendaError/.test(html)
     && /@click="meAiLoadAgenda\(\)"/.test(html),
     'a failed day load exposes an inline retry instead of silently rendering nothing');
+});
+
+await t.test('agent chats: New chat always creates a writable app conversation', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync(SERVER, 'utf8');
+  const picker = _win(html, 'async wcStartFromPicker()', 700) || '';
+  t.ok(/ids\.length === 1\) \{ await this\._createChatThread\('agent', ids\[0\]\)/.test(picker),
+    'the New conversation picker creates a fresh direct thread instead of reopening an existing session');
+  t.ok(/if \(n <= 1\) return 'Start new chat'/.test(html),
+    'the direct-chat picker CTA accurately describes fresh-thread behavior');
+  const openOrCreate = _win(html, 'async openOrCreateChat(targetType, target)', 900) || '';
+  t.ok(/chat\.source !== 'cli'/.test(openOrCreate),
+    'general app chat entry points never resolve onto a read-only CLI mirror');
+  const directGroups = _win(html, 'wcDirectSubgroups() {', 2200) || '';
+  t.ok(/Number\(a\.source === 'cli'\) - Number\(b\.source === 'cli'\)/.test(directGroups),
+    'agent rows prefer writable app threads while retaining CLI mirrors in thread history');
+  const createThread = _win(html, 'async _createChatThread(targetType, target)', 1200) || '';
+  t.ok(/initiatedBy: 'user'/.test(createThread),
+    'fresh direct chats are explicitly persisted as user-initiated');
+  const createRoute = _win(srv, "app.post('/api/chats'", 1700) || '';
+  t.ok(/source: 'app'/.test(createRoute),
+    'the server identifies newly created conversations as writable app-owned chats');
+});
+
+await t.test('meetings.ai recap: unattributed speakers and missing photos use honest dynamic media', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const player = readFileSync('public/meeting-recap.html', 'utf8');
+  const srv = readFileSync(SERVER, 'utf8');
+  const identity = _win(srv, 'function _meetingsOpaqueSpeakerNumber(', 4400) || '';
+  t.ok(/Unidentified speaker \$\{number\}/.test(identity)
+    && /identityStatus: opaque \? 'unattributed'/.test(identity)
+    && /requestedAttendees/.test(identity),
+    'opaque Teams voice tokens become honest labels while verified calendar attendees enrich the people roster');
+  const photos = _win(srv, 'async function _meetingsProfilePhotos(', 1300) || '';
+  t.ok(/identityStatus === 'unattributed'/.test(photos),
+    'profile lookup never searches Graph for an anonymous Teams voice token');
+  const durablePhotos = _win(srv, "const _MEETINGS_PHOTO_CACHE_DIR", 6500) || '';
+  t.ok(/path\.join\(dataPath\('meetings'\), 'profile-photos'\)/.test(durablePhotos)
+    && /function _meetingsReadCachedProfilePhoto\(/.test(durablePhotos)
+    && /function _meetingsWriteCachedProfilePhoto\(/.test(durablePhotos)
+    && /fs\.renameSync\(tmp, file\)/.test(durablePhotos),
+    'profile photos persist in an atomic identity-keyed cache across meetings and sidecar restarts');
+  t.ok(photos.indexOf('_meetingsReadCachedProfilePhoto(person)') < photos.indexOf('_meetingsGraphTokenAsync()')
+    && /if \(!uncached\.length\) return Object\.fromEntries\(resolved\)/.test(photos),
+    'all durable cache hits return before Graph authentication or profile lookup');
+  t.ok(/function drawVoicePresence\(/.test(player)
+    && /Voice not attributed by Microsoft Teams/.test(player)
+    && !/function drawBust\(/.test(player),
+    'missing portraits render a live voice treatment instead of a fabricated cartoon person');
+  const clips = _win(player, 'function clipForBeat(beat)', 900) || '';
+  t.ok(/segmentIndex/.test(clips) && /mediaType==='video'/.test(clips),
+    'a room/video clip can be selected by scene or speaker even when the AI omitted audioClipId');
+  t.ok(/media-body\.room-only/.test(player)
+    && /classList\.toggle\('room-only',!Object\.keys\(PHOTOS\|\|\{\}\)\.length\)/.test(player),
+    'available room video expands across the stage when profile portraits are unavailable');
+  const refresh = _win(html, 'async _mtgRefreshRecapPhotos(', 1900) || '';
+  t.ok(/type: 'mrv:photos'/.test(refresh) && /r\.photoPending/.test(refresh) && /attempt \+ 1/.test(refresh),
+    'late profile-photo enrichment updates the open recap instead of requiring a reload');
+  const enrich = _win(srv, 'function _meetingsEnrichCachedPhotos(', 1700) || '';
+  t.ok(/_meetingsWriteCachedProfilePhoto\(recap\.people\[key\], dataUri\)/.test(enrich)
+    && /missingPeople/.test(enrich)
+    && /recap\.photos = \{ \.\.\.current, \.\.\.photos \}/.test(enrich),
+    'older recap-embedded photos seed the shared cache before any missing portraits are retrieved');
 });
 
 await t.done();

@@ -34244,8 +34244,64 @@ function _meetingsNormalizeScenePlan(raw, segments, evidence, story) {
   return out;
 }
 
-function _meetingsNormalizeNewscast(story, people, subject, date) {
+function _meetingsOpaqueSpeakerNumber(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^@(\d+)$/)
+    || text.match(/^(?:speaker|participant|attendee|person)\s*#?\s*(\d+)$/i);
+  return match ? Number(match[1]) : 0;
+}
+function _meetingsSpeakerDisplayName(value) {
+  const text = String(value || '').trim();
+  const number = _meetingsOpaqueSpeakerNumber(text);
+  return number ? `Unidentified speaker ${number}` : (text || 'Meeting participant');
+}
+function _meetingsNormalizePeople(people, requestedAttendees = []) {
+  const source = people && typeof people === 'object' ? people : {};
+  const normalized = {};
+  const usedKeys = new Set();
+  const keyByName = new Map();
+  const palette = ['#5aa9ff', '#a371f7', '#32c48d', '#ff9f43', '#f06292', '#26c6da', '#ffca58'];
+  const remember = (key, rawPerson, fallbackName, index) => {
+    const person = rawPerson && typeof rawPerson === 'object' ? rawPerson : {};
+    const rawName = String(person.name || fallbackName || key || '').trim();
+    const name = _meetingsSpeakerDisplayName(rawName);
+    const opaque = !!_meetingsOpaqueSpeakerNumber(rawName);
+    normalized[key] = {
+      ...person,
+      name,
+      identityStatus: opaque ? 'unattributed' : String(person.identityStatus || 'identified'),
+      color: String(person.color || palette[index % palette.length]),
+      key,
+    };
+    usedKeys.add(key);
+    if (!opaque) keyByName.set(name.toLowerCase(), key);
+    return key;
+  };
+  Object.entries(source).forEach(([rawKey, person], index) => {
+    const key = String(rawKey || `speaker${index + 1}`).trim() || `speaker${index + 1}`;
+    remember(key, person, rawKey, index);
+  });
+  const attendeeKeys = [];
+  for (const value of Array.isArray(requestedAttendees) ? requestedAttendees : []) {
+    const name = String((value && (value.name || value.displayName)) || value || '').trim();
+    if (!name || _meetingsOpaqueSpeakerNumber(name)) continue;
+    let key = keyByName.get(name.toLowerCase());
+    if (!key) {
+      const base = name.toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 18) || 'participant';
+      key = base;
+      let suffix = 2;
+      while (usedKeys.has(key)) key = `${base}${suffix++}`;
+      remember(key, { name, role: '', email: '', gender: '', identityStatus: 'identified' }, name, usedKeys.size);
+    }
+    if (!attendeeKeys.includes(key)) attendeeKeys.push(key);
+  }
+  return { people: normalized, attendeeKeys };
+}
+
+function _meetingsNormalizeNewscast(story, people, subject, date, requestedAttendees = []) {
   if (!story || typeof story !== 'object') return null;
+  const normalizedRoster = _meetingsNormalizePeople(people, requestedAttendees);
+  const normalizedPeople = normalizedRoster.people;
   const rawSegments = Array.isArray(story.segments) ? story.segments : [];
   const embeddedEvidence = [];
   for (const seg of rawSegments) {
@@ -34265,8 +34321,11 @@ function _meetingsNormalizeNewscast(story, people, subject, date) {
       label: String(raw.label || raw.title || 'Original meeting audio').trim().slice(0, 160),
       start: Math.max(0, Number(raw.start) || 0),
       end: Math.max(0, Number(raw.end) || 0),
+      sourceStart: Math.max(0, Number(raw.sourceStart) || 0),
       speaker: String(raw.speaker || '').trim().slice(0, 80),
       transcript: String(raw.transcript || '').trim().slice(0, 1000),
+      mediaType: raw.mediaType === 'video' || /\.(mp4|webm)(?:[?#]|$)/i.test(url) ? 'video' : 'audio',
+      segmentIndex: Number.isInteger(Number(raw.segmentIndex)) ? Number(raw.segmentIndex) : -1,
     });
   }
   const clipIds = new Set(clips.map(x => x.id));
@@ -34311,11 +34370,17 @@ function _meetingsNormalizeNewscast(story, people, subject, date) {
     : linkedSourceCount >= 3 ? 'evidence-rich'
       : linkedSourceCount ? 'evidence-linked'
         : 'transcript-only';
+  const storyAttendees = (Array.isArray(story.attendees) ? story.attendees : [])
+    .map(String).filter(key => normalizedPeople[key]);
+  for (const key of normalizedRoster.attendeeKeys) {
+    if (!storyAttendees.includes(key)) storyAttendees.push(key);
+  }
   return {
     story: {
       ...story,
       title: String(story.title || subject || 'Meeting recap').slice(0, 240),
       date: String(story.date || date || '').slice(0, 40),
+      attendees: storyAttendees,
       segments,
       evidence,
       scenePlan,
@@ -34332,7 +34397,7 @@ function _meetingsNormalizeNewscast(story, people, subject, date) {
         visualCount,
       },
     },
-    people: (people && typeof people === 'object') ? people : {},
+    people: normalizedPeople,
   };
 }
 
@@ -34592,7 +34657,7 @@ Return ONLY valid JSON as {"evidence":[{"id":string,"type":string,"title":string
     if (!base && !(obj && obj.available === false)) {
       throw new Error('WorkIQ did not return a usable transcript recap for the exact occurrence.');
     }
-    const shaped = base && _meetingsNormalizeNewscast(base.story, base.people, subject, date);
+    const shaped = base && _meetingsNormalizeNewscast(base.story, base.people, subject, date, occurrenceAttendees);
     if (shaped && shaped.story && Array.isArray(shaped.story.segments) && shaped.story.segments.length && shaped.people && typeof shaped.people === 'object') {
       const sourceSubject = String(shaped.story.sourceSubject || '').trim();
       const sourceDate = String(shaped.story.sourceDate || '').trim().slice(0, 10);
@@ -34810,6 +34875,7 @@ function _meetingsGetCachedRecap(meetingId) {
         stored.recap.people,
         stored.recap.story.title,
         stored.recap.story.date,
+        stored.recap.requestedAttendees,
       );
       const recap = shaped
         ? { ...stored.recap, story: shaped.story, people: shaped.people }
@@ -34951,9 +35017,71 @@ function _meetingsRecapQualityScore(recap) {
     + (Number(quality.evidenceLinkedSegments) || 0) * 5
     + (Array.isArray(story.segments) ? story.segments.length : 0);
 }
+const _MEETINGS_PHOTO_CACHE_DIR = path.join(dataPath('meetings'), 'profile-photos');
+const _MEETINGS_PHOTO_CACHE_POSITIVE_TTL = 30 * 24 * 60 * 60 * 1000;
+const _MEETINGS_PHOTO_CACHE_NEGATIVE_TTL = 24 * 60 * 60 * 1000;
 const _meetingsPhotoCache = new Map();
 const _meetingsPhotoEnrichment = new Map();
 let _meetingsGraphTokenPromise = null;
+function _meetingsPhotoIdentityKeys(person) {
+  const source = person && typeof person === 'object' ? person : {};
+  const direct = String(source.email || source.userPrincipalName || source.upn || '').trim().toLowerCase();
+  const name = String(source.name || '').trim().toLowerCase();
+  return [...new Set([direct, name].filter(Boolean))];
+}
+function _meetingsPhotoCacheFile(cacheKey) {
+  const hash = require('crypto').createHash('sha256').update(String(cacheKey || '')).digest('hex');
+  return path.join(_MEETINGS_PHOTO_CACHE_DIR, `${hash}.json`);
+}
+function _meetingsReadCachedProfilePhoto(person) {
+  let sawNegative = false;
+  let sawUncached = false;
+  for (const cacheKey of _meetingsPhotoIdentityKeys(person)) {
+    if (_meetingsPhotoCache.has(cacheKey)) {
+      const value = _meetingsPhotoCache.get(cacheKey);
+      if (value) return { hit: true, value };
+      sawNegative = true;
+      continue;
+    }
+    try {
+      const file = _meetingsPhotoCacheFile(cacheKey);
+      const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!saved || saved.cacheKey !== cacheKey) {
+        sawUncached = true;
+        continue;
+      }
+      const value = typeof saved.dataUri === 'string' ? saved.dataUri : '';
+      const ttl = value ? _MEETINGS_PHOTO_CACHE_POSITIVE_TTL : _MEETINGS_PHOTO_CACHE_NEGATIVE_TTL;
+      if (!Number(saved.cachedAt) || Date.now() - Number(saved.cachedAt) > ttl) {
+        try { fs.unlinkSync(file); } catch (_) {}
+        sawUncached = true;
+        continue;
+      }
+      _meetingsPhotoCache.set(cacheKey, value);
+      if (value) return { hit: true, value };
+      sawNegative = true;
+    } catch (_) {
+      sawUncached = true;
+    }
+  }
+  return sawNegative && !sawUncached ? { hit: true, value: '' } : { hit: false, value: '' };
+}
+function _meetingsWriteCachedProfilePhoto(person, dataUri) {
+  const value = String(dataUri || '');
+  for (const cacheKey of _meetingsPhotoIdentityKeys(person)) {
+    if (_meetingsPhotoCache.has(cacheKey) && _meetingsPhotoCache.get(cacheKey) === value) continue;
+    _meetingsPhotoCache.set(cacheKey, value);
+    try {
+      fs.mkdirSync(_MEETINGS_PHOTO_CACHE_DIR, { recursive: true });
+      const file = _meetingsPhotoCacheFile(cacheKey);
+      const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+      fs.writeFileSync(tmp, JSON.stringify({ cacheKey, cachedAt: Date.now(), dataUri: value }));
+      fs.renameSync(tmp, file);
+    } catch (error) {
+      console.warn('[meetings] could not persist profile photo cache —', error && error.message);
+    }
+  }
+}
 async function _meetingsGraphTokenAsync() {
   const now = Date.now();
   if (_graphTokenCache.token && now < _graphTokenCache.expiresAt - 120_000) return _graphTokenCache.token;
@@ -34982,20 +35110,28 @@ async function _meetingsGraphTokenAsync() {
 async function _meetingsProfilePhotos(people) {
   const entries = Object.entries((people && typeof people === 'object') ? people : {}).slice(0, 12);
   if (!entries.length) return {};
+  const resolved = [];
+  const uncached = [];
+  for (const entry of entries) {
+    const [key, person] = entry;
+    const name = String((person && person.name) || '').trim();
+    if ((person && person.identityStatus === 'unattributed') || _meetingsOpaqueSpeakerNumber(name)) continue;
+    const cached = _meetingsReadCachedProfilePhoto(person);
+    if (cached.hit) {
+      if (cached.value) resolved.push([key, cached.value]);
+    } else {
+      uncached.push(entry);
+    }
+  }
+  if (!uncached.length) return Object.fromEntries(resolved);
   let token;
-  try { token = await _meetingsGraphTokenAsync(); } catch (_) { return {}; }
+  try { token = await _meetingsGraphTokenAsync(); } catch (_) { return Object.fromEntries(resolved); }
   const headers = {};
   headers.Authorization = ['Bearer', token].join(' ');
   const fetchGraph = async url => fetch(url, { headers, signal: AbortSignal.timeout(8000) });
   const loadOne = async ([key, person]) => {
     const name = String((person && person.name) || '').trim();
     const direct = String((person && (person.email || person.userPrincipalName || person.upn)) || '').trim();
-    const cacheKey = (direct || name).toLowerCase();
-    if (!cacheKey) return null;
-    if (_meetingsPhotoCache.has(cacheKey)) {
-      const value = _meetingsPhotoCache.get(cacheKey);
-      return value ? [key, value] : null;
-    }
     try {
       let userId = direct;
       if (!userId && name) {
@@ -35009,13 +35145,13 @@ async function _meetingsProfilePhotos(people) {
         }
       }
       if (!userId) {
-        _meetingsPhotoCache.set(cacheKey, '');
+        _meetingsWriteCachedProfilePhoto(person, '');
         return null;
       }
       let response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photos/96x96/$value`);
       if (!response.ok) response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photo/$value`);
       if (!response.ok) {
-        _meetingsPhotoCache.set(cacheKey, '');
+        _meetingsWriteCachedProfilePhoto(person, '');
         return null;
       }
       const bytes = Buffer.from(await response.arrayBuffer());
@@ -35023,25 +35159,37 @@ async function _meetingsProfilePhotos(people) {
       const contentType = String(response.headers.get('content-type') || 'image/jpeg').split(';')[0];
       if (!/^image\//i.test(contentType)) return null;
       const dataUri = `data:${contentType};base64,${bytes.toString('base64')}`;
-      _meetingsPhotoCache.set(cacheKey, dataUri);
+      _meetingsWriteCachedProfilePhoto(person, dataUri);
       return [key, dataUri];
     } catch (_) {
-      _meetingsPhotoCache.set(cacheKey, '');
+      _meetingsWriteCachedProfilePhoto(person, '');
       return null;
     }
   };
-  const resolved = await Promise.all(entries.map(loadOne));
-  return Object.fromEntries(resolved.filter(Boolean));
+  const fetched = await Promise.all(uncached.map(loadOne));
+  return Object.fromEntries([...resolved, ...fetched.filter(Boolean)]);
 }
 function _meetingsEnrichCachedPhotos(meetingId, recap) {
-  if (!recap || (recap.photos && Object.keys(recap.photos).length) || _meetingsPhotoEnrichment.has(meetingId)) return;
-  const work = new Promise(resolve => setTimeout(resolve, 1000)).then(() => _meetingsProfilePhotos(recap.people)).then(photos => {
+  if (!recap) return false;
+  if (_meetingsPhotoEnrichment.has(meetingId)) return true;
+  const current = recap.photos && typeof recap.photos === 'object' ? recap.photos : {};
+  for (const [key, dataUri] of Object.entries(current)) {
+    if (dataUri && recap.people && recap.people[key]) _meetingsWriteCachedProfilePhoto(recap.people[key], dataUri);
+  }
+  const missingPeople = Object.fromEntries(Object.entries(recap.people || {}).filter(([key, person]) => {
+    if (current[key] || !person || person.identityStatus === 'unattributed') return false;
+    const cached = _meetingsReadCachedProfilePhoto(person);
+    return !cached.hit || !!cached.value;
+  }));
+  if (!Object.keys(missingPeople).length) return false;
+  const work = new Promise(resolve => setTimeout(resolve, 1000)).then(() => _meetingsProfilePhotos(missingPeople)).then(photos => {
     if (!Object.keys(photos).length) return;
-    recap.photos = photos;
+    recap.photos = { ...current, ...photos };
     _meetingsCacheRecap(meetingId, recap);
   }).catch(error => console.warn('[meetings] could not enrich cached profile photos —', error && error.message))
     .finally(() => _meetingsPhotoEnrichment.delete(meetingId));
   _meetingsPhotoEnrichment.set(meetingId, work);
+  return true;
 }
 
 // Azure neural narration is synthesized server-side so credentials never reach
@@ -35245,10 +35393,19 @@ app.post('/api/meetings/recap', async (req, res) => {
     const cached = !force && prior;
     if (cached) {
       const c = cached;
+      const requestedRosterChanged = occurrence.attendees.length
+        && JSON.stringify(c.requestedAttendees || []) !== JSON.stringify(occurrence.attendees);
+      const reshaped = _meetingsNormalizeNewscast(c.story, c.people, subject, date, occurrence.attendees);
+      if (reshaped) {
+        c.story = reshaped.story;
+        c.people = reshaped.people;
+        if (occurrence.attendees.length) c.requestedAttendees = occurrence.attendees;
+      }
+      if (requestedRosterChanged) _meetingsCacheRecap(meetingId, c);
       const served = _meetingsWithLocalMedia(meetingId, c);
       const photos = (c.photos && typeof c.photos === 'object') ? c.photos : {};
-      if (!Object.keys(photos).length) _meetingsEnrichCachedPhotos(meetingId, c);
-      return res.json({ ok: true, meetingId, story: served.story, people: served.people, photos, demo: !!served.demo, empty: !!served.empty, quality: served.story && served.story.newscast, cached: true });
+      const photoPending = _meetingsEnrichCachedPhotos(meetingId, c);
+      return res.json({ ok: true, meetingId, story: served.story, people: served.people, photos, photoPending, demo: !!served.demo, empty: !!served.empty, quality: served.story && served.story.newscast, cached: true });
     }
     const builtRaw = await _meetingsBuildRecap(meetingId, subject, date, occurrence);
     const built = builtRaw && builtRaw.story
@@ -35416,7 +35573,13 @@ function _meetingsPublishInterimBrief(meetingId, raw, subject, date, occurrence,
     const base = raw && raw.story
       ? { story: raw.story, people: raw.people }
       : _meetingsStoryFromWorkIq(raw, subject, date);
-    const shaped = base && _meetingsNormalizeNewscast(base.story, base.people, subject, date);
+    const shaped = base && _meetingsNormalizeNewscast(
+      base.story,
+      base.people,
+      subject,
+      date,
+      occurrence && occurrence.attendees,
+    );
     if (!shaped || !shaped.story || !Array.isArray(shaped.story.segments) || !shaped.story.segments.length) return;
     const expectedDate = String(date || '').slice(0, 10);
     const expectedStart = String(occurrence && occurrence.start || '').slice(0, 5);
@@ -43590,7 +43753,7 @@ app.get('/api/chats/:id', (req, res) => {
 app.post('/api/chats', (req, res) => {
   const { id, title, target, targetType, roster, initiatedBy } = req.body;
   if (!id || !target) return res.status(400).json({ error: 'id and target required' });
-  const chat = { id, title: title || `Chat with ${target}`, target, targetType: targetType || 'agent', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const chat = { id, title: title || `Chat with ${target}`, target, targetType: targetType || 'agent', source: 'app', messages: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
   // Group conversations carry a roster of participating agents ([{id,name}]).
   // A roster with 2+ members marks the chat as a "group" in the Water cooler.
   if (Array.isArray(roster) && roster.length) {
