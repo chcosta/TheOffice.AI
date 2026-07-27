@@ -4684,9 +4684,11 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   const get = _win(srv, "app.get('/api/meetings/brief'", 5000) || '';
   t.ok(get, 'GET /api/meetings/brief route exists');
   t.ok(/const st = _meetingsBriefState\.get\(meetingId\)/.test(get), 'GET reads the durable state map');
-  t.ok(/const cachedBrief = _meetingsGetCachedBrief\(meetingId, st\)/.test(get) &&
+  t.ok(/function _meetingsRecentMeeting\(/.test(srv) &&
+       /const canonicalMeeting = _meetingsRecentMeeting\(meetingId\)/.test(get) &&
+       /const cachedBrief = _meetingsGetCachedBrief\(meetingId, canonicalMeeting\)/.test(get) &&
        /phase: 'cached'[\s\S]{0,120}brief: cachedBrief\.brief/.test(get),
-    'GET returns the stable summary cache immediately even when the full newscast needs rebuilding');
+    'GET resolves the same canonical occurrence as the rail before consulting the stable summary cache');
   t.ok(/st\.status === 'building'[\s\S]{0,900}status: 'pending'[\s\S]{0,80}startedAt/.test(get), "building → pending (with startedAt)");
   t.ok(/age > _MEETINGS_BRIEF_STALE_MS[\s\S]{0,120}_meetingsEnsureRecap/.test(get), 'a stale orphaned building state re-kicks the build');
   t.ok(/st\.status === 'queued'[\s\S]{0,500}!inflight[\s\S]{0,160}_meetingsEnsureRecap/.test(get),
@@ -4714,9 +4716,14 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
   t.ok(/briefError: ?'', ?briefAt: ?0, ?briefStartedAt: ?0/.test(html) ||
        (/briefError:/.test(html) && /briefAt:/.test(html) && /briefStartedAt:/.test(html)),
     'the meetings state carries briefError/briefAt/briefStartedAt');
-  const loadStatus = _win(html, 'async mtgLoadBriefStatus(', 900) || '';
+  const loadStatus = _win(html, 'async mtgLoadBriefStatus(', 1500) || '';
   t.ok(/w\.briefError = \(r && r\.error\)/.test(loadStatus) && /w\.briefStartedAt = \(r && r\.startedAt\)/.test(loadStatus),
     'mtgLoadBriefStatus captures error/at/startedAt from GET');
+  t.ok(/const indexed = w\.list\.find\(m => m\.id === mid\)/.test(loadStatus) &&
+       /subject: indexed\.subject/.test(loadStatus) &&
+       /organizer: indexed\.organizer/.test(loadStatus) &&
+       /\/api\/meetings\/brief\?\$\{params\.toString\(\)\}/.test(loadStatus),
+    'the detail probe sends the exact selected occurrence metadata used by the meeting rail');
   t.ok(/w\.briefStatus === 'pending'\) this\.mtgPollBrief/.test(loadStatus), 'mtgLoadBriefStatus polls while pending');
   t.ok(/w\.list = w\.list\.map/.test(loadStatus), 'brief state is mirrored into the meeting index across navigation');
   const select = _win(html, 'mtgSelect(id) {', 1500) || '';

@@ -41816,7 +41816,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const mid = id || w.selectedId;
           if (!mid) return;
           try {
-            const r = await this.request(`/api/meetings/brief?meetingId=${encodeURIComponent(mid)}`);
+            const indexed = w.list.find(m => m.id === mid) || {};
+            const params = new URLSearchParams({
+              meetingId: mid,
+              subject: indexed.subject || indexed.title || '',
+              date: indexed.date || '',
+              start: indexed.start || '',
+              organizer: indexed.organizer || '',
+            });
+            const r = await this.request(`/api/meetings/brief?${params.toString()}`);
             if (w.selectedId !== mid) return; // selection moved on
             w.briefStatus = (r && r.status) || 'none';
             w.briefPhase = (r && r.phase) || '';

@@ -34678,6 +34678,18 @@ function _meetingsSetRecentCache(key, value) {
     }
   } catch (_) { /* first run / no cache yet */ }
 })();
+function _meetingsRecentMeeting(meetingId) {
+  const id = String(meetingId || '').trim();
+  if (!id) return null;
+  const entries = [..._meetingsRecentCache.values()]
+    .sort((a, b) => (Number(b && b.at) || 0) - (Number(a && a.at) || 0));
+  for (const entry of entries) {
+    const meeting = (Array.isArray(entry && entry.meetings) ? entry.meetings : [])
+      .find(item => String((item && (item.meetingId || item.id)) || '').trim() === id);
+    if (meeting) return meeting;
+  }
+  return null;
+}
 function _meetingsFilterRange(meetings, start, end) {
   const startAt = start.getTime();
   const endAt = end.getTime();
@@ -35677,7 +35689,19 @@ app.get('/api/meetings/brief', (req, res) => {
       return res.json({ ok: true, meetingId, status: 'ready', brief: _meetingsBriefFromRecap(rec), meeting: _meetingsBriefMeetingMeta(meetingId, rec) });
     }
     const st = _meetingsBriefState.get(meetingId);
-    const cachedBrief = _meetingsGetCachedBrief(meetingId, st);
+    const requestedOccurrence = {
+      subject: String(req.query.subject || '').trim(),
+      date: String(req.query.date || '').trim(),
+      start: String(req.query.start || '').trim(),
+      organizer: String(req.query.organizer || '').trim(),
+    };
+    // Use the same canonical occurrence metadata that made the meeting rail report
+    // "Summary ready". Looking up by build-state alone can miss an occurrence-keyed
+    // brief after the state was rewritten by a later enrichment run.
+    const canonicalMeeting = _meetingsRecentMeeting(meetingId)
+      || (requestedOccurrence.subject ? requestedOccurrence : null)
+      || st;
+    const cachedBrief = _meetingsGetCachedBrief(meetingId, canonicalMeeting);
     if (cachedBrief) {
       return res.json({
         ok: true,
