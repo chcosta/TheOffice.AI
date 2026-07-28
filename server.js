@@ -4649,6 +4649,16 @@ html[data-theme="dark"] .diff-hunk{color:#7cb7ff;display:block;}
   return out;
 }
 
+// Force a browser download by setting Content-Disposition: attachment with a safe
+// basename derived from the report/file path. Shared by the dev-card + Code Flow
+// report/file endpoints so their "⬇ Download" action saves the raw artifact
+// instead of rendering it inline.
+function _setDownloadDisposition(res, filePathOrRel) {
+  let base = require('path').basename(String(filePathOrRel || '').replace(/[\\/]+$/, '')) || 'artifact';
+  base = base.replace(/[\r\n"]/g, '').trim() || 'artifact';
+  res.setHeader('Content-Disposition', 'attachment; filename="' + base + '"');
+}
+
 app.get('/api/codeflow/pr/report', (req, res) => {
   const o = { org: req.query.org, project: req.query.project, repo: req.query.repo, prId: req.query.prId, provider: req.query.provider };
   if (!_cfPrOk(o)) return res.status(400).send('org, repo and prId are required');
@@ -4663,7 +4673,12 @@ app.get('/api/codeflow/pr/report', (req, res) => {
     res.setHeader('Content-Type', r.contentType);
     res.setHeader('Cache-Control', 'no-store');
     const isHtml = /text\/html/i.test(r.contentType || '');
-    res.send(isHtml ? _themeReportHtml(r.content) : r.content);
+    if (req.query.download) {
+      _setDownloadDisposition(res, file);
+      res.send(r.content);
+    } else {
+      res.send(isHtml ? _themeReportHtml(r.content) : r.content);
+    }
   } catch (e) {
     res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read report');
   }
@@ -40089,6 +40104,7 @@ app.get('/api/boards/:id/dev-items/:devId/report', (req, res) => {
     catch (e1) { r = devitems.readReport(d.worktreePath, file); }
     res.setHeader('Content-Type', r.contentType);
     res.setHeader('Cache-Control', 'no-store');
+    if (req.query.download) _setDownloadDisposition(res, file);
     res.send(r.content);
   } catch (e) {
     res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read report');
@@ -40114,6 +40130,7 @@ app.get('/api/boards/:id/dev-items/:devId/file', (req, res) => {
     const r = devitems.readWorktreeFile(slot.worktreePath, rel);
     res.setHeader('Content-Type', r.contentType);
     res.setHeader('Cache-Control', 'no-store');
+    if (req.query.download) _setDownloadDisposition(res, rel);
     res.send(r.content);
   } catch (e) {
     res.status(e && e.status ? e.status : 404).send((e && e.message) || 'Failed to read file');

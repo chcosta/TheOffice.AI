@@ -10815,6 +10815,7 @@
                                                  </a>
                                                  <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                                                  <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
+                                                 <a class="board-act cal-row-act" :href="devReportDownloadUrl(d,r)" :download="r.name || ''" data-tip="Download" @click.stop>⬇</a>
                                                </div>
                                              </template>
                                            </div>
@@ -10831,6 +10832,7 @@
                                                <div class="cal-row">
                                                  <a class="cal-row-link" :href="devReportUrl(d, { cacheRel: h.rel })" target="_blank" rel="noopener" :title="'Open ' + (h.name || '')"><span x-text="(h.kind==='html' ? '📄 ' : '📝 ') + (h.displayName || h.name)"></span><span x-show="h.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + h.repo"></span></a>
                                                  <span class="cal-row-time" x-text="formatRelative(h.ts)"></span>
+                                                 <a class="board-act cal-row-act" :href="devReportDownloadUrl(d, { cacheRel: h.rel })" :download="h.displayName || h.name || ''" data-tip="Download" @click.stop>⬇</a>
                                                </div>
                                              </template>
                                            </div>
@@ -10849,6 +10851,9 @@
                                                    <a class="cal-row-link" :href="devFileUrl(d,f)" target="_blank" rel="noopener" :title="'Open ' + (f.rel || '') + ' in a new tab'">
                                                      <span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + devFileStatusLabel(f)"></span><span x-show="devFilesMultiRepo(d) && f.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + f.repo"></span>
                                                    </a>
+                                                 </template>
+                                                 <template x-if="!f.deleted">
+                                                   <a class="board-act cal-row-act" :href="devFileDownloadUrl(d,f)" :download="f.name || ''" data-tip="Download" @click.stop>⬇</a>
                                                  </template>
                                                  <template x-if="f.deleted">
                                                    <span class="cal-row-link" style="opacity:0.6;text-decoration:line-through" :title="f.rel + ' — deleted, nothing to open'"><span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px">· deleted</span></span>
@@ -12909,6 +12914,7 @@
                                                  </a>
                                                  <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                                                  <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(d,r)">👁</button>
+                                                 <a class="board-act cal-row-act" :href="devReportDownloadUrl(d,r)" :download="r.name || ''" data-tip="Download" @click.stop>⬇</a>
                                                </div>
                                              </template>
                                            </div>
@@ -12924,6 +12930,7 @@
                                                <div class="cal-row">
                                                  <a class="cal-row-link" :href="devReportUrl(d, { cacheRel: h.rel })" target="_blank" rel="noopener" :title="'Open ' + (h.name || '')"><span x-text="(h.kind==='html' ? '📄 ' : '📝 ') + (h.displayName || h.name)"></span><span x-show="h.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + h.repo"></span></a>
                                                  <span class="cal-row-time" x-text="formatRelative(h.ts)"></span>
+                                                 <a class="board-act cal-row-act" :href="devReportDownloadUrl(d, { cacheRel: h.rel })" :download="h.displayName || h.name || ''" data-tip="Download" @click.stop>⬇</a>
                                                </div>
                                              </template>
                                            </div>
@@ -12939,6 +12946,9 @@
                                                    <a class="cal-row-link" :href="devFileUrl(d,f)" target="_blank" rel="noopener" :title="'Open ' + (f.rel || '') + ' in a new tab'">
                                                      <span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + devFileStatusLabel(f)"></span><span x-show="devFilesMultiRepo(d) && f.repo" class="hint" style="font-size:10px;margin-left:5px" x-text="'· ' + f.repo"></span>
                                                    </a>
+                                                 </template>
+                                                 <template x-if="!f.deleted">
+                                                   <a class="board-act cal-row-act" :href="devFileDownloadUrl(d,f)" :download="f.name || ''" data-tip="Download" @click.stop>⬇</a>
                                                  </template>
                                                  <template x-if="f.deleted">
                                                    <span class="cal-row-link" style="opacity:0.6;text-decoration:line-through" :title="f.rel + ' — deleted, nothing to open'"><span x-text="devFileIcon(f) + ' ' + f.name"></span><span class="hint" style="font-size:10px;margin-left:5px">· deleted</span></span>
@@ -13066,6 +13076,7 @@
                             </a>
                             <span class="cal-row-time" x-text="formatRelative(devReportTime(r))"></span>
                             <button class="board-act cal-row-act" type="button" data-tip="Preview" @click="openReportPreview(dc,r)">👁</button>
+                            <a class="board-act cal-row-act" :href="devReportDownloadUrl(dc,r)" :download="r.name || ''" data-tip="Download" @click.stop>⬇</a>
                           </div>
                         </template>
                       </div>
@@ -24694,6 +24705,7 @@
                                  :title="'Open ' + (r.rel || '') + ' — ' + cfReportTs(r)"
                                  x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel)"></a>
                               <span class="cf-wt-history-ts" x-text="cfReportTs(r)"></span>
+                              <a class="cf-wt-link" :href="cfReportDownloadUrl(pr, r)" :download="r.name || r.rel || ''" title="Download this report" @click.stop>⬇ Download</a>
                             </div>
                           </template>
                           <template x-if="cfWt(pr) && (cfWt(pr).reportHistory || []).length">
@@ -24708,6 +24720,7 @@
                                   <a class="cf-wt-link" :href="cfReportUrl(pr, { rel: h.rel })" target="_blank" rel="noopener"
                                      x-text="(h.kind === 'html' ? '📄 ' : '📌 ') + (h.displayName || h.name || h.rel)"></a>
                                   <span class="cf-wt-history-ts" x-text="cfHistTs(h)"></span>
+                                  <a class="cf-wt-link" :href="cfReportDownloadUrl(pr, { rel: h.rel })" :download="h.displayName || h.name || h.rel || ''" title="Download this report" @click.stop>⬇ Download</a>
                                 </div>
                               </template>
                             </div>
@@ -24999,6 +25012,11 @@
                             <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, r)" target="_blank" rel="noopener"
                                :title="'Open ' + (r.rel || '') + ' — ' + cfReportTs(r)"
                                x-text="(r.kind === 'html' ? '📄 ' : '📌 ') + (r.name || r.rel) + ' · ' + cfReportTs(r)"></a>
+                          </template>
+                          <template x-for="r in (cfWt(pr).reports || [])" :key="'dl-' + r.rel">
+                            <a class="cf-wt-link" :href="cfReportDownloadUrl(pr, r)" :download="r.name || r.rel || ''"
+                               :title="'Download ' + (r.name || r.rel || '')" @click.stop
+                               x-text="'⬇ ' + (r.name || r.rel)"></a>
                           </template>
                           <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                                 x-text="cfWt(pr).reviewError"></span>
@@ -56428,6 +56446,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             '&file=' + encodeURIComponent(rel) +
             '&scoutTheme=' + encodeURIComponent(theme);
         },
+        // Download variant of cfReportUrl — &download=1 makes the server attach the
+        // raw (unthemed) report so the browser saves it rather than rendering it.
+        cfReportDownloadUrl(pr, r) {
+          const u = this.cfReportUrl(pr, r);
+          return u === '#' ? '#' : u + '&download=1';
+        },
         codeflowUrgencyCls(u) {
           if (u >= 70) return 'cf-urg-high';
           if (u >= 40) return 'cf-urg-med';
@@ -65700,6 +65724,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Non-primary repos' reports are cached under a repo-namespaced key
           // (cacheRel); prefer it so multi-repo reports serve from the durable cache.
           return this._devUrl(d, 'report') + '?file=' + encodeURIComponent((r && (r.cacheRel || r.rel)) || '');
+        },
+        // Same report/file endpoints, but with &download=1 so the server responds
+        // Content-Disposition: attachment and the browser saves the raw artifact
+        // instead of opening it inline. Backs the "⬇" action on each artifact row.
+        devReportDownloadUrl(d, r) { return this.devReportUrl(d, r) + '&download=1'; },
+        devFileDownloadUrl(d, f) {
+          const u = this.devFileUrl(d, f);
+          return u === '#' ? '#' : u + '&download=1';
         },
         // True when a card's reports span more than one repo — used to show a muted
         // "· <repo>" tag so identically-named reports are disambiguated.
