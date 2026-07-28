@@ -754,6 +754,16 @@ await t.test('appearance: Compose.AI ✍️ maps to a themed glyph (no raw-emoji
   t.ok(/label:\s*'Compose\.AI'[^}]*icon:\s*'✍️'/.test(html), 'Compose.AI nav item uses the ✍️ icon that is now mapped');
 });
 
+await t.test('appearance: Meetings.AI clapperboard follows icon set and palette', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/"🎬️":\s*"meeting"/.test(html) && /"🎬":\s*"meeting"/.test(html),
+    'clapperboard variants map to the themed meeting role');
+  t.ok(/\n\s*meeting:\s*'<rect/.test(html) && /meeting:'[^']*class="acc"/.test(html),
+    'the meeting glyph uses currentColor plus the active palette accent');
+  t.ok(/label:\s*'Meetings\.AI'[^}]*icon:\s*'🎬'/.test(html),
+    'Meetings.AI nav metadata uses the mapped clapperboard icon');
+});
+
 // ── Pursuit map enhancements (context menu, running-node pulse, node duration,
 // export overhaul). Static guards over the shipped SPA markup + methods.
 
@@ -4880,6 +4890,43 @@ await t.test('meetings.ai recap: unattributed speakers and missing photos use ho
     && /missingPeople/.test(enrich)
     && /recap\.photos = \{ \.\.\.current, \.\.\.photos \}/.test(enrich),
     'older recap-embedded photos seed the shared cache before any missing portraits are retrieved');
+});
+
+await t.test('workspace board maps: cards and groups nest by pointer drop with recursive summaries', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const srv = readFileSync(SERVER, 'utf8');
+  t.ok(/dropGroupId: null/.test(html)
+    && /'drop-target': bmap\.dropGroupId===g\.id/.test(html)
+    && /\.bmap-group\.drop-target/.test(html),
+    'pointer drags expose and visibly highlight the active group drop target');
+  const hierarchy = _win(html, '_bmapNormalizeGroups(m) {', 8200) || '';
+  t.ok(/parentGroupId/.test(hierarchy)
+    && /_bmapGroupDescendants\(g\)/.test(hierarchy)
+    && /_bmapGroupCardBases\(g, recursive\)/.test(hierarchy)
+    && /claimed = new Set/.test(hierarchy),
+    'group hierarchy is normalized, cycle-safe, recursive, and prevents ambiguous unlocked multi-parent card membership');
+  const pointer = _win(html, 'bmapPanMove(ev) {', 8200) || '';
+  t.ok(/this\.bmap\.dropGroupId = this\._bmapDropTargetAt/.test(pointer)
+    && /this\._bmapReparentCards\(bases, target\)/.test(pointer)
+    && /this\._bmapReparentGroup\(gd\.id, target\)/.test(pointer),
+    'both card and group pointer drags resolve the highlighted target on release');
+  const drops = _win(html, '_bmapDropTargetAt(clientX, clientY, moving) {', 6200) || '';
+  t.ok(/!g\.locked/.test(drops)
+    && /this\._bmapGroupDescendants\(moving\.groupId\)/.test(drops)
+    && /g\.members = next/.test(drops)
+    && /g\.parentGroupId = target\.id/.test(drops),
+    'drops preserve locked auto-groups, remove former direct membership, and reject self/descendant cycles');
+  const summaries = _win(html, 'bmapGroupItems(g, recursive) {', 6500) || '';
+  t.ok(/this\._bmapGroupDescendants\(g\)/.test(summaries)
+    && /subgroup: it\.groupId === obj\.id/.test(summaries)
+    && /subgroups: this\._bmapGroupDescendants\(obj\)/.test(summaries),
+    'group summaries recursively include unique descendant cards plus subgroup context');
+  const route = _win(srv, "app.post('/api/boards/:id/group-summary'", 5400) || '';
+  t.ok(/const inSubgroups/.test(route)
+    && /Nested subgroup structure:/.test(route)
+    && /nested subgroup:/.test(route)
+    && !/inItems\.slice\(0,\s*24\)/.test(route),
+    'the AI summary endpoint receives every submitted card and the nested group structure');
 });
 
 await t.done();

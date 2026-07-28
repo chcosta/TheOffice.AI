@@ -346,6 +346,8 @@
 
   live:'<circle class="dot acc" cx="12" cy="12" r="2"/><path d="M8.6 8.6a5 5 0 0 0 0 6.8M15.4 8.6a5 5 0 0 1 0 6.8"/><path d="M6 6a8 8 0 0 0 0 12M18 6a8 8 0 0 1 0 12"/>',
 
+  meeting:'<rect x="4" y="8" width="16" height="11" rx="1.5"/><path class="acc" d="M4 8l2-4h4L8 8m6-4-2 4m6-4-2 4"/><line x1="4" y1="12" x2="20" y2="12"/><path class="acc" d="m10 14 4 2-4 2z"/>',
+
   status:'<circle class="dot" cx="12" cy="12" r="5"/>',
 
   bell:'<path d="M7 16.5V11a5 5 0 0 1 10 0v5.5l1.4 2H5.6z"/><path class="acc" d="M10.4 19a1.6 1.6 0 0 0 3.2 0"/>',
@@ -539,6 +541,8 @@
     "⚠": "warning|s-warn",
     "📱": "mobile",
     "📡": "live",
+    "🎬️": "meeting",
+    "🎬": "meeting",
     "🟢": "status|s-ok",
     "🟡": "status|s-warn",
     "🔴": "status|s-err",
@@ -5882,6 +5886,13 @@
       position: absolute; z-index: 0; pointer-events: none;
       border: 1.5px dashed color-mix(in srgb, var(--cp-accent) 55%, var(--cp-border));
       border-radius: 12px; background: color-mix(in srgb, var(--cp-accent) 6%, transparent);
+      transition: border-color .12s ease, background .12s ease, box-shadow .12s ease;
+    }
+    .bmap-group.drop-target {
+      border-color: var(--cp-accent);
+      border-style: solid;
+      background: color-mix(in srgb, var(--cp-accent) 14%, transparent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--cp-accent) 22%, transparent);
     }
     .bmap-group-body {
       position: absolute; inset: 0; z-index: 0; pointer-events: auto;
@@ -9537,7 +9548,7 @@
                           <div class="bmap-world" :style="bmapWorldStyle()">
                             <!-- group frames -->
                             <template x-for="g in bmapGroups()" :key="g.id">
-                              <div class="bmap-group" :style="bmapGroupStyle(g)">
+                              <div class="bmap-group" :class="{ 'drop-target': bmap.dropGroupId===g.id }" :style="bmapGroupStyle(g)">
                                 <div class="bmap-group-body" x-show="!bmap.groupMode && !bmapConnectMode()"
                                      @pointerdown.stop="bmapGroupDragStart(g,$event)"
                                      title="Drag to move this group"></div>
@@ -32458,7 +32469,7 @@
         // selection, hover/full-view). pan/zoom is per-board localStorage, not server.
         bmap: {
           view: { zoom: 1, panX: 40, panY: 40 },
-          drag: null, groupDrag: null, marquee: null, pan: null,
+          drag: null, groupDrag: null, marquee: null, pan: null, dropGroupId: null,
           connect: null, connectFrom: null, link: null, groupMode: false,
           sel: [], hover: null, full: null, editGroup: null, summaryGroup: null,
           groupPreview: [], aiSummary: {},
@@ -59240,6 +59251,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!Array.isArray(m.edges)) m.edges = [];
           if (!Array.isArray(m.groups)) m.groups = [];
           if (!m.highlights || typeof m.highlights !== 'object') m.highlights = {};
+          this._bmapNormalizeGroups(m);
           return m;
         },
         _bmapSerialize() {
@@ -59273,7 +59285,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.bmap._boardId = b.id;
           this.bmap.sel = []; this.bmap.full = null;
           this.bmap.connect = null; this.bmap.connectFrom = null;
-          this.bmap.drag = null; this.bmap.groupDrag = null; this.bmap.marquee = null; this.bmap.pan = null;
+          this.bmap.drag = null; this.bmap.groupDrag = null; this.bmap.marquee = null; this.bmap.pan = null; this.bmap.dropGroupId = null;
           let v = null;
           try { v = JSON.parse(localStorage.getItem(this._bmapViewKey()) || 'null'); } catch {}
           this.bmap.view = (v && typeof v === 'object')
@@ -59332,7 +59344,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           };
           return map[this.bmapKindKey(p)] || map.pin;
         },
-        bmapGroupStyle(g) { return `left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px`; },
+        bmapGroupStyle(g) { return `left:${g.x}px;top:${g.y}px;width:${g.w}px;height:${g.h}px;z-index:${this._bmapGroupDepth(g)}`; },
         // Measure a node's on-canvas size (local px, pre-transform → world units).
         // Falls back to the default estimate when the DOM node isn't mounted yet.
         _bmapNodeDims(base) {
@@ -59357,8 +59369,65 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const m = this.bmapData(); if (!m || !m.groups) return [];
           return m.groups.filter(g => (g.members || []).includes(base));
         },
+        _bmapNormalizeGroups(m) {
+          const groups = (m && m.groups) || [];
+          const ids = new Set(groups.filter(Boolean).map(g => g.id));
+          for (const g of groups) {
+            if (!g) continue;
+            g.members = [...new Set((g.members || []).filter(Boolean))];
+            if (!g.parentGroupId || g.parentGroupId === g.id || !ids.has(g.parentGroupId)) delete g.parentGroupId;
+          }
+          for (const g of groups) {
+            const seen = new Set([g.id]); let p = g;
+            while (p && p.parentGroupId) {
+              if (seen.has(p.parentGroupId)) { delete p.parentGroupId; break; }
+              seen.add(p.parentGroupId);
+              p = groups.find(x => x && x.id === p.parentGroupId);
+            }
+          }
+          const depth = g => {
+            let n = 0, p = g, seen = new Set();
+            while (p && p.parentGroupId && n < 20 && !seen.has(p.id)) { seen.add(p.id); p = groups.find(x => x && x.id === p.parentGroupId); n++; }
+            return n;
+          };
+          const claimed = new Set();
+          for (const g of groups.filter(x => x && !x.locked).sort((a, b) => depth(b) - depth(a))) {
+            g.members = (g.members || []).filter(base => {
+              if (claimed.has(base)) return false;
+              claimed.add(base); return true;
+            });
+          }
+        },
+        _bmapGroupById(id) { return id ? this.bmapGroups().find(g => g.id === id) || null : null; },
+        _bmapGroupChildren(g) { const id = (g && g.id) || g; return this.bmapGroups().filter(x => x.parentGroupId === id); },
+        _bmapGroupDepth(g) {
+          let depth = 0, p = g, seen = new Set();
+          while (p && p.parentGroupId && depth < 20 && !seen.has(p.id)) { seen.add(p.id); p = this._bmapGroupById(p.parentGroupId); depth++; }
+          return depth;
+        },
+        _bmapGroupDescendants(g) {
+          const root = (g && g.id) || g, out = [], seen = new Set([root]), q = [root];
+          while (q.length) {
+            const id = q.shift();
+            for (const child of this._bmapGroupChildren(id)) {
+              if (seen.has(child.id)) continue;
+              seen.add(child.id); out.push(child); q.push(child.id);
+            }
+          }
+          return out;
+        },
+        _bmapGroupCardBases(g, recursive) {
+          const groups = [g, ...(recursive === false ? [] : this._bmapGroupDescendants(g))];
+          const out = [], seen = new Set();
+          for (const gg of groups) for (const base of (gg.members || [])) if (!seen.has(base)) { seen.add(base); out.push(base); }
+          return out;
+        },
+        _bmapFitGroupChain(g) {
+          let cur = g, seen = new Set();
+          while (cur && !seen.has(cur.id)) { seen.add(cur.id); this._bmapFitGroup(cur); cur = this._bmapGroupById(cur.parentGroupId); }
+        },
         // Recompute a group's frame so it tightly encloses ALL its member nodes,
-        // measuring real (variable-height) card sizes. Leaves head room above for the label.
+        // measuring real card sizes and direct child-group rectangles.
         _bmapFitGroup(g, pad) {
           const m = this.bmapData(); if (!m || !g) return;
           const gg = (m.groups || []).find(x => x.id === g.id) || g;
@@ -59371,6 +59440,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const x = +nd.x || 0, y = +nd.y || 0;
             minX = Math.min(minX, x); minY = Math.min(minY, y);
             maxX = Math.max(maxX, x + d.w); maxY = Math.max(maxY, y + d.h);
+            seen++;
+          }
+          for (const child of this._bmapGroupChildren(gg)) {
+            const x = +child.x || 0, y = +child.y || 0, w = +child.w || 0, h = +child.h || 0;
+            minX = Math.min(minX, x); minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x + w); maxY = Math.max(maxY, y + h);
             seen++;
           }
           if (!seen || !isFinite(minX)) return;
@@ -59937,14 +60012,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             const d = this.bmap.drag;
             const dx = (ev.clientX - d.sx) / v.zoom, dy = (ev.clientY - d.sy) / v.zoom;
             if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 3) d.moved = true;
-            if (d.moved) { const m = this._bmapEnsure(); if (!m) return; for (const it of d.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } } if (d.groups && d.groups.length) { for (const gid of d.groups) { const g = (m.groups || []).find(x => x.id === gid); if (g) this._bmapFitGroup(g); } } }
+            if (d.moved) {
+              const m = this._bmapEnsure(); if (!m) return;
+              for (const it of d.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } }
+              d.lastX = ev.clientX; d.lastY = ev.clientY;
+              this.bmap.dropGroupId = this._bmapDropTargetAt(ev.clientX, ev.clientY, { cardBases: d.items.map(it => it.base) });
+            }
             return;
           }
           if (this.bmap.groupDrag) {
             const gd = this.bmap.groupDrag;
             const dx = (ev.clientX - gd.sx) / v.zoom, dy = (ev.clientY - gd.sy) / v.zoom;
             if (!gd.moved && Math.hypot(ev.clientX - gd.sx, ev.clientY - gd.sy) > 3) gd.moved = true;
-            if (gd.moved) { const m = this._bmapEnsure(); if (!m) return; const g = (m.groups || []).find(x => x.id === gd.id); if (g) { g.x = Math.round(gd.gx + dx); g.y = Math.round(gd.gy + dy); } for (const it of gd.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } } }
+            if (gd.moved) {
+              const m = this._bmapEnsure(); if (!m) return;
+              for (const it of gd.groups) { const g = (m.groups || []).find(x => x.id === it.id); if (g) { g.x = Math.round(it.ox + dx); g.y = Math.round(it.oy + dy); } }
+              for (const it of gd.items) { const nd = m.nodes[it.base]; if (nd) { nd.x = Math.round(it.ox + dx); nd.y = Math.round(it.oy + dy); } }
+              gd.lastX = ev.clientX; gd.lastY = ev.clientY;
+              this.bmap.dropGroupId = this._bmapDropTargetAt(ev.clientX, ev.clientY, { groupId: gd.id });
+            }
             return;
           }
           if (this.bmap.marquee) {
@@ -59958,8 +60044,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         bmapPanEnd() {
           if (this.bmap.link) { this.bmap.link = null; return; }
-          if (this.bmap.drag) { const moved = this.bmap.drag.moved; const bases = (this.bmap.drag.items || []).map(it => it.base); this.bmap.drag = null; this.bmap._suppressClick = moved; if (moved) { this._bmapMaybeJoinGroup(bases); this._bmapPersistSoon(); } return; }
-          if (this.bmap.groupDrag) { const moved = this.bmap.groupDrag.moved; this.bmap.groupDrag = null; if (moved) this._bmapPersistSoon(); return; }
+          if (this.bmap.drag) {
+            const d = this.bmap.drag, moved = d.moved, bases = (d.items || []).map(it => it.base), target = this.bmap.dropGroupId;
+            this.bmap.drag = null; this.bmap.dropGroupId = null; this.bmap._suppressClick = moved;
+            if (moved) { this._bmapReparentCards(bases, target); this._bmapPersistSoon(); }
+            return;
+          }
+          if (this.bmap.groupDrag) {
+            const gd = this.bmap.groupDrag, moved = gd.moved, target = this.bmap.dropGroupId;
+            this.bmap.groupDrag = null; this.bmap.dropGroupId = null;
+            if (moved) { this._bmapReparentGroup(gd.id, target); this._bmapPersistSoon(); }
+            return;
+          }
           if (this.bmap.marquee) { const grp = this.bmap.marquee.group; if (grp) this._bmapFinishGroupRect(); else this._bmapFinishMarquee(); this.bmap.marquee = null; return; }
           if (this.bmap.pan) { this.bmap.pan = null; this._bmapSaveView(); }
         },
@@ -60009,8 +60105,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Shrink the frame to tightly wrap the captured cards (matches bmapStartGroup).
           const pad = 22, head = 26;
           const m = this._bmapEnsure(); if (!m) return;
-          const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members };
-          m.groups.push(g); this._bmapPersistSoon();
+          const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members: [] };
+          m.groups.push(g); this._bmapReparentCards(members, g.id); this._bmapPersistSoon();
           this.bmap.editGroup = g.id;
           this.$nextTick(() => { this._bmapFitGroup(g); this._bmapPersistSoon(); });
         },
@@ -60207,26 +60303,40 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             try { await this._bmapAutoPlaceDev(g.devBase, p.dev, { mintMissing: true }); } catch {}
           }
         },
-        // After a free drag ends, absorb any dragged node whose box lands fully inside a
-        // group's frame (and isn't already a member). Group-over-card does NOT absorb.
-        _bmapMaybeJoinGroup(bases) {
-          const m = this._bmapEnsure(); if (!m || !bases || !bases.length) return;
-          let changed = false;
-          for (const base of bases) {
-            const nd = m.nodes[base]; if (!nd) continue;
-            const d = this._bmapNodeDims(base);
-            const l = +nd.x || 0, t = +nd.y || 0, r = l + d.w, b = t + d.h;
-            for (const g of (m.groups || [])) {
-              if (!g || (g.members || []).includes(base)) continue;
-              if (l >= g.x && t >= g.y && r <= g.x + g.w && b <= g.y + g.h) {
-                g.members = [...(g.members || []), base];
-                this._bmapFitGroup(g);
-                changed = true;
-                break;
-              }
-            }
+        _bmapDropTargetAt(clientX, clientY, moving) {
+          const host = document.querySelector('.board-map'); if (!host) return null;
+          const r = host.getBoundingClientRect(), v = this.bmap.view;
+          const x = (clientX - r.left - v.panX) / v.zoom, y = (clientY - r.top - v.panY) / v.zoom;
+          const excluded = new Set();
+          if (moving && moving.groupId) {
+            excluded.add(moving.groupId);
+            this._bmapGroupDescendants(moving.groupId).forEach(g => excluded.add(g.id));
           }
-          if (changed) this._bmapPersistSoon();
+          return this.bmapGroups()
+            .filter(g => !g.locked && !excluded.has(g.id) && x >= g.x && y >= g.y && x <= g.x + g.w && y <= g.y + g.h)
+            .sort((a, b) => this._bmapGroupDepth(b) - this._bmapGroupDepth(a) || (a.w * a.h) - (b.w * b.h))[0]?.id || null;
+        },
+        _bmapReparentCards(bases, targetId) {
+          const m = this._bmapEnsure(); if (!m) return;
+          const moved = new Set(bases || []), affected = new Set();
+          for (const g of (m.groups || [])) {
+            if (g.locked) continue;
+            const next = (g.members || []).filter(b => !moved.has(b));
+            if (next.length !== (g.members || []).length) { g.members = next; affected.add(g.id); }
+          }
+          const target = this._bmapGroupById(targetId);
+          if (target && !target.locked) { target.members = [...new Set([...(target.members || []), ...moved])]; affected.add(target.id); }
+          affected.forEach(id => { const g = this._bmapGroupById(id); if (g) this._bmapFitGroupChain(g); });
+        },
+        _bmapReparentGroup(groupId, targetId) {
+          const g = this._bmapGroupById(groupId); if (!g) return;
+          const oldParent = this._bmapGroupById(g.parentGroupId);
+          const target = this._bmapGroupById(targetId);
+          const invalid = target && (target.locked || target.id === g.id || this._bmapGroupDescendants(g).some(x => x.id === target.id));
+          if (invalid) return;
+          if (target) g.parentGroupId = target.id; else delete g.parentGroupId;
+          if (oldParent) this._bmapFitGroupChain(oldParent);
+          if (target) this._bmapFitGroupChain(target);
         },
         bmapGroupLocked(g) { return !!(g && g.locked); },
         bmapAddNode(base) {
@@ -60416,15 +60526,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           for (const base of this.bmap.sel) { const nd = m.nodes[base]; if (!nd) continue; minX = Math.min(minX, +nd.x); minY = Math.min(minY, +nd.y); maxX = Math.max(maxX, +nd.x + NW); maxY = Math.max(maxY, +nd.y + NH); }
           if (!isFinite(minX)) return;
           const pad = 22, head = 26;
-          const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members: this.bmap.sel.slice() };
-          m.groups.push(g); this._bmapPersistSoon();
+          const g = { id: 'g' + Date.now().toString(36), name: '', x: Math.round(minX - pad), y: Math.round(minY - pad - head), w: Math.round(maxX - minX + pad * 2), h: Math.round(maxY - minY + pad * 2 + head), members: [] };
+          m.groups.push(g); this._bmapReparentCards(this.bmap.sel.slice(), g.id); this._bmapPersistSoon();
           this.bmap.editGroup = g.id;
           this.$nextTick(() => { this._bmapFitGroup(g); this._bmapPersistSoon(); });
         },
         bmapGroupDragStart(g, ev) {
           const m = this.bmapData(); const nodes = m.nodes || {};
-          const items = (g.members || []).map(b => { const nd = nodes[b] || {}; return { base: b, ox: +nd.x || 0, oy: +nd.y || 0 }; });
-          this.bmap.groupDrag = { id: g.id, sx: ev.clientX, sy: ev.clientY, gx: +g.x || 0, gy: +g.y || 0, items, moved: false };
+          const descendants = this._bmapGroupDescendants(g);
+          const groups = [g, ...descendants].map(gg => ({ id: gg.id, ox: +gg.x || 0, oy: +gg.y || 0 }));
+          const items = this._bmapGroupCardBases(g, true).map(b => { const nd = nodes[b] || {}; return { base: b, ox: +nd.x || 0, oy: +nd.y || 0 }; });
+          this.bmap.groupDrag = { id: g.id, sx: ev.clientX, sy: ev.clientY, groups, items, moved: false };
         },
         bmapRenameGroup(g) { const m = this._bmapEnsure(); if (!m) return; const gg = (m.groups || []).find(x => x.id === g.id); if (!gg) return; this.bmap.editGroup = gg.id; },
         bmapCommitGroupName(g, val) {
@@ -60434,7 +60546,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.bmap.editGroup = null;
         },
         bmapCancelGroupName() { this.bmap.editGroup = null; },
-        bmapRemoveGroup(g) { const m = this._bmapEnsure(); if (!m) return; m.groups = (m.groups || []).filter(x => x.id !== g.id); this._bmapPersistSoon(); },
+        bmapRemoveGroup(g) {
+          const m = this._bmapEnsure(); if (!m) return;
+          const parent = this._bmapGroupById(g.parentGroupId);
+          const promoted = (g.members || []).slice();
+          for (const child of this._bmapGroupChildren(g)) {
+            if (parent) child.parentGroupId = parent.id; else delete child.parentGroupId;
+          }
+          m.groups = (m.groups || []).filter(x => x.id !== g.id);
+          if (promoted.length) this._bmapReparentCards(promoted, parent && parent.id);
+          else if (parent) this._bmapFitGroupChain(parent);
+          this._bmapPersistSoon();
+        },
         // -- highlights ("you are here") --
         // Global, identity-keyed for PR & dev cards so ALL matching cards (every board +
         // Code Flow) light up together; falls back to the per-board store for board-native
@@ -60519,9 +60642,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           window.addEventListener('pointermove', move);
           window.addEventListener('pointerup', up);
         },
-        bmapGroupItems(g) { return (g.members || []).map(b => { const p = this._panelByBase(b); return p ? { base: b, p } : null; }).filter(Boolean); },
+        bmapGroupItems(g, recursive) {
+          const groups = [g, ...(recursive === false ? [] : this._bmapGroupDescendants(g))];
+          const out = [], seen = new Set();
+          for (const gg of groups) for (const b of (gg.members || [])) {
+            if (seen.has(b)) continue;
+            const p = this._panelByBase(b); if (!p) continue;
+            seen.add(b); out.push({ base: b, p, groupId: gg.id, groupName: gg.name || 'Group' });
+          }
+          return out;
+        },
         bmapGroupRels(g) {
-          const m = this.bmapData(); const mem = new Set(g.members || []); const out = [];
+          const m = this.bmapData(); const mem = new Set(this._bmapGroupCardBases(g, true)); const out = [];
           for (const e of (m.edges || [])) {
             if (!(mem.has(e.from) && mem.has(e.to))) continue;
             const pf = this._panelByBase(e.from), pt = this._panelByBase(e.to);
@@ -60539,7 +60671,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const obj = (g && g.members) ? g : this.bmapSummaryGroupObj(); if (!obj) return;
           const cur = this.bmap.aiSummary[id];
           if (!force && cur && (cur.loading || cur.text)) return;   // already have it / in flight
-          const items = this.bmapGroupItems(obj).map(it => {
+          const items = this.bmapGroupItems(obj, true).map(it => {
             const p = it.p;
             let status = '';
             try { const s = this.bmapSignal(p); if (s && s.text) status = s.text; } catch {}
@@ -60552,6 +60684,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               summary: this.bmapCardSummary(p) || '',
               status, facts,
               meta: (() => { try { return this.bmapCardMeta(p) || ''; } catch { return ''; } })(),
+              subgroup: it.groupId === obj.id ? '' : it.groupName,
             };
           });
           if (items.length < 2) { this.bmap.aiSummary[id] = { loading: false, text: '', error: 'Group at least two cards to get a connected analysis.' }; return; }
@@ -60561,7 +60694,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const res = await fetch('/api/boards/' + encodeURIComponent(bid) + '/group-summary', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ items, rels, groupName: obj.name || '' })
+              body: JSON.stringify({
+                items, rels, groupName: obj.name || '',
+                subgroups: this._bmapGroupDescendants(obj).map(x => ({ name: x.name || 'Group', parent: (this._bmapGroupById(x.parentGroupId) || {}).name || '' }))
+              })
             });
             const j = await res.json().catch(() => ({}));
             if (!res.ok || !j.ok) throw new Error((j && j.error) || ('HTTP ' + res.status));
@@ -60579,6 +60715,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const n = items.length;
           let html = '<strong>' + n + ' card' + (n === 1 ? '' : 's') + '</strong>';
           if (parts.length) html += ' — ' + parts.join(', ');
+          const subgroups = this._bmapGroupDescendants(g);
+          if (subgroups.length) html += '<br><span class="muted">' + subgroups.length + ' nested group' + (subgroups.length === 1 ? '' : 's') + '</span>';
           if (rels.length) html += '<br><span class="muted">' + rels.length + ' link' + (rels.length === 1 ? '' : 's') + ' between them</span>';
           return html;
         },

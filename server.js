@@ -43021,9 +43021,10 @@ app.post('/api/boards/:id/group-summary', async (req, res) => {
   const clip = (s, n) => String(s == null ? '' : s).replace(/\s+/g, ' ').trim().slice(0, n);
   const inItems = Array.isArray(req.body && req.body.items) ? req.body.items : [];
   const inRels = Array.isArray(req.body && req.body.rels) ? req.body.rels : [];
+  const inSubgroups = Array.isArray(req.body && req.body.subgroups) ? req.body.subgroups : [];
   const groupName = clip((req.body && req.body.groupName) || '', 120);
   if (!inItems.length) return res.status(400).json({ error: 'No items' });
-  const items = inItems.slice(0, 24).map((it, i) => {
+  const items = inItems.map((it, i) => {
     const facts = Array.isArray(it.facts) ? it.facts.slice(0, 8).map(f => clip(f.k, 40) + ': ' + clip(f.v, 80)).filter(Boolean) : [];
     return {
       n: i + 1,
@@ -43033,9 +43034,11 @@ app.post('/api/boards/:id/group-summary', async (req, res) => {
       status: clip(it.status, 80),
       facts,
       meta: clip(it.meta, 80),
+      subgroup: clip(it.subgroup, 120),
     };
   });
-  const rels = inRels.slice(0, 60).map(r => ({ from: clip(r.from, 200), to: clip(r.to, 200), dir: (r.dir === 'uni' ? 'uni' : 'bi') })).filter(r => r.from && r.to);
+  const rels = inRels.map(r => ({ from: clip(r.from, 200), to: clip(r.to, 200), dir: (r.dir === 'uni' ? 'uni' : 'bi') })).filter(r => r.from && r.to);
+  const subgroups = inSubgroups.map(g => ({ name: clip(g.name, 120), parent: clip(g.parent, 120) })).filter(g => g.name);
 
   const lines = [];
   lines.push('You are analyzing a GROUP of cards a user framed together on a work board map.');
@@ -43052,6 +43055,10 @@ app.post('/api/boards/:id/group-summary', async (req, res) => {
   lines.push('OUTPUT: concise GitHub-flavored markdown, no title heading, ~120-200 words. Lead with a 1-2 sentence read of what this group IS and its overall state. Then, only if warranted, a short "**Suggested order**" list or a one-line "**Watch:**" / "**Next:**" callout. Be specific and actionable; skip filler. Do not wrap the whole thing in a code fence.');
   lines.push('');
   if (groupName) lines.push('Group name: ' + groupName);
+  if (subgroups.length) {
+    lines.push('Nested subgroup structure:');
+    for (const g of subgroups) lines.push(`  • ${g.name}${g.parent ? ` inside ${g.parent}` : ''}`);
+  }
   lines.push('Cards in the group (' + items.length + '):');
   for (const it of items) {
     let l = `  ${it.n}. [${it.type}] ${it.title}`;
@@ -43060,6 +43067,7 @@ app.post('/api/boards/:id/group-summary', async (req, res) => {
     if (it.summary) lines.push(`     summary: ${it.summary}`);
     if (it.facts.length) lines.push(`     facts: ${it.facts.join(' · ')}`);
     if (it.meta) lines.push(`     meta: ${it.meta}`);
+    if (it.subgroup) lines.push(`     nested subgroup: ${it.subgroup}`);
   }
   if (rels.length) {
     lines.push('');
