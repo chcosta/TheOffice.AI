@@ -1798,6 +1798,7 @@ module.exports = {
   readReport,
   listWorktreeFiles,
   readWorktreeFile,
+  isIgnorableWorktreePath,
   findAndCacheReports,
   findAndCacheReportsForSlots,
   cacheReports,

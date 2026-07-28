@@ -37678,11 +37678,21 @@ app.post('/api/fs/open', (req, res) => {
       const baseLabel = base || from.slice(0, 12);
       // Changed files vs the base (rename/copy aware), including uncommitted working changes.
       const ns = gitText(['diff', '--name-status', '-M', '--no-color', from]);
-      const rows = ns.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+      let rows = ns.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
       // Also include brand-new untracked files (git diff omits them) as add-diffs.
       const untracked = gitText(['ls-files', '--others', '--exclude-standard'])
         .split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
       for (const u of untracked) rows.push(`A\t${u}`);
+      // Drop generated reports, Copilot/agent tooling artifacts, build output and
+      // throwaway droppings so the diff matches the card's curated "Files" list —
+      // the user reviews their real work products, not intermediate/scratch files.
+      // Uses the change path (the post-rename target for R/C rows) to classify.
+      rows = rows.filter((row) => {
+        const parts = row.split('\t');
+        const status = (parts[0] || '')[0];
+        const rel = (status === 'R' || status === 'C') ? (parts[2] || parts[1]) : parts[1];
+        return rel && !devitems.isIgnorableWorktreePath(rel);
+      });
       if (!rows.length) return res.json({ ok: true, target, empty: true, base: baseLabel });
       const CAP = 40;
       const safe = (headRef || 'branch').replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 50) || 'branch';
