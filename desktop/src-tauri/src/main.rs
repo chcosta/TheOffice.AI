@@ -856,6 +856,22 @@ fn restart_sidecar(state: tauri::State<'_, Arc<SidecarState>>) -> Result<(), Str
     }
 }
 
+/// Quit the app now so a staged FULL-installer update applies immediately.
+///
+/// Invoked from the SPA's "update ready" affordance when the staged update is a
+/// full installer (`applyOn: "exit"`). Calling `app.exit(0)` fires
+/// `RunEvent::Exit`, whose handler stops the sidecar and runs
+/// `run_pending_update()` — which launches the NSIS installer (`/UPDATE /S`).
+/// The app stays closed and reopens on the new version, matching the existing
+/// "installs when you close the app" contract, just on-demand instead of days
+/// later. (Delta updates don't need this — they apply on the next sidecar boot,
+/// so the SPA uses `restart_sidecar` for those.)
+#[tauri::command]
+fn quit_and_update(app: tauri::AppHandle) {
+    log_line("[desktop] quit-and-update requested — exiting to apply staged installer");
+    app.exit(0);
+}
+
 /// Open the desktop log folder in the OS file manager. Invoked from the recovery
 /// screen and the in-app "View logs" affordance.
 #[tauri::command]
@@ -933,6 +949,7 @@ fn main() {
         .manage(state.clone())
         .invoke_handler(tauri::generate_handler![
             restart_sidecar,
+            quit_and_update,
             open_logs_dir,
             get_diagnostics,
             read_log_tail

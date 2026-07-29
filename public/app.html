@@ -2177,6 +2177,10 @@
       border-color: var(--cp-success);
       color: var(--cp-success);
     }
+    /* "Update ready" groups the note with its finish-now action; the note drops its
+       own bottom margin so the button sits snug beneath it. */
+    .sidebar-update-ready { margin-bottom: 8px; }
+    .sidebar-update-ready .sidebar-update-note { margin-bottom: 6px; }
     .svc-restart-btn {
       margin-top: 6px;
       width: 100%;
@@ -7404,8 +7408,16 @@
             <template x-if="update.supported && update.available && (update.phase === 'idle' || update.phase === 'error') && !update.dismissed && updatePendingEntries().length">
               <a href="#" class="svc-logs-link" @click.prevent="openUpdateNotes()" title="See what's included in this update">What's included</a>
             </template>
-            <template x-if="update.supported && (update.phase === 'downloading' || update.phase === 'verifying' || update.phase === 'ready')">
-              <div class="sidebar-update-note" :class="update.phase === 'ready' ? 'is-ready' : ''" x-text="updateStatusText()"></div>
+            <template x-if="update.supported && (update.phase === 'downloading' || update.phase === 'verifying')">
+              <div class="sidebar-update-note" x-text="updateStatusText()"></div>
+            </template>
+            <template x-if="update.supported && update.phase === 'ready'">
+              <div class="sidebar-update-ready">
+                <div class="sidebar-update-note is-ready" x-text="updateStatusText()"></div>
+                <button type="button" class="sidebar-update-btn" @click="applyUpdateNow()" :disabled="update.applying"
+                        :title="updateApplyHint()"
+                        x-text="update.applying ? 'Finishing…' : updateApplyLabel()"></button>
+              </div>
             </template>
             <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap">
               <a :href="'https://github.com/chcosta/TheOffice.AI'" target="_blank" rel="noopener"
@@ -32209,7 +32221,7 @@
         restarting: false,
         // In-app self-updater state (desktop build only). `supported` gates the
         // whole UI so browser/LAN builds never show update chrome.
-        update: { supported: false, checked: false, checking: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '', notes: '', publishedAt: '', pending: [], notesOpen: false, lastApplied: null },
+        update: { supported: false, checked: false, checking: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '', notes: '', publishedAt: '', pending: [], notesOpen: false, lastApplied: null, applying: false },
         updateConfirmOpen: false,
         _whatsNewChecked: false,
         // "What's new" release-notes dialog. Populated from /api/whats-new; shown
@@ -71742,6 +71754,65 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           if (u.phase === 'error') return `Update failed: ${u.error || 'unknown error'}`;
           return '';
+        },
+        // Whether a staged update finishes with an in-place sidecar restart (fast
+        // server-file delta, applied at the top of server.js on the next boot) vs a
+        // full app quit that lets the NSIS installer run on exit.
+        _updateAppliesOnLaunch() {
+          const u = this.update;
+          return !!(u.delta || u.applyOn === 'launch');
+        },
+        updateApplyLabel() {
+          return this._updateAppliesOnLaunch() ? '↻ Restart now' : '⏻ Quit & install now';
+        },
+        updateApplyHint() {
+          return this._updateAppliesOnLaunch()
+            ? `Restart the service now to finish updating to v${this.update.latest}`
+            : `Quit the app now to install v${this.update.latest}; reopen to run the new version`;
+        },
+        // Finish a downloaded-and-staged update on demand instead of waiting for the
+        // next natural app close/open. Delta updates apply on the next sidecar boot,
+        // so a sidecar restart is enough; full installers only apply on true app
+        // exit, so we quit the app (the shell runs the installer, user reopens).
+        async applyUpdateNow() {
+          if (this.update.applying) return;
+          const onLaunch = this._updateAppliesOnLaunch();
+          const ok = await this.uiConfirm({
+            title: `Finish updating to v${this.update.latest}?`,
+            message: onLaunch
+              ? 'This restarts the background service to apply the update. Any in-progress work in open sessions will keep running, but the app will briefly reconnect.'
+              : 'This quits the app to install the update. Reopen it to run the new version — anything unsaved should be saved first.',
+            confirmLabel: onLaunch ? 'Restart now' : 'Quit & install'
+          });
+          if (!ok) return;
+          const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+          this.update.applying = true;
+          try {
+            if (onLaunch) {
+              // Delta: applied by apply-update.js at the top of server.js on the next
+              // sidecar boot, so killing + respawning the sidecar finishes it in place.
+              if (invoke) {
+                await invoke('restart_sidecar');
+                this.toast(`Finishing update to v${this.update.latest}…`);
+                setTimeout(() => location.reload(), 4500);
+              } else {
+                location.reload();
+              }
+            } else {
+              // Full installer: only the NSIS installer (run on true app exit) can
+              // apply it. Quit now to trigger it; the user reopens on the new version.
+              if (invoke) {
+                await invoke('quit_and_update');
+              } else {
+                this.toast('To finish updating, fully quit and reopen the app.', 'info');
+              }
+            }
+          } catch (err) {
+            console.error('applyUpdateNow failed:', err);
+            this.toast('Could not finish the update automatically — restart the app to apply it.', 'error');
+          } finally {
+            setTimeout(() => { this.update.applying = false; }, 6000);
+          }
         },
         lastAppliedLabel() {
           const la = this.update.lastApplied;
