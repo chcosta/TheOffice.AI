@@ -3100,6 +3100,19 @@
     .meai-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cp-text); }
     .meai-legend-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
     .meai-legend .hint { margin-left: 2px; }
+    .meai-heat { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .meai-heat-row { display: grid; grid-template-columns: 84px repeat(7, minmax(0, 1fr)) 64px; gap: 4px; align-items: stretch; }
+    .meai-heat-head .meai-heat-h { font-weight: 600; font-size: 11px; text-align: center; padding: 2px 0; background: none; color: var(--cp-text-muted); }
+    .meai-heat-day { display: flex; flex-direction: column; justify-content: center; padding: 0 6px; font-weight: 600; color: var(--cp-text); line-height: 1.2; }
+    .meai-heat-day .hint { font-weight: 400; font-size: 10px; }
+    .meai-heat-weekend .meai-heat-day { color: var(--cp-text-muted); }
+    .meai-heat-cell { display: flex; align-items: center; justify-content: center; min-height: 30px; border-radius: 8px; color: var(--cp-text); font-variant-numeric: tabular-nums; background: var(--cp-surface-soft, rgba(148,163,184,0.08)); }
+    .meai-heat-empty { color: var(--cp-text-soft, #64748b); background: transparent; }
+    .meai-heat-total { font-weight: 600; background: var(--cp-surface-soft, rgba(148,163,184,0.10)); }
+    .meai-heat-head .meai-heat-total { background: none; }
+    .meai-wdrow { display: flex; gap: 2px; margin-top: 3px; padding: 0 1.1%; }
+    .meai-wd { flex: 1; text-align: center; font-size: 10px; line-height: 1.3; color: var(--cp-text-muted); font-variant-numeric: tabular-nums; }
+    .meai-wd.we { color: var(--cp-text-soft, #64748b); opacity: .6; }
     .report-chart svg { width: 100%; height: auto; display: block; }
     .report-chart .bar { fill: var(--cp-accent); transition: fill .15s; }
     .report-chart .bar:hover { fill: var(--cp-accent-hover); }
@@ -30587,6 +30600,24 @@
                     </div>
                     <div class="report-chart" x-html="meaiTrendChart()"></div>
                     <div class="meai-timebar-legend" style="margin-top:10px">
+                      <template x-for="s in meaiTimeBars()" :key="s.key">
+                        <span class="meai-legend" x-show="s.min > 0">
+                          <span class="meai-legend-dot" :style="`background:${s.color}`"></span>
+                          <span x-text="s.label"></span>
+                        </span>
+                      </template>
+                    </div>
+                  </div>
+
+                  <!-- Typical week: average time split by day of week (heat map) -->
+                  <div class="card" style="margin-bottom:20px" x-show="meaiWeekdayHeat().rows.length">
+                    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px">
+                      <h3 style="margin:0">Your typical week</h3>
+                      <span class="hint">Average time split by day of the week — spot focus days vs. meeting-heavy ones</span>
+                    </div>
+                    <p class="hint" style="margin:0 0 14px">Each row is a weekday averaged across the range. Cells shade darker where that kind of work tends to peak, so you can see which days run heads-down and which fill with meetings.</p>
+                    <div class="report-chart" x-html="meaiWeekdayHeatChart()"></div>
+                    <div class="meai-timebar-legend" style="margin-top:12px">
                       <template x-for="s in meaiTimeBars()" :key="s.key">
                         <span class="meai-legend" x-show="s.min > 0">
                           <span class="meai-legend-dot" :style="`background:${s.color}`"></span>
@@ -73477,6 +73508,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           out += `<h2>Where the time went</h2><table><thead><tr><th>Kind</th><th class="num">Time</th></tr></thead><tbody>`;
           this.meaiTimeBars().forEach(b => { if (b.min > 0) out += `<tr><td>${esc(b.label)}</td><td class="num">${esc(b.hrs)}</td></tr>`; });
           out += `</tbody></table>`;
+          const heat = this.meaiWeekdayHeat();
+          if (heat.rows.length) {
+            out += `<h2>Your typical week</h2><p class="sub">Average split by day of the week — darker cells are where that kind of work peaks.</p>`;
+            out += `<table><thead><tr><th>Day</th>`;
+            heat.cats.forEach(c => { out += `<th class="num">${esc(c.label)}</th>`; });
+            out += `<th class="num">Avg/day</th></tr></thead><tbody>`;
+            heat.rows.forEach(r => {
+              out += `<tr><td>${esc(r.name)}<span style="color:#94a3b8"> · ${esc(r.count)} day${r.count === 1 ? '' : 's'}</span></td>`;
+              r.cells.forEach(cell => {
+                if (cell.min < 0.5) { out += `<td class="num" style="color:#94a3b8">—</td>`; return; }
+                const a = (0.08 + 0.88 * Math.min(1, cell.intensity)).toFixed(3);
+                out += `<td class="num" style="background:rgba(${cell.rgb},${a})">${esc(cell.hrs)}</td>`;
+              });
+              out += `<td class="num"><strong>${esc(r.hrs)}</strong></td></tr>`;
+            });
+            out += `</tbody></table>`;
+          }
           out += `<h2>Triage decisions</h2><table><thead><tr><th>Decision</th><th class="num">Count</th></tr></thead><tbody>`;
           out += `<tr><td>🙌 Not mine (handed off)</td><td class="num">${esc(s.notMine)}</td></tr>`;
           out += `<tr><td>🚫 Won't fix (declined)</td><td class="num">${esc(s.wontFix)}</td></tr>`;
@@ -73868,8 +73916,94 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           });
           const axisY = padT + plotH + 0.5;
           const peak = `<text class="lbl" x="${padL}" y="${padT - 2}" text-anchor="start">peak ${this.meaiHrs(max)}</text>`;
-          return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily time allocation">`
+          const svg = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Daily time allocation">`
             + `${peak}<line class="axis" x1="${padL}" y1="${axisY}" x2="${W - padR}" y2="${axisY}"/>${bars}${this._meaiXAxis(s, padL, plotW, bw, n, H)}</svg>`;
+          // Weekday-initial strip beneath the bars (rendered as HTML so it isn't
+          // stretched by the SVG's preserveAspectRatio="none"). Lets you read the
+          // weekly cadence at a glance; weekends are muted.
+          const wdInit = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+          let wdrow = '<div class="meai-wdrow">';
+          s.forEach(d => {
+            let wd = -1;
+            try { wd = new Date(String(d.date) + 'T00:00:00').getDay(); } catch (_) { }
+            const we = wd === 0 || wd === 6;
+            wdrow += `<span class="meai-wd${we ? ' we' : ''}" title="${this.meaiDayLabel(d.date)}">${wd >= 0 ? wdInit[wd] : ''}</span>`;
+          });
+          wdrow += '</div>';
+          return svg + wdrow;
+        },
+
+        // Aggregate the active-day series into a per-weekday average split — the
+        // basis for the "Your typical week" heat map. Returns category defs plus
+        // one row per weekday that has data (Mon→Sun), each with per-category
+        // average minutes and an intensity normalized within its own category so
+        // the busiest day for each kind of work stands out.
+        meaiWeekdayHeat() {
+          const s = this._meaiSeries();
+          const cats = [
+            { key: 'focusMin', label: 'Focus', color: 'var(--cp-success,#22c55e)', rgb: '34,197,94' },
+            { key: 'meetingMin', label: 'Meetings', color: 'var(--cp-danger,#ef4444)', rgb: '239,68,68' },
+            { key: 'reviewMin', label: 'Reviews', color: 'var(--cp-accent,#6366f1)', rgb: '99,102,241' },
+            { key: 'stewardMin', label: 'Stewarding', color: '#0ea5e9', rgb: '14,165,233' },
+            { key: 'commsMin', label: 'Comms', color: 'var(--cp-warning,#f59e0b)', rgb: '245,158,11' },
+            { key: 'prepMin', label: 'Prep', color: '#a855f7', rgb: '168,85,247' },
+            { key: 'adminMin', label: 'Admin', color: 'var(--cp-text-muted,#9ca3af)', rgb: '156,163,175' },
+          ];
+          const order = [1, 2, 3, 4, 5, 6, 0]; // Mon→Sun (business-week order)
+          const names = { 0: 'Sunday', 1: 'Monday', 2: 'Tuesday', 3: 'Wednesday', 4: 'Thursday', 5: 'Friday', 6: 'Saturday' };
+          const acc = {};
+          order.forEach(wd => { acc[wd] = { count: 0, sums: {} }; });
+          s.forEach(d => {
+            let wd;
+            try { wd = new Date(String(d.date) + 'T00:00:00').getDay(); } catch (_) { return; }
+            if (!(wd in acc)) return;
+            acc[wd].count++;
+            cats.forEach(c => { acc[wd].sums[c.key] = (acc[wd].sums[c.key] || 0) + (Number(d[c.key]) || 0); });
+          });
+          const rows = order.filter(wd => acc[wd].count > 0).map(wd => {
+            const a = acc[wd];
+            const cells = cats.map(c => ({ key: c.key, label: c.label, color: c.color, rgb: c.rgb, min: a.count ? (a.sums[c.key] || 0) / a.count : 0 }));
+            const total = cells.reduce((t, c) => t + c.min, 0);
+            return { wd, name: names[wd], short: names[wd].slice(0, 3), isWeekend: wd === 0 || wd === 6, count: a.count, cells, total };
+          });
+          // Per-category max average → intensity normalization (each column self-scales).
+          const catMax = {};
+          cats.forEach(c => { catMax[c.key] = Math.max(0.0001, ...rows.map(r => (r.cells.find(x => x.key === c.key) || { min: 0 }).min)); });
+          rows.forEach(r => {
+            r.hrs = this.meaiHrs(r.total);
+            r.cells.forEach(cell => {
+              cell.hrs = this.meaiHrs(cell.min);
+              cell.intensity = cell.min / catMax[cell.key];
+            });
+          });
+          return { cats, rows };
+        },
+
+        // Render the "Your typical week" heat map as an HTML grid: weekday rows ×
+        // category columns, each cell shaded by its within-category intensity.
+        meaiWeekdayHeatChart() {
+          const h = this.meaiWeekdayHeat();
+          if (!h.rows.length) return '';
+          const esc = (x) => String(x).replace(/[&<>"]/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m]));
+          let head = '<div class="meai-heat-row meai-heat-head"><div class="meai-heat-day"></div>';
+          h.cats.forEach(c => { head += `<div class="meai-heat-cell meai-heat-h" style="color:${c.color}">${esc(c.label)}</div>`; });
+          head += '<div class="meai-heat-cell meai-heat-h meai-heat-total">Avg/day</div></div>';
+          let body = '';
+          h.rows.forEach(r => {
+            body += `<div class="meai-heat-row${r.isWeekend ? ' meai-heat-weekend' : ''}">`;
+            body += `<div class="meai-heat-day"><span>${esc(r.short)}</span><span class="hint">${r.count} day${r.count === 1 ? '' : 's'}</span></div>`;
+            r.cells.forEach(cell => {
+              if (cell.min < 0.5) {
+                body += `<div class="meai-heat-cell meai-heat-empty" title="${esc(r.name)} · ${esc(cell.label)}: —">·</div>`;
+                return;
+              }
+              const a = (0.08 + 0.88 * Math.min(1, cell.intensity)).toFixed(3);
+              body += `<div class="meai-heat-cell" style="background:rgba(${cell.rgb},${a})" title="${esc(r.name)} · ${esc(cell.label)}: ${esc(cell.hrs)} avg">${esc(cell.hrs)}</div>`;
+            });
+            body += `<div class="meai-heat-cell meai-heat-total" title="${esc(r.name)} · ${esc(r.hrs)} avg/day">${esc(r.hrs)}</div>`;
+            body += '</div>';
+          });
+          return `<div class="meai-heat">${head}${body}</div>`;
         },
 
         // Focus & flow: daily fragmentation (reschedule + slip + late-add) as bars colored
