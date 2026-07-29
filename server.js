@@ -32860,8 +32860,28 @@ function _pulseComedyRenderComic(spec, seed) {
     parts.push(`<g clip-path="url(#${clip})">`);
     parts.push(_ccScene(scene, px, panelY, PW, PH, emo, ch));
     parts.push(_ccBubble(px, panelY, PW, (p && p.line) || '', px + PW * 0.5));
-    const cap = _pulseSvgEsc(String((p && p.caption) || '').toUpperCase()).slice(0, 26);
-    if (cap) parts.push(`<rect x="${px}" y="${(panelY + PH - 15)}" width="${PW}" height="15" fill="#000" opacity="0.5"/><text x="${(px + 6)}" y="${(panelY + PH - 5)}" font-size="7" fill="#fff" font-family="system-ui,sans-serif" letter-spacing="0.4">${cap}</text>`);
+    // Bottom caption bar. Fit the caption to the panel width by shrinking the font toward a
+    // readable floor, then (only if it STILL overflows) drop trailing whole words and add an
+    // ellipsis — never a mid-word hard chop (which produced garbage like "…HEARD ROUND THE W").
+    const capRaw = String((p && p.caption) || '').toUpperCase().trim();
+    if (capRaw) {
+      const capAvailW = PW - 12; // 6px inset on each side of the bar
+      // Uppercase sans-serif advance (~0.7·fs) + the 0.4 letter-spacing added after each glyph.
+      const capW = (s, fs) => s.length * (fs * 0.7 + 0.4);
+      let capFs = 7, capText = capRaw;
+      while (capFs > 5.4 && capW(capText, capFs) > capAvailW) capFs -= 0.3;
+      if (capW(capText, capFs) > capAvailW) {
+        const words = capText.split(/\s+/);
+        while (words.length > 1 && capW(words.join(' ') + '\u2026', capFs) > capAvailW) words.pop();
+        capText = words.join(' ') + '\u2026';
+        if (capW(capText, capFs) > capAvailW) { // a single over-long word: clip it, keep an ellipsis
+          const maxCh = Math.max(3, Math.floor(capAvailW / (capFs * 0.7 + 0.4)) - 1);
+          capText = capRaw.slice(0, maxCh).trimEnd() + '\u2026';
+        }
+      }
+      const cap = _pulseSvgEsc(capText);
+      parts.push(`<rect x="${px}" y="${(panelY + PH - 15)}" width="${PW}" height="15" fill="#000" opacity="0.5"/><text x="${(px + 6)}" y="${(panelY + PH - 5)}" font-size="${capFs.toFixed(1)}" fill="#fff" font-family="system-ui,sans-serif" letter-spacing="0.4">${cap}</text>`);
+    }
     parts.push(`</g>`);
     parts.push(`<rect x="${px}" y="${panelY}" width="${PW}" height="${PH}" rx="6" fill="none" stroke="${k}" stroke-width="2.6"/>`);
   });
