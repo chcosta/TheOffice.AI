@@ -15421,7 +15421,10 @@ function _meAiConfig(s) {
   // Instance-count dedup threshold: how much of a NEW arrival an already-triaged
   // related item must explain (containment %) before we fold it in as an instance
   // rather than surfacing it as its own row.
-  const grouping = { min: _clampPct(s.meAiGroupingMin, 72) };
+  // `autoGroup` gates the merge-time semantic fold (Part 2): a bounded, throttled AI grouping
+  // pass that collapses a burst of reworded variants of ONE ask that token-containment missed.
+  // On by default; set meAiAutoGroup === false to opt out (Part 1's deterministic fold stays).
+  const grouping = { min: _clampPct(s.meAiGroupingMin, 72), autoGroup: s.meAiAutoGroup !== false };
   // Work-item creation defaults (Backlog → real ADO work item). User-configurable;
   // fall back to the first connected ADO target, else the dnceng/internal defaults.
   const _firstAdo = targets[0] || {};
@@ -17059,8 +17062,13 @@ function _meAiClusterInbox(items) {
 }
 async function _meAiGroupInbox(items, opts = {}) {
   const det = _meAiClusterInbox(items);
+  // opts.noDetFallback: return [] instead of the deterministic (0.5-Jaccard) clusters when the
+  // AI pass is unavailable/declines. The automatic merge-time fold (Part 2) sets this so an
+  // UNREVIEWED burst is only collapsed by the AI's "don't force unrelated items together" guard,
+  // never by the looser token-overlap clustering (which is fine for the user-reviewed endpoint).
+  const detFallback = opts.noDetFallback ? [] : det;
   const pool = (items || []).filter(it => it && (it.triage === 'new' || it.triage === 'seen' || it.triage === 'later'));
-  if (opts.allowAi === false || pool.length < 3) return det;
+  if (opts.allowAi === false || pool.length < 3) return detFallback;
   try {
     const list = pool.slice(0, 40).map(it => `- ${it.id} | ${(it.source || 'm365')}/${(it.kind || 'email')}${it.directMention ? ' @you' : ''} | ${String(it.title || '').slice(0, 120)}`).join('\n');
     const prompt = `You group my attention-inbox items so I can triage related ones together. Group items that clearly refer to the SAME thing (same PR, same incident, same sender/thread) OR should obviously be handled the same way (e.g. a batch of identical automated alerts). Do NOT force unrelated items together; a group needs a genuine reason and at least 2 items. Leave anything ambiguous ungrouped.\n\nITEMS\n${list}\n\nReturn ONLY JSON: {"groups":[{"ids":["<id>","<id>"...],"label":"<=40 char name","reason":"<=80 char why"}]}. Use the exact ids shown. Omit singletons.`;
@@ -17071,10 +17079,10 @@ async function _meAiGroupInbox(items, opts = {}) {
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     const result = await Promise.race([run, new Promise(r => setTimeout(() => r({ fallback: true }), 12000))]);
-    if (!result || result.fallback) return det;
+    if (!result || result.fallback) return detFallback;
     const raw = (acc.trim() || (result && result.output) || '').trim();
     const obj = _connectExtractJson(raw);
-    if (!obj || !Array.isArray(obj.groups)) return det;
+    if (!obj || !Array.isArray(obj.groups)) return detFallback;
     const valid = new Set(pool.map(it => it.id));
     const out = [];
     const seen = new Set();
@@ -17091,8 +17099,8 @@ async function _meAiGroupInbox(items, opts = {}) {
         suggested: first.suggested || '',
       });
     }
-    return out.length ? out : det;
-  } catch { return det; }
+    return out.length ? out : detFallback;
+  } catch { return detFallback; }
 }
 
 // REQ-8 Proactive attention inbox. A leader-gated poller keeps this fresh so that
@@ -17328,6 +17336,102 @@ function _meAiRelatedTriaged(it, items, minPct) {
     if (rel > bestRel) { bestRel = rel; best = ex; }
   }
   return best ? { item: best, rel: bestRel, why: 'tokens' } : null;
+}
+
+// Part 1: intra-batch NEW↔NEW fold. Mirror of _meAiRelatedTriaged but it absorbs onto an
+// earlier STILL-NEW, not-yet-decided row instead of a resolved one — so the FIRST arrival of a
+// topic in a fresh burst becomes the primary and later reworded look-alikes collapse into it
+// with an instance count, instead of every variant surfacing as its own NEW card. Same
+// distinctiveness guards as the resolved fold: an exact automated-alert signature is an instant
+// fold; otherwise it needs ≥2 shared distinctive tokens (≥3 cross-channel) and containment ≥ the
+// grouping-confidence min. Absorbs ONLY onto rows that are still 'new'/'seen' and NOT auto/folded,
+// so it never fights the resolved fold, hides a decided item, or chains one duplicate onto another.
+function _meAiRelatedNew(it, items, minPct) {
+  if (!it || !Array.isArray(items) || !items.length) return null;
+  const min = Math.max(0, Math.min(1, (Number(minPct) || 72) / 100));
+  const itToks = new Set(_meAiTitleTokens(it.title));
+  const itSig = _meAiTriageSignature(it);
+  let best = null, bestRel = 0;
+  for (const ex of items) {
+    if (!ex || ex === it) continue;
+    // Inverse of _meAiRelatedTriaged's guard: only an undecided, un-folded row can be a primary.
+    if (ex.triage !== 'new' && ex.triage !== 'seen') continue;
+    if (ex.auto || ex.duplicateOf) continue;
+    if (itSig && _meAiTriageSignature(ex) === itSig) return { item: ex, rel: 1, why: 'signature' };
+    if (itToks.size < 2) continue;
+    const exToks = new Set(_meAiTitleTokens(ex.title));
+    let inter = 0; for (const t of itToks) if (exToks.has(t)) inter++;
+    if (inter < 2) continue;
+    const sameChannel = String(ex.kind || '') === String(it.kind || '') && String(ex.source || '') === String(it.source || '');
+    if (inter < (sameChannel ? 2 : 3)) continue;
+    const rel = inter / itToks.size;
+    if (rel < min) continue;
+    if (rel > bestRel) { bestRel = rel; best = ex; }
+  }
+  return best ? { item: best, rel: bestRel, why: 'tokens' } : null;
+}
+
+// Absorb `dup` into `primary` as another instance (display collapses to one row with a ×N
+// badge). Bumps the instance count + records the folded variant's link/title so the primary
+// can show what was merged. Shared by the merge-loop folds and the Part-2 grouping fold.
+function _meAiAbsorbInstance(primary, dup, now) {
+  if (!primary || !dup) return;
+  primary.instances = (Number(primary.instances) || 1) + 1;
+  primary.lastInstanceAt = now;
+  primary.instanceLinks = primary.instanceLinks || [];
+  const lk = dup.link || dup.prLink || '';
+  if (lk && !primary.instanceLinks.includes(lk) && primary.instanceLinks.length < 20) primary.instanceLinks.push(lk);
+  primary.instanceTitles = primary.instanceTitles || [];
+  const t = String(dup.title || '').trim();
+  if (t && t !== primary.title && !primary.instanceTitles.includes(t) && primary.instanceTitles.length < 20) primary.instanceTitles.push(t);
+}
+
+// Part 2: merge-time SEMANTIC fold. A burst of reworded variants of ONE ask (an LLM titled each
+// differently, e.g. six "notify the team about the cancelled 10:05 meeting" cards) shares too few
+// literal tokens for Part 1's containment fold, so they'd still pile up as separate NEW rows. This
+// spends ONE bounded, throttled grouping call (the same pass behind "Group similar") to fold them
+// by MEANING. Conservative: at most once per ~10 min/day, only when ≥3 undecided rows remain, and
+// only folds groups the AI actually vouched (noDetFallback — never the looser 0.5-Jaccard tier).
+// Folds each group onto its highest-urgency (tie: earliest) member so a "you're blocking / high"
+// variant leads and keeps its urgency; the rest are removed from the list and collapsed into it.
+const ME_AI_AUTOGROUP_MIN_MS = 10 * 60 * 1000;
+async function _meAiAutoGroupFold(date, inbox, cfg, now) {
+  try {
+    const gcfg = (cfg && cfg.grouping) || {};
+    if (gcfg.autoGroup === false) return 0;
+    const undecided = it => it && (it.triage === 'new' || it.triage === 'seen') && !it.auto && !it.duplicateOf && !it.pinned;
+    const pool = inbox.items.filter(undecided);
+    if (pool.length < 3) return 0;
+    const store = loadAiGroupStore(date);
+    const lastMs = store.computedAt ? Date.parse(store.computedAt) : 0;
+    if (lastMs && (Date.now() - lastMs) < ME_AI_AUTOGROUP_MIN_MS) return 0; // bound model calls per day
+    const groups = await _meAiGroupInbox(pool, { allowAi: true, noDetFallback: true });
+    store.computedAt = now; saveAiGroupStore(date, store); // stamp the throttle even on an empty pass
+    if (!Array.isArray(groups) || !groups.length) return 0;
+    // Persist the clusters BEFORE folding so a FUTURE reworded arrival can inherit the group's
+    // decision (fingerprint = the members' token union as they exist now, incl. soon-folded ones).
+    try { _meAiRecordAiGroups(date, groups, inbox.items); } catch (_) { /* best-effort */ }
+    const byId = new Map(inbox.items.map(it => [it.id, it]));
+    const foldedIds = new Set();
+    let folded = 0;
+    for (const g of groups) {
+      const members = (g.ids || [])
+        .map(id => byId.get(id))
+        .filter(m => m && !foldedIds.has(m.id) && undecided(m));
+      if (members.length < 2) continue;
+      members.sort((a, b) => (Number(b.urgency) || 0) - (Number(a.urgency) || 0) || String(a.firstSeen).localeCompare(String(b.firstSeen)));
+      const primary = members[0];
+      for (let i = 1; i < members.length; i++) {
+        _meAiAbsorbInstance(primary, members[i], now);
+        foldedIds.add(members[i].id);
+        folded++;
+      }
+      primary.aiGrouped = true;
+      primary.urgency = Math.max(...members.map(x => Number(x.urgency) || 0));
+    }
+    if (folded) inbox.items = inbox.items.filter(it => !foldedIds.has(it.id));
+    return folded;
+  } catch (_) { return 0; }
 }
 
 // Ask 1: map a NEW arrival to a persisted AI cluster (from a prior "Group similar" pass) and,
@@ -17600,12 +17704,21 @@ async function _meAiMergeInbox(date, signals, cfg) {
           const rel = _meAiRelatedTriaged(it, inbox.items, (cfg.grouping && cfg.grouping.min) || 72);
           if (rel && rel.item) {
             const ex = rel.item;
-            ex.instances = (Number(ex.instances) || 1) + 1;
-            ex.lastInstanceAt = now;
-            (ex.instanceLinks = ex.instanceLinks || []);
-            const lk = it.link || it.prLink || '';
-            if (lk && !ex.instanceLinks.includes(lk) && ex.instanceLinks.length < 20) ex.instanceLinks.push(lk);
+            _meAiAbsorbInstance(ex, it, now);
             byId.set(id, ex); // near-duplicates by this id now resolve onto the absorbing row
+            instanceMerges++;
+            continue; // do NOT push a separate row
+          }
+          // Part 1: no RESOLVED row absorbed it — try an earlier STILL-NEW near-duplicate from
+          // this same batch/day. Without this, a burst of reworded variants of one ask (the six
+          // "notify the team about the cancelled 10:05 meeting" cards) each surface as their own
+          // NEW row, because _meAiRelatedTriaged only folds onto already-decided rows. The first
+          // arrival of the topic becomes the primary; later look-alikes collapse into it.
+          const relNew = _meAiRelatedNew(it, inbox.items, (cfg.grouping && cfg.grouping.min) || 72);
+          if (relNew && relNew.item) {
+            const ex = relNew.item;
+            _meAiAbsorbInstance(ex, it, now);
+            byId.set(id, ex);
             instanceMerges++;
             continue; // do NOT push a separate row
           }
@@ -17628,13 +17741,17 @@ async function _meAiMergeInbox(date, signals, cfg) {
     if (hasPrior && _meAiApplyPriorResolution(it, priorIdx, date, now)) { priorHits++; autoHandled++; continue; }
     if (_bkTryFold(it)) continue;
   }
+  // Part 2: bounded, throttled semantic fold of any reworded near-duplicates that Part 1's
+  // literal-token containment missed (runs at most once per ~10 min/day; AI-vouched groups only).
+  let autoGroupHits = 0;
+  try { autoGroupHits = await _meAiAutoGroupFold(date, inbox, cfg, now) || 0; } catch (_) { /* best-effort */ }
   if (classHits) { try { saveClassRules(classStore); } catch (_) { /* persist hit counts */ } } // persist hit counts
   if (topicHits) { try { saveTopicMemory(topicStore); } catch (_) { /* best-effort */ } } // persist topic hits/lastAt
   inbox.items.sort((a, b) => String(b.firstSeen).localeCompare(String(a.firstSeen)));
   if (inbox.items.length > 80) inbox.items = inbox.items.slice(0, 80);
   inbox.polledAt = now;
   saveInboxForDate(date, inbox);
-  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, priorHits, instanceMerges, aiGroupHits, backlogDupHits };
+  return { inbox, added, autoHandled, classHits, topicHits, decisionHits, priorHits, instanceMerges, aiGroupHits, autoGroupHits, backlogDupHits };
 }
 // Gather + merge for the poller / on-demand refresh (consent-gated; reuses the warm
 // signal cache unless force).
