@@ -71818,29 +71818,66 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!ok) return;
           const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
           this.update.applying = true;
+
+          // Both restart_sidecar (delta) and quit_and_update (full) are
+          // SELF-DESTRUCTIVE: they tear down the very process/app serving this
+          // page, so their invoke promise usually never resolves cleanly — the
+          // webview gets navigated to the recovery splash (sidecar killed) or the
+          // app exits before the IPC response lands. A rejection here is therefore
+          // NOT a reliable failure signal; the staged update still applies on the
+          // next boot. Fire optimistically and only fall back to calm "please fully
+          // restart" guidance when the command is genuinely unavailable — never a
+          // scary "update failed" error, which was firing on every success.
+          const fireSelfDestruct = (cmd) => new Promise((resolve) => {
+            if (!invoke) { resolve('no-ipc'); return; }
+            let settled = false;
+            const done = (r) => { if (!settled) { settled = true; resolve(r); } };
+            // If the IPC neither resolves nor rejects promptly, the command took
+            // effect and killed our connection — the expected happy path.
+            const t = setTimeout(() => done('assumed-applied'), 1500);
+            Promise.resolve()
+              .then(() => invoke(cmd))
+              .then(() => { clearTimeout(t); done('ok'); })
+              .catch((err) => {
+                clearTimeout(t);
+                const msg = String((err && err.message) || err || '');
+                // "command not found / not registered" means an older shell that
+                // can't restart in place — a real fallback case. Anything else is
+                // an expected transport teardown as the page/app goes away.
+                const missing = /not\s*found|unknown command|not\s*registered|missing|no such/i.test(msg);
+                console.debug(`${cmd} ipc closed:`, msg);
+                done(missing ? 'missing' : 'assumed-applied');
+              });
+          });
+
           try {
             if (onLaunch) {
-              // Delta: applied by apply-update.js at the top of server.js on the next
-              // sidecar boot, so killing + respawning the sidecar finishes it in place.
-              if (invoke) {
-                await invoke('restart_sidecar');
-                this.toast(`Finishing update to v${this.update.latest}…`);
-                setTimeout(() => location.reload(), 4500);
+              // Delta: applied by apply-update.js at the top of server.js on the
+              // next sidecar boot, so killing + respawning the sidecar finishes it
+              // in place.
+              this.toast(`Finishing update to v${this.update.latest}…`);
+              const r = await fireSelfDestruct('restart_sidecar');
+              if (r === 'missing' || r === 'no-ipc') {
+                this.toast('Update staged — fully quit and reopen the app to finish updating.', 'info');
               } else {
-                location.reload();
+                // Backstop the supervisor's auto-navigate-back on __READY__.
+                setTimeout(() => location.reload(), 4500);
               }
             } else {
               // Full installer: only the NSIS installer (run on true app exit) can
-              // apply it. Quit now to trigger it; the user reopens on the new version.
-              if (invoke) {
-                await invoke('quit_and_update');
-              } else {
-                this.toast('To finish updating, fully quit and reopen the app.', 'info');
+              // apply it. Quit now to trigger it; the user reopens on the new
+              // version.
+              this.toast(`Quitting to install v${this.update.latest}…`);
+              const r = await fireSelfDestruct('quit_and_update');
+              if (r === 'missing' || r === 'no-ipc') {
+                this.toast('Update staged — fully quit and reopen the app to finish updating.', 'info');
               }
+              // On success the app is exiting; nothing more to do here.
             }
           } catch (err) {
             console.error('applyUpdateNow failed:', err);
-            this.toast('Could not finish the update automatically — restart the app to apply it.', 'error');
+            // Never dead-end: the staged update always applies on a full relaunch.
+            this.toast('Update staged — fully quit and reopen the app to finish updating.', 'info');
           } finally {
             setTimeout(() => { this.update.applying = false; }, 6000);
           }

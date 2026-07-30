@@ -844,12 +844,23 @@ fn restart_sidecar(state: tauri::State<'_, Arc<SidecarState>>) -> Result<(), Str
     match pid {
         Some(pid) => {
             log_line(&format!("[desktop] manual service restart requested (pid {pid})"));
-            #[cfg(windows)]
-            taskkill_tree(pid);
-            #[cfg(not(windows))]
-            {
-                let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
-            }
+            // Defer the actual kill onto a short-lived thread so THIS command can
+            // return Ok and let its IPC response reach the webview FIRST. The
+            // sidecar we're about to kill is the very process serving the page
+            // that called us; the supervisor navigates that page to the recovery
+            // splash the instant the sidecar dies. If we killed synchronously, the
+            // caller's `await invoke('restart_sidecar')` could be lost as the page
+            // tears down, surfacing a false "update failed" error even though the
+            // restart + delta-apply succeed. A ~250ms grace closes that race.
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(250));
+                #[cfg(windows)]
+                taskkill_tree(pid);
+                #[cfg(not(windows))]
+                {
+                    let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
+                }
+            });
             Ok(())
         }
         None => Err("Service is not currently running; it should relaunch automatically.".into()),
