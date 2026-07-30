@@ -67,6 +67,15 @@ const MARKER_PATH = path.join(BASE_DIR, 'pending-update.json');
 // Marker consumed by apply-update.js at the next sidecar launch for a fast,
 // in-place server-file delta (avoids a full multi-hundred-MB installer re-extract).
 const SERVER_MARKER_PATH = path.join(BASE_DIR, 'pending-server-update.json');
+// Marker written by apply-update.js's boot self-heal when the installed server
+// tree is corrupt/partial (doesn't match its own manifest). Its presence forces
+// a clean FULL reinstall of the latest release even if version math says we're
+// already current.
+const HEAL_MARKER_PATH = path.join(BASE_DIR, 'pending-heal.json');
+
+function pendingHeal() {
+  try { return JSON.parse(fs.readFileSync(HEAL_MARKER_PATH, 'utf-8')); } catch { return null; }
+}
 
 function isDesktop() {
   return process.env.SUPERVISOR_SIDECAR === '1';
@@ -253,7 +262,20 @@ async function checkForUpdate(currentVersion, opts = {}) {
       && compareSemver(best.deltaBase, installedVersion) === 0);
   }
 
-  const updateAvailable = !!(best && current && parseSemver(current) && compareSemver(best.version, current) > 0);
+  // Boot self-heal escalation: if apply-update.js flagged the installed server
+  // tree as corrupt/partial (doesn't match its own manifest), force a clean FULL
+  // reinstall of the latest release — even when version math says we're current,
+  // and never via a delta (a broken base can't be delta-patched).
+  const heal = isDesktop() ? pendingHeal() : null;
+  const forceReinstall = !!(heal && best);
+  if (forceReinstall) {
+    best.canDelta = false;
+    best.forceFull = true;
+  }
+
+  const updateAvailable = forceReinstall
+    ? true
+    : !!(best && current && parseSemver(current) && compareSemver(best.version, current) > 0);
   // Newest-first, and never hand back an unbounded list.
   pending.sort((a, b) => compareSemver(b.version, a.version));
   const result = {
@@ -261,6 +283,7 @@ async function checkForUpdate(currentVersion, opts = {}) {
     current,
     latest: best ? best.version : '',
     updateAvailable,
+    forceReinstall,
     assetName: best ? best.assetName : '',
     deltaAvailable: !!(best && best.canDelta),
     notes: best ? best.notes : '',
@@ -592,5 +615,6 @@ module.exports = {
   lastApplied,
   MARKER_PATH,
   SERVER_MARKER_PATH,
+  HEAL_MARKER_PATH,
   UPDATE_DIR,
 };
