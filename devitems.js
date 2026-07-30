@@ -80,7 +80,7 @@ function _authArgs(desc) {
     const basic = Buffer.from('x-access-token:' + token).toString('base64');
     return ['-c', 'http.https://github.com/.extraheader=AUTHORIZATION: basic ' + basic];
   }
-  return ['-c', 'http.extraheader=AUTHORIZATION: bearer ' + azdo.getToken()];
+  return ['-c', 'http.extraheader=AUTHORIZATION: bearer ' + azdo.getTokenSync()];
 }
 
 // Never let a git subprocess launch an interactive credential prompt. We supply

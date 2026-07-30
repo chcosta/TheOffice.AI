@@ -5109,10 +5109,13 @@ app.get('/api/codeflow/epics', async (req, res) => {
           const mine = items.find(it => it.assignedToUnique || it.assignedTo);
           if (mine) me = { name: mine.assignedTo || 'Me', unique: mine.assignedToUnique || '' };
         }
-        for (const it of items) {
+        // Fetch every epic's tree + roadmap IN PARALLEL (was a serial for…await
+        // loop, one full round-trip per epic). With the single-flight token they
+        // share one `az` acquisition; results are re-collected in order below.
+        const results = await Promise.all(items.map(async (it) => {
           const key = `${org}/${project}/${it.id}`;
           const cached = _epicCache.get(key);
-          if (!refresh && cached && (Date.now() - cached.at) < EPIC_CACHE_TTL_MS) { epics.push(cached.cockpit); continue; }
+          if (!refresh && cached && (Date.now() - cached.at) < EPIC_CACHE_TTL_MS) return { cockpit: cached.cockpit };
           try {
             const tree = await azdo.getEpicTree(org, project, it.id);
             const raw = { org, project, ...tree };
@@ -5128,9 +5131,10 @@ app.get('/api/codeflow/epics', async (req, res) => {
               cockpit = { ...cockpit, summary: prev.cockpit.summary, alerts: prev.cockpit.alerts, forward: prev.cockpit.forward, next: prev.cockpit.next, aiUpgraded: true };
             }
             _epicCache.set(key, { raw, cockpit, at: Date.now() });
-            epics.push(cockpit);
-          } catch (e) { errors.push(`epic #${it.id}: ${e.message}`); }
-        }
+            return { cockpit };
+          } catch (e) { return { error: `epic #${it.id}: ${e.message}` }; }
+        }));
+        for (const r of results) { if (r.cockpit) epics.push(r.cockpit); else if (r.error) errors.push(r.error); }
       }
     }
     if (me) _epicRoster.me = me;
@@ -44907,6 +44911,17 @@ const onListen = () => {
     const runAgents = process.env.SDK_RUN_AGENTS || '';
     console.log(`[supervisor] SDK modes — read: env=${envRead} effective=${_rdr.mode} | run: env=${envRun} effective=${_rnr.mode}${runAgents ? ' agents=[' + runAgents + ']' : ''} | node=${process.version} COPILOT_HOME=${process.env.COPILOT_HOME || '(default)'}`);
   } catch (e) { console.warn('[supervisor] could not log SDK modes:', e.message); }
+  // Pre-warm the Azure DevOps token in the BACKGROUND so the first Code Flow /
+  // Epics visit doesn't pay the ~2.7s cold `az account get-access-token` cost
+  // inline. Gated on ADO actually being configured (skip the CLI spawn entirely
+  // for users who don't use Code Flow), and fully best-effort — if the user
+  // isn't signed in yet, the rejection is swallowed and the token is acquired
+  // on demand later. A refresh timer inside prewarmToken keeps it warm.
+  try {
+    if (_connectAdoTargets(settings.getSettings()).length) {
+      setTimeout(() => { try { azdo.prewarmToken(); } catch { /* best effort */ } }, 1500);
+    }
+  } catch { /* settings unreadable — skip prewarm */ }
 };
 // In sidecar (desktop) mode we prefer a STABLE port so the WebView origin — and
 // thus every localStorage-backed preference (theme, icon set, experience level,

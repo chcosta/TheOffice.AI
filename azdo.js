@@ -15,7 +15,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 
 // Well-known Azure DevOps application (resource) ID for AAD tokens.
 const AZDO_RESOURCE = '499b84ac-1321-427f-aa17-267ca6975798';
@@ -30,8 +32,12 @@ try {
 const AZDO_STORE = path.join(SUPERVISOR_DATA_DIR, 'azdo-sources');
 
 let _tokenCache = { token: null, expiresAt: 0 };
+// In-flight token acquisition, so a burst of concurrent requests (e.g. the
+// Epics tab firing several ADO calls at once) shares a SINGLE `az` invocation
+// instead of spawning the slow CLI many times over.
+let _tokenInflight = null;
 
-function getToken(forceRefresh = false) {
+async function getToken(forceRefresh = false) {
   const now = Date.now();
   // Cache until the token's ACTUAL expiry (minus a 2-min safety buffer) rather
   // than a fixed window: `az` hands back a token from its own MSAL cache that may
@@ -41,12 +47,28 @@ function getToken(forceRefresh = false) {
   if (!forceRefresh && _tokenCache.token && now < _tokenCache.expiresAt - 120_000) {
     return _tokenCache.token;
   }
+  // Coalesce concurrent acquisitions: whoever arrives first spawns `az`, the
+  // rest await the same promise. This avoids N parallel ~2.7s CLI launches.
+  if (_tokenInflight) return _tokenInflight;
+  _tokenInflight = _acquireToken().finally(() => { _tokenInflight = null; });
+  return _tokenInflight;
+}
+
+// Spawn the Azure CLI ASYNCHRONOUSLY (execFile, not execSync) so acquiring a
+// token never blocks the Node event loop. The old synchronous `az account
+// get-access-token` froze the entire server for ~2.7s on the first Code Flow
+// visit (and on every token refresh), stalling all other requests/heartbeats.
+async function _acquireToken() {
   let raw;
   try {
-    raw = execSync(
+    // Command string + default shell (matches the original execSync form). The
+    // resource is a fixed constant — no user input — so there's no injection
+    // surface, and this avoids the execFile+args+shell deprecation (DEP0190).
+    const { stdout } = await execAsync(
       `az account get-access-token --resource ${AZDO_RESOURCE} -o json`,
-      { encoding: 'utf-8', timeout: 30_000, shell: true }
-    ).trim();
+      { encoding: 'utf-8', timeout: 30_000, windowsHide: true }
+    );
+    raw = String(stdout || '').trim();
   } catch (e) {
     const msg = (e.stderr || e.message || '').toString();
     throw new Error(
@@ -54,6 +76,14 @@ function getToken(forceRefresh = false) {
       (msg ? `Details: ${msg.split('\n')[0]}` : '')
     );
   }
+  return _parseAndCacheToken(raw);
+}
+
+// Parse `az account get-access-token` JSON, cache it to its real expiry, return
+// the token. Shared by the async ({@link _acquireToken}) and sync
+// ({@link getTokenSync}) acquisition paths so their caching is identical.
+function _parseAndCacheToken(raw) {
+  const now = Date.now();
   let token = '', expiresAt = 0;
   try {
     const parsed = JSON.parse(raw);
@@ -75,6 +105,51 @@ function getToken(forceRefresh = false) {
   if (!expiresAt || expiresAt < now) expiresAt = now + 25 * 60_000;
   _tokenCache = { token, expiresAt };
   return token;
+}
+
+// SYNCHRONOUS token accessor for the ONE caller that can't be async: building
+// git `http.extraheader` auth args for a synchronous execFileSync git call
+// (devitems clone/worktree). It shares _tokenCache with the async path, so once
+// the background pre-warm has populated the cache this returns instantly with NO
+// `az` spawn. It only falls back to a blocking `az` when the cache is cold —
+// acceptable there because that code path is already a synchronous subprocess
+// call outside the web-request hot path. Never use this from an HTTP handler.
+function getTokenSync(forceRefresh = false) {
+  const now = Date.now();
+  if (!forceRefresh && _tokenCache.token && now < _tokenCache.expiresAt - 120_000) {
+    return _tokenCache.token;
+  }
+  let raw;
+  try {
+    raw = execSync(
+      `az account get-access-token --resource ${AZDO_RESOURCE} -o json`,
+      { encoding: 'utf-8', timeout: 30_000, shell: true }
+    ).trim();
+  } catch (e) {
+    const msg = (e.stderr || e.message || '').toString();
+    throw new Error(
+      'Could not get an Azure DevOps token from the Azure CLI. Run "az login" on the server machine. ' +
+      (msg ? `Details: ${msg.split('\n')[0]}` : '')
+    );
+  }
+  return _parseAndCacheToken(raw);
+}
+
+// Best-effort background pre-warm: acquire the ADO token shortly after boot and
+// keep it fresh, so the FIRST user request (typically the Code Flow / Epics tab)
+// doesn't pay the ~2.7s cold `az` cost inline. Safe to call when not signed in
+// (the rejection is swallowed) and idempotent (single-flight + interval guard).
+let _prewarmTimer = null;
+function prewarmToken() {
+  getToken().catch(() => { /* not signed in yet — will retry on demand */ });
+  if (!_prewarmTimer) {
+    // Refresh well before the ~60-min token lifetime so it never expires under
+    // an active user. unref() so this timer never keeps the process alive.
+    _prewarmTimer = setInterval(() => {
+      getToken(true).catch(() => {});
+    }, 30 * 60_000);
+    if (_prewarmTimer.unref) _prewarmTimer.unref();
+  }
 }
 
 // True when Azure DevOps answered with its interactive sign-in HTML page instead
@@ -105,13 +180,13 @@ async function api(org, projectAndRest, { raw = false } = {}) {
     }
   });
 
-  let res = await doFetch(getToken());
+  let res = await doFetch(await getToken());
   let body = await res.text();
 
   // A rejected/expired token comes back as a 2xx HTML sign-in page (not a 401).
   // Force a fresh token and retry once before giving up.
   if (looksLikeSignInHtml(res, body, expectsJson)) {
-    res = await doFetch(getToken(true));
+    res = await doFetch(await getToken(true));
     body = await res.text();
   }
 
@@ -434,7 +509,7 @@ async function getObjectId(org, project, repo, branch, itemPath) {
 // surfaces AzDO's error message. Used only by the export flow.
 async function apiSend(org, projectAndRest, { method = 'GET', body, contentType } = {}) {
   const url = `https://dev.azure.com/${seg(org)}/` + projectAndRest;
-  const headers = { Authorization: `Bearer ${getToken()}`, Accept: 'application/json' };
+  const headers = { Authorization: `Bearer ${await getToken()}`, Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = contentType || 'application/json';
   const res = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
   const text = await res.text().catch(() => '');
@@ -1376,6 +1451,8 @@ async function getPrChangedFiles(org, project, repo, prId, limit = 100) {
 module.exports = {
   AZDO_STORE,
   getToken,
+  getTokenSync,
+  prewarmToken,
   getCurrentUser,
   voteLabel,
   getRepoContributors,
