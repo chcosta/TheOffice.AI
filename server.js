@@ -7013,36 +7013,55 @@ app.post('/api/multi-agent/synthesize', async (req, res) => {
 // writes events to ~/.copilot/session-state/<uuid>/events.jsonl, which we mirror
 // back into a source:'cli' chat (read-only). The agent's plugin/package/project
 // wiring is resolved by sdk-runner so the terminal boots with the same org.
+// Resolves with the launched terminal's pid. IMPORTANT: this must never block the
+// Node event loop — a prior `spawnSync('powershell', …)` here froze the entire
+// server for the duration of PowerShell's cold start (seconds), so a click on "CLI"
+// left the request hanging on "Opening CLI…" and stalled every other request too.
+// We now use async `spawn` and await the child via a Promise instead.
 function _openAgentCliWindow(launcher, cwd) {
-  const { spawn, spawnSync } = require('child_process');
+  const { spawn } = require('child_process');
   if (process.platform !== 'win32') {
     const child = spawn(launcher, [], { cwd, detached: true, stdio: 'ignore' });
     child.unref();
-    return child.pid || null;
+    return Promise.resolve(child.pid || null);
   }
-  // Start-Process gives us a concrete process id or a synchronous error. The prior
-  // `cmd /c start` fire-and-forget path reported success even when Windows opened nothing.
+  // Start-Process gives us a concrete process id or a real error. `-WindowStyle Normal`
+  // forces an explicit visible show-state (SW_SHOWNORMAL) instead of SW_SHOWDEFAULT,
+  // which would otherwise inherit the hidden state of the windowsHide PowerShell parent.
   const ps = [
     `$launcher=${JSON.stringify(launcher)}`,
     `$cwd=${JSON.stringify(cwd)}`,
-    "$process=Start-Process -FilePath $launcher -WorkingDirectory $cwd -PassThru -ErrorAction Stop",
+    "$process=Start-Process -FilePath $launcher -WorkingDirectory $cwd -WindowStyle Normal -PassThru -ErrorAction Stop",
     "if (-not $process) { throw 'Windows did not return a terminal process.' }",
     'Write-Output $process.Id',
   ].join(';');
   const encoded = Buffer.from(ps, 'utf16le').toString('base64');
-  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
-    encoding: 'utf8',
-    timeout: 15000,
-    windowsHide: true,
+  return new Promise((resolve, reject) => {
+    let child;
+    try {
+      child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], {
+        windowsHide: true,
+      });
+    } catch (e) { reject(e); return; }
+    let stdout = '', stderr = '', settled = false;
+    const done = (fn, arg) => { if (settled) return; settled = true; clearTimeout(timer); fn(arg); };
+    const timer = setTimeout(() => {
+      try { child.kill(); } catch { /* ignore */ }
+      done(reject, new Error('Timed out launching the Windows terminal.'));
+    }, 20000);
+    child.stdout && child.stdout.on('data', (d) => { stdout += d.toString(); });
+    child.stderr && child.stderr.on('data', (d) => { stderr += d.toString(); });
+    child.on('error', (err) => done(reject, err));
+    child.on('close', (code) => {
+      if (code !== 0) { done(reject, new Error(String(stderr || stdout || 'Windows terminal launch failed.').trim())); return; }
+      const pid = Number(String(stdout || '').trim().split(/\s+/).pop());
+      if (!Number.isInteger(pid) || pid <= 0) { done(reject, new Error('Windows did not return a terminal process id.')); return; }
+      done(resolve, pid);
+    });
   });
-  if (result.error) throw result.error;
-  if (result.status !== 0) throw new Error(String(result.stderr || result.stdout || 'Windows terminal launch failed.').trim());
-  const pid = Number(String(result.stdout || '').trim().split(/\s+/).pop());
-  if (!Number.isInteger(pid) || pid <= 0) throw new Error('Windows did not return a terminal process id.');
-  return pid;
 }
 
-function launchAgentCliSession(agentEntry) {
+async function launchAgentCliSession(agentEntry) {
   const sessionId = crypto.randomUUID();
   const { args, cwd, agent } = sdkRunner.resolveCliLaunch(agentEntry.config);
   const copilotPath = process.env.COPILOT_PATH || 'copilot';
@@ -7067,16 +7086,16 @@ function launchAgentCliSession(agentEntry) {
     'pause >nul'
   ].join('\r\n') + '\r\n';
   fs.writeFileSync(launcher, body);
-  const pid = _openAgentCliWindow(launcher, cwd);
+  const pid = await _openAgentCliWindow(launcher, cwd);
   return { sessionId, args: launchArgs, cwd, agent, launcher, pid };
 }
 
-app.post('/api/agents/:id/cli-session', (req, res) => {
+app.post('/api/agents/:id/cli-session', async (req, res) => {
   const agentEntry = supervisor.agents.get(req.params.id);
   if (!agentEntry) return res.status(404).json({ error: 'Agent not found' });
   let launch;
   try {
-    launch = launchAgentCliSession(agentEntry);
+    launch = await launchAgentCliSession(agentEntry);
   } catch (e) {
     return res.status(500).json({ error: 'Failed to launch CLI session: ' + e.message });
   }
