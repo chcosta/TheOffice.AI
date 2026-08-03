@@ -14,7 +14,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { execFileSync } = require('child_process');
+const { execFileSync, execFile } = require('child_process');
+const _execFileP = require('util').promisify(execFile);
 const azdo = require('./azdo');
 const { forge } = require('./forge');
 
@@ -138,6 +139,43 @@ function _git(args, cwd, { auth = false, timeout = 240_000 } = {}) {
 function _gitTry(args, cwd, opts = {}) {
   try {
     return { ok: true, out: _git(args, cwd, opts).trim(), err: '' };
+  } catch (e) {
+    return { ok: false, out: '', err: (e.message || '').toString() };
+  }
+}
+
+// ASYNC twin of _git — same auth/prompt-blocking behaviour, but never blocks the
+// Node event loop. Used by the background dev-summary reconciler so a worktree
+// whose git is momentarily locked (e.g. the dev agent is mid-commit, holding
+// index.lock) can't freeze the entire single-threaded server. The default
+// timeout is deliberately short (local read ops only); network callers pass a
+// larger one explicitly.
+async function _gitAsync(args, cwd, { auth = false, timeout = 60_000 } = {}) {
+  const authArgs = auth ? _authArgs(auth === true ? null : auth) : [];
+  const full = ['-c', 'core.longpaths=true']
+    .concat(_NO_PROMPT_ARGS)
+    .concat(authArgs)
+    .concat(args);
+  try {
+    const { stdout } = await _execFileP('git', full, {
+      cwd: cwd || undefined,
+      encoding: 'utf-8',
+      timeout,
+      maxBuffer: 32 * 1024 * 1024,
+      windowsHide: true,
+      env: _noPromptEnv()
+    });
+    return String(stdout);
+  } catch (e) {
+    const err = (e.stderr || e.stdout || e.message || '').toString().trim();
+    const safeArgs = args.join(' ');
+    throw new Error(`git ${safeArgs} failed: ${err.split('\n').slice(-3).join(' ').slice(0, 400)}`);
+  }
+}
+
+async function _gitTryAsync(args, cwd, opts = {}) {
+  try {
+    return { ok: true, out: (await _gitAsync(args, cwd, opts)).trim(), err: '' };
   } catch (e) {
     return { ok: false, out: '', err: (e.message || '').toString() };
   }
@@ -538,6 +576,42 @@ function worktreeStatus(wt, { fetch = true, baseBranch = 'main', desc = null } =
   };
 }
 
+// ASYNC twin of worktreeStatus — identical result shape, but every git call is
+// non-blocking (via _gitTryAsync) so the background reconciler never wedges the
+// event loop on a locked/slow worktree. `timeout` caps each local git op (a
+// stuck one rejects instead of hanging). Only the reconciler needs this; HTTP
+// handlers keep using the synchronous worktreeStatus.
+async function worktreeStatusAsync(wt, { fetch = false, baseBranch = 'main', desc = null, timeout = 20_000 } = {}) {
+  if (!wt || !_isRepo(wt)) return null;
+  const o = { timeout };
+  if (fetch) await _gitTryAsync(['fetch', '--prune', 'origin'], wt, { auth: desc || true, timeout: Math.max(timeout, 60_000) });
+
+  const branch = (await _gitTryAsync(['rev-parse', '--abbrev-ref', 'HEAD'], wt, o)).out || '';
+  const up = await _gitTryAsync(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], wt, o);
+  const compare = up.ok && up.out ? '@{u}' : ('origin/' + (baseBranch || 'main'));
+
+  let ahead = 0, behind = 0, comparable = false;
+  const counts = await _gitTryAsync(['rev-list', '--left-right', '--count', compare + '...HEAD'], wt, o);
+  if (counts.ok) {
+    const m = counts.out.split(/\s+/);
+    behind = parseInt(m[0], 10) || 0;
+    ahead = parseInt(m[1], 10) || 0;
+    comparable = true;
+  }
+  const cls = classifyPorcelain((await _gitTryAsync(['status', '--porcelain', '-uall'], wt, o)).out || '');
+  const dirty = cls.dirty;
+  const head = (await _gitTryAsync(['rev-parse', 'HEAD'], wt, o)).out || '';
+
+  return {
+    branch, head,
+    upstream: up.ok ? up.out : '',
+    tracking: compare === '@{u}' ? (up.out || '') : compare,
+    ahead, behind, comparable, dirty,
+    ignoredReports: cls.ignored,
+    lastChecked: new Date().toISOString()
+  };
+}
+
 // Detailed commit-level view of a worktree branch vs its tracked remote — the
 // branch's own origin/<branch> when an upstream exists, else origin/<baseBranch>.
 // Lets the UI show exactly which commits are local-only (unpushed), which exist
@@ -681,7 +755,56 @@ function diffSummary(wt, { baseBranch = 'main', maxLines = 40, maxDiffChars = 90
   return out.join('\n').trim();
 }
 
-// Push the worktree's current branch (or a given branch) to origin, with auth.
+// ASYNC twin of diffSummary — same prose output, non-blocking git so the
+// reconciler's (throttled) summary regeneration can't freeze the loop either.
+async function diffSummaryAsync(wt, { baseBranch = 'main', maxLines = 40, maxDiffChars = 9000, timeout = 25_000 } = {}) {
+  if (!wt || !_isRepo(wt)) return '';
+  const base = 'origin/' + (baseBranch || 'main');
+  const o = { timeout };
+  const out = [];
+
+  const stat = await _gitTryAsync(['diff', '--stat', base + '...HEAD'], wt, o);
+  if (stat.ok && stat.out) {
+    out.push('Changed files (git diff --stat vs ' + base + '):');
+    out.push(stat.out.split('\n').slice(0, maxLines).join('\n'));
+  }
+
+  const log = await _gitTryAsync(['log', '--oneline', '-15', base + '..HEAD'], wt, o);
+  if (log.ok && log.out) {
+    out.push('');
+    out.push('Recent commits on this branch:');
+    out.push(log.out);
+  }
+
+  const committed = await _gitTryAsync(['diff', '--unified=3', base + '...HEAD', '--'].concat(_DIFF_EXCLUDES), wt, o);
+  if (committed.ok && committed.out && committed.out.trim()) {
+    out.push('');
+    out.push('Committed changes vs ' + base + ' (patch):');
+    out.push(_capPatch(committed.out, maxDiffChars));
+  }
+
+  const staged = await _gitTryAsync(['diff', '--staged', '--unified=3', '--'].concat(_DIFF_EXCLUDES), wt, o);
+  if (staged.ok && staged.out && staged.out.trim()) {
+    out.push('');
+    out.push('Staged (not yet committed) changes (patch):');
+    out.push(_capPatch(staged.out, Math.floor(maxDiffChars / 2)));
+  }
+  const unstaged = await _gitTryAsync(['diff', '--unified=3', '--'].concat(_DIFF_EXCLUDES), wt, o);
+  if (unstaged.ok && unstaged.out && unstaged.out.trim()) {
+    out.push('');
+    out.push('Unstaged working changes (patch):');
+    out.push(_capPatch(unstaged.out, Math.floor(maxDiffChars / 2)));
+  }
+
+  const dirty = await _gitTryAsync(['status', '--porcelain'], wt, o);
+  if (dirty.ok && dirty.out) {
+    out.push('');
+    out.push('Working tree status (git status --porcelain):');
+    out.push(dirty.out.split('\n').slice(0, maxLines).join('\n'));
+  }
+
+  return out.join('\n').trim();
+}
 // Returns { ok, branch, message }.
 function pushBranch(wt, { branch, desc = null } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, branch: '', message: 'No worktree to push.' };
@@ -1774,6 +1897,7 @@ module.exports = {
   mergeAspectBranch,
   createWorktreeAsync,
   worktreeStatus,
+  worktreeStatusAsync,
   branchCommits,
   classifyPorcelain,
   isIgnorableReportPath,
@@ -1790,6 +1914,7 @@ module.exports = {
   listWorktrees,
   resolveUsableWorktree,
   diffSummary,
+  diffSummaryAsync,
   pushBranch,
   addGitExclude,
   removeWorktree,

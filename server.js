@@ -39942,7 +39942,7 @@ async function _devRepoMeta(d, { fresh = false } = {}) {
     const prId = s.primary ? d.prId : s.prId;
     try { if (prId && s.org && s.project && s.repo) { const p = await _devPullRequest(_devDesc(s), prId); if (p) pr = p; } } catch {}
     let git = s.primary ? d.git : s.git;
-    try { if (s.worktreePath) { const g = devitems.worktreeStatus(s.worktreePath, { fetch: !!fresh, baseBranch: s.baseBranch, desc: _devDesc(s) }); if (g) git = g; } } catch {}
+    try { if (s.worktreePath) { const g = await devitems.worktreeStatusAsync(s.worktreePath, { fetch: !!fresh, baseBranch: s.baseBranch, desc: _devDesc(s) }); if (g) git = g; } } catch {}
     return { slot: s, pr: pr || null, git: git || null };
   }));
   return { wi: wi || null, wiComments: wiComments || null, repos };
@@ -40010,7 +40010,7 @@ async function _generateDevSummary(d, opts = {}) {
   const per = withWt.length ? Math.max(5000, Math.floor(total / withWt.length)) : total;
   for (const rp of meta.repos) {
     rp.diff = '';
-    try { if (rp.slot && rp.slot.worktreePath) rp.diff = devitems.diffSummary(rp.slot.worktreePath, { baseBranch: rp.slot.baseBranch, maxDiffChars: per }); } catch {}
+    try { if (rp.slot && rp.slot.worktreePath) rp.diff = await devitems.diffSummaryAsync(rp.slot.worktreePath, { baseBranch: rp.slot.baseBranch, maxDiffChars: per }); } catch {}
   }
   const prompt = _buildDevSummaryPrompt(d, { wi: meta.wi, wiComments: meta.wiComments, repos: meta.repos });
   // Run from the primary worktree (or the first repo with one) for a sane cwd.
