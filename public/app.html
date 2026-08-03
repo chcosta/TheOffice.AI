@@ -9593,7 +9593,7 @@
                                   <span class="bmap-group-acts">
                                     <button type="button" class="bmap-group-sum-btn" @click.stop="bmapGroupSummary(g)" title="Summarize these items">∑</button>
                                     <button type="button" @click.stop="bmapRenameGroup(g)" title="Rename group">✎</button>
-                                    <button type="button" x-show="!bmapGroupLocked(g)" @click.stop="bmapRemoveGroup(g)" title="Ungroup">✕</button>
+                                    <button type="button" @click.stop="bmapDismissGroup(g)" :title="bmapGroupLocked(g) ? 'Remove group frame (keeps cards)' : 'Ungroup'">✕</button>
                                   </span>
                                   <span class="bmap-group-lock" x-show="bmapGroupLocked(g)" :title="'Auto-group · ' + ((g.members||[]).length) + ' cards · follows this dev card\'s PRs'">🔒 <span x-text="(g.members||[]).length"></span></span>
                                 </div>
@@ -60625,7 +60625,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           else if (parent) this._bmapFitGroupChain(parent);
           this._bmapPersistSoon();
         },
-        // -- highlights ("you are here") --
+        // Dismiss a group frame from its ✕ button. Non-locked groups ungroup silently;
+        // locked auto-groups confirm first (they'd otherwise only vanish by removing the
+        // dev card). Either way the member cards stay on the board — only the frame goes,
+        // and reconcile won't recreate a locked group that no longer exists.
+        bmapDismissGroup(g) {
+          if (!g) return;
+          if (this.bmapGroupLocked(g)) {
+            const ok = (typeof confirm === 'function')
+              ? confirm('Remove this auto-group frame?\n\nThe dev card and its PR cards stay on the board — only the frame is removed.')
+              : true;
+            if (!ok) return;
+          }
+          this.bmapRemoveGroup(g);
+          try { this.toast('Group frame removed.'); } catch {}
+        },
         // Global, identity-keyed for PR & dev cards so ALL matching cards (every board +
         // Code Flow) light up together; falls back to the per-board store for board-native
         // items (notes/checklists/agents) that have no cross-surface identity.
