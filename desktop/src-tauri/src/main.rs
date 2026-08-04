@@ -24,17 +24,32 @@ fn run_pending_update() {
     let marker = base.join("TheOffice.AI").join("pending-update.json");
     let raw = match std::fs::read_to_string(&marker) {
         Ok(s) => s,
-        Err(_) => return,
+        Err(_) => return, // no staged update — the common, quiet case
     };
     let json: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
-        Err(_) => {
+        Err(e) => {
+            log_line(&format!(
+                "[desktop] pending-update marker is unreadable ({e}) — discarding"
+            ));
             let _ = std::fs::remove_file(&marker);
             return;
         }
     };
     let installer = json.get("installer").and_then(|v| v.as_str()).unwrap_or("");
-    if installer.is_empty() || !std::path::Path::new(installer).exists() {
+    if installer.is_empty() {
+        log_line("[desktop] pending-update marker has no installer path — discarding");
+        let _ = std::fs::remove_file(&marker);
+        return;
+    }
+    let installer_path = std::path::Path::new(installer);
+    if !installer_path.exists() {
+        // The staged installer is gone (cleaned up, moved, or never finished
+        // downloading). Discard the marker so we don't keep pointing at a
+        // missing file; the updater will re-stage on the next check.
+        log_line(&format!(
+            "[desktop] staged installer is missing at {installer} — discarding marker (updater will re-stage)"
+        ));
         let _ = std::fs::remove_file(&marker);
         return;
     }
@@ -44,8 +59,13 @@ fn run_pending_update() {
         .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
         .unwrap_or_else(|| vec!["/UPDATE".into(), "/S".into()]);
 
-    // Consume the marker before launching so a failed spawn can't loop.
-    let _ = std::fs::remove_file(&marker);
+    let size_mb = std::fs::metadata(installer_path)
+        .map(|m| m.len() as f64 / (1024.0 * 1024.0))
+        .unwrap_or(0.0);
+    log_line(&format!(
+        "[desktop] launching staged installer ({size_mb:.1} MB) {installer} {}",
+        args.join(" ")
+    ));
 
     let mut cmd = Command::new(installer);
     cmd.args(&args);
@@ -56,7 +76,80 @@ fn run_pending_update() {
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
     }
-    let _ = cmd.spawn();
+    // Only consume the marker AFTER the installer actually launches. If the spawn
+    // fails, KEEP the marker so the next app close (or the startup self-heal)
+    // retries instead of silently orphaning the staged installer — the exact
+    // failure mode behind "the app closed but the update never applied and the
+    // button kept coming back with no trace in the log".
+    match cmd.spawn() {
+        Ok(child) => {
+            log_line(&format!(
+                "[desktop] installer launched (pid {}); applying on close",
+                child.id()
+            ));
+            let _ = std::fs::remove_file(&marker);
+        }
+        Err(e) => {
+            log_line(&format!(
+                "[desktop] FAILED to launch staged installer: {e} — keeping marker for retry"
+            ));
+        }
+    }
+}
+
+/// Startup self-heal for a staged full-installer update that was NEVER applied.
+///
+/// The normal path applies a full update at exit (`RunEvent::Exit` →
+/// `run_pending_update`). That exit path is fragile: a wedged event loop can
+/// swallow `app.exit(0)`, a crash can skip the handler, or the installer spawn
+/// can fail — any of which strands the downloaded installer while
+/// `pending-update.json` lingers, so the "update ready" button reappears yet the
+/// version never advances. Running the installer here, at a healthy startup
+/// (before the sidecar is up and nothing is wedged), guarantees the staged
+/// update eventually lands: worst case it applies the next time the app opens.
+///
+/// Loop-safe: `run_pending_update` removes the marker the instant the installer
+/// launches, and the installer bumps the shell version, so a subsequent launch
+/// finds no marker. If the installer genuinely can't launch, the marker is kept
+/// (retry) but `cmd.spawn` failing is not an infinite fast loop — it only
+/// retries once per app launch.
+fn apply_staged_update_on_startup(app: &tauri::AppHandle) -> bool {
+    let base = match std::env::var("LOCALAPPDATA") {
+        Ok(v) if !v.is_empty() => PathBuf::from(v),
+        _ => return false,
+    };
+    let marker = base.join("TheOffice.AI").join("pending-update.json");
+    let raw = match std::fs::read_to_string(&marker) {
+        Ok(s) => s,
+        Err(_) => return false, // nothing staged — the overwhelmingly common case
+    };
+    let json: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return false, // run_pending_update will clean a malformed marker
+    };
+    // Only self-heal a FULL installer (applyOn: "exit"). Delta updates apply
+    // themselves on the next sidecar boot via apply-update.js and must NOT be
+    // routed through the installer.
+    let apply_on = json.get("applyOn").and_then(|v| v.as_str()).unwrap_or("");
+    let is_delta = json.get("delta").and_then(|v| v.as_bool()).unwrap_or(false);
+    if is_delta || apply_on == "launch" {
+        return false;
+    }
+    let installer = json.get("installer").and_then(|v| v.as_str()).unwrap_or("");
+    if installer.is_empty() || !std::path::Path::new(installer).exists() {
+        return false; // run_pending_update handles discarding a dead marker
+    }
+    // A pending full installer survived a previous session without applying.
+    // Apply it now, then exit so it can overwrite the (now-closing) app.
+    let target = json.get("version").and_then(|v| v.as_str()).unwrap_or("?");
+    log_line(&format!(
+        "[desktop] staged full update v{target} was not applied last session — applying now at startup"
+    ));
+    let node_bin = resolve_node_bin(app);
+    let state = app.state::<Arc<SidecarState>>();
+    stop_sidecar_and_wait(state.inner(), &node_bin);
+    run_pending_update();
+    true
 }
 
 /// Directory where the desktop shell writes its rolling log
@@ -992,6 +1085,18 @@ fn main() {
         ])
         .setup(move |app| {
             log_line("[desktop] --- session start ---");
+            // Self-heal: if a full-installer update was staged last session but
+            // never applied (wedged exit, crash, or a failed spawn left the
+            // marker behind), apply it now — at a healthy startup — and quit so
+            // it can replace the app. This is the reliability backstop that stops
+            // the "update ready" button from persisting forever while the version
+            // never advances. Delta updates are skipped here (they self-apply on
+            // the next sidecar boot).
+            if apply_staged_update_on_startup(&app.handle().clone()) {
+                log_line("[desktop] exiting to let the staged installer run");
+                app.handle().exit(0);
+                return Ok(());
+            }
             // Capture the bundled splash/recovery page URL so the supervisor can
             // navigate back to it whenever the sidecar is down.
             if let Some(win) = app.get_webview_window("main") {
