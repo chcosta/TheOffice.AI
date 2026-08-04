@@ -9458,7 +9458,7 @@ app.post('/api/cli/sessions/:id/summarize', async (req, res) => {
   ].join('\n');
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'chat' } });
     let summary = (acc.trim() || (result && result.output) || '').trim();
     if (!summary) return res.status(500).json({ error: 'Empty summary returned' });
     const payload = { summary, generatedAt: new Date().toISOString(), turnCount: turns.length };
@@ -38825,7 +38825,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
     const text = (acc.trim() || (result && result.output) || '').trim() || digest;
     const saved = persist(text);
     res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false });
@@ -41638,7 +41638,7 @@ app.post('/api/boards/:id/dev-items/:devId/pr', async (req, res) => {
   let title = '', description = '';
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'pull_requests' } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'pull_requests' } });
     const raw = (acc.trim() || (result && result.output) || '').trim();
     const parsed = _extractJsonObject(raw);
     if (parsed && parsed.title) { title = String(parsed.title).trim(); description = String(parsed.description || '').trim(); }
@@ -42147,7 +42147,7 @@ async function generateInsight(viewId) {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'insights' } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'insights' } });
     const raw = (acc.trim() || (result && result.output) || '').trim();
     const parsed = _parseInsightJson(raw);
     if (!parsed) throw new Error('could not parse insight JSON');
@@ -42286,7 +42286,7 @@ app.post('/api/insights/suggest', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname, onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'insights' } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, meta: { source: 'system', category: 'insights' } });
     const text = acc.trim() ? acc : (result && result.output) || '';
     const arr = parseSuggestionJson(text);
     if (!arr) return res.status(502).json({ error: 'Could not parse AI suggestions. Try refreshing.', raw: String(text).slice(0, 500) });
