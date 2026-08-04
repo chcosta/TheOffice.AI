@@ -54320,18 +54320,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async loadCodeFlow(silent) {
           if (!silent) this.codeflow.loading = true;
-          if (!Object.keys(this.codeflow.ai || {}).length) this._cfAiLoadCache(this.codeflow.view);
+          // Capture the view this load is for. If the user switches tabs while the
+          // request is in flight (or it fails), we must NOT apply/keep results under
+          // the wrong view — otherwise a slow/timed-out reviews load leaves the
+          // previous view's PRs (e.g. "My PRs") on screen labeled "Active PRs".
+          const view = this.codeflow.view;
+          if (!Object.keys(this.codeflow.ai || {}).length) this._cfAiLoadCache(view);
           try {
             // Load watched repos and PRs for the current view together.
             const [reposResp, prResp] = await Promise.all([
               this.request('/api/codeflow/repos').catch(() => ({ repos: [] })),
-              this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(this.codeflow.view))
+              this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view))
             ]);
+            // Stale response: the user moved to another view mid-flight. Drop it so a
+            // newer load owns the list.
+            if (this.codeflow.view !== view) return;
             this.codeflow.repos = Array.isArray(reposResp.repos) ? reposResp.repos : [];
             this.codeflow.pullRequests = Array.isArray(prResp.pullRequests) ? prResp.pullRequests : [];
             this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
             this.codeflow.attentionCount = prResp.attentionCount || 0;
             this.codeflow.fetchedAt = prResp.fetchedAt || null;
+            this.codeflow.loadedView = view;
             // Drop the repo filter if it points at a now-removed repo.
             if (this.codeflow.filterRepo && !this.codeflow.repos.some(r => r.id === this.codeflow.filterRepo)) {
               this.codeflow.filterRepo = '';
@@ -54352,9 +54361,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             Promise.resolve((!this.boards || !this.boards.length) ? this.loadBoards(null, true).catch(() => {}) : null)
               .then(() => this.cfScanMergedPins().catch(() => {}));
           } catch (e) {
+            // A newer view switch already superseded this load — let it own the error UI.
+            if (this.codeflow.view !== view) return;
             this.codeflow.errors = [{ repo: '', error: e.message }];
+            // Never leave the PREVIOUS view's PRs on screen under this view's label
+            // (the "Active PRs showing my PRs" bug): if the data we hold isn't this
+            // view's, clear it so the list matches the header (empty + error banner).
+            if (this.codeflow.loadedView !== view) {
+              this.codeflow.pullRequests = [];
+              this.codeflow.attentionCount = 0;
+            }
           } finally {
-            this.codeflow.loading = false;
+            if (this.codeflow.view === view) this.codeflow.loading = false;
           }
         },
         async refreshCodeFlow() {
