@@ -9130,14 +9130,16 @@ app.get('/api/sessions/:id/poll', (req, res) => {
   res.json(response);
 });
 
-app.post('/api/sessions/:id/terminal', (req, res) => {
+app.post('/api/sessions/:id/terminal', async (req, res) => {
   const sessionDir = path.join(SESSION_STATE_DIR, req.params.id);
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
   const meta = readSessionMeta(sessionDir);
   const cwd = req.body?.cwd || meta.cwd || __dirname;
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const { exec } = require('child_process');
+  const os = require('os');
+  // Batch-file quoting: wrap any token with whitespace/quotes.
+  const q = (a) => (/[\s"]/.test(String(a)) ? '"' + String(a).replace(/"/g, '\\"') + '"' : String(a));
   // NOTE: avoid parenthesized cmd blocks like `if exist "x" ( ... )` / `|| ( ... )`.
   // cmd expands %PATH% while parsing the whole block, and PATH entries that
   // contain ")" (e.g. "C:\Program Files (x86)\...") prematurely close the block,
@@ -9149,15 +9151,19 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
   // though the file exists. Use `if not exist` for path-qualified launchers.
   const copilotIsPath = /[\\/:]/.test(copilotCmd);
   const guardLines = copilotIsPath
-    ? [`if not exist "${copilotCmd}" goto nocopilot`]
-    : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
+    ? [`if not exist ${q(copilotCmd)} goto nocopilot`]
+    : [`where ${q(copilotCmd)} >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
+  // copilot is a .cmd shim; invoke via `call` so the launcher window survives it.
   const batContent = [
     '@echo off',
-    `if not exist "${cwd}" goto nodir`,
-    `cd /d "${cwd}"`,
+    'title Copilot Session',
+    `if not exist ${q(cwd)} goto nodir`,
+    `cd /d ${q(cwd)}`,
     ...guardLines,
-    `"${copilotCmd}" --resume=${req.params.id} --yolo`,
-    'pause',
+    `call ${q(copilotCmd)} --resume=${req.params.id} --yolo`,
+    'echo.',
+    'echo [session ended - press any key to close]',
+    'pause >nul',
     'exit /b 0',
     ':nodir',
     `echo ERROR: Working directory not found: ${cwd}`,
@@ -9168,33 +9174,46 @@ app.post('/api/sessions/:id/terminal', (req, res) => {
     'echo PATH=%PATH%',
     'pause',
     'exit /b 1',
-  ].join('\r\n');
-  const batPath = path.join(__dirname, `temp-terminal-${req.params.id}.bat`);
-  fs.writeFileSync(batPath, batContent);
-  exec(`start "Copilot Session" "${batPath}"`);
-  res.json({ ok: true });
+  ].join('\r\n') + '\r\n';
+  // Launch through the same reliable path the agent CLI button uses:
+  // Start-Process -WindowStyle Normal -PassThru gives a real, VISIBLE window and a
+  // concrete pid (or a real error). The old `exec('start ... .bat')` was
+  // fire-and-forget and inherited the sidecar's hidden window state in the
+  // desktop app, so clicking Resume silently did nothing.
+  const launcher = path.join(os.tmpdir(), `resume-terminal-${req.params.id}.cmd`);
+  try {
+    fs.writeFileSync(launcher, batContent);
+    const pid = await _openAgentCliWindow(launcher, cwd);
+    res.json({ ok: true, pid, sessionId: req.params.id });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to open terminal: ' + (e && e.message || e) });
+  }
 });
 
 // Open copilot in a directory without resuming a session
-app.post('/api/terminal/open', (req, res) => {
+app.post('/api/terminal/open', async (req, res) => {
   const { cwd } = req.body || {};
   if (!cwd) return res.status(400).json({ error: 'cwd required' });
 
   const copilotCmd = process.env.COPILOT_PATH || 'copilot';
-  const { exec } = require('child_process');
+  const os = require('os');
+  const q = (a) => (/[\s"]/.test(String(a)) ? '"' + String(a).replace(/"/g, '\\"') + '"' : String(a));
   // See note above: no parenthesized cmd blocks (PATH may contain ")" ), and use
   // `if not exist` rather than `where` when COPILOT_PATH is a path-qualified launcher.
   const copilotIsPath = /[\\/:]/.test(copilotCmd);
   const guardLines = copilotIsPath
-    ? [`if not exist "${copilotCmd}" goto nocopilot`]
-    : [`where "${copilotCmd}" >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
+    ? [`if not exist ${q(copilotCmd)} goto nocopilot`]
+    : [`where ${q(copilotCmd)} >nul 2>&1`, 'if errorlevel 1 goto nocopilot'];
   const batContent = [
     '@echo off',
-    `if not exist "${cwd}" goto nodir`,
-    `cd /d "${cwd}"`,
+    'title Copilot Session',
+    `if not exist ${q(cwd)} goto nodir`,
+    `cd /d ${q(cwd)}`,
     ...guardLines,
-    `"${copilotCmd}" --yolo`,
-    'pause',
+    `call ${q(copilotCmd)} --yolo`,
+    'echo.',
+    'echo [session ended - press any key to close]',
+    'pause >nul',
     'exit /b 0',
     ':nodir',
     `echo ERROR: Working directory not found: ${cwd}`,
@@ -9205,11 +9224,17 @@ app.post('/api/terminal/open', (req, res) => {
     'echo PATH=%PATH%',
     'pause',
     'exit /b 1',
-  ].join('\r\n');
-  const batPath = path.join(__dirname, `temp-terminal-${Date.now().toString(36)}.bat`);
-  fs.writeFileSync(batPath, batContent);
-  exec(`start "Copilot Session" "${batPath}"`);
-  res.json({ ok: true });
+  ].join('\r\n') + '\r\n';
+  // Launch through the reliable Start-Process path (visible window + real pid),
+  // not fire-and-forget `exec('start ...')` which is invisible in the desktop app.
+  const launcher = path.join(os.tmpdir(), `open-terminal-${Date.now().toString(36)}.cmd`);
+  try {
+    fs.writeFileSync(launcher, batContent);
+    const pid = await _openAgentCliWindow(launcher, cwd);
+    res.json({ ok: true, pid });
+  } catch (e) {
+    res.status(500).json({ error: 'Failed to open terminal: ' + (e && e.message || e) });
+  }
 });
 
 // ============ CLI Sessions page ============

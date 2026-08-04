@@ -30907,6 +30907,10 @@
                               <span x-show="s.repository" x-text="'🌿 ' + s.repository + (s.branch ? (' @ ' + s.branch) : '')"></span>
                               <span x-show="s.cwd" class="cli-sess-path" x-text="'📁 ' + s.cwd"></span>
                               <span x-text="'🕑 ' + formatRelative(s.lastModified)"></span>
+                              <span class="cli-sess-id" style="cursor:pointer;font-family:ui-monospace,SFMono-Regular,Consolas,monospace"
+                                @click.stop="navigator.clipboard.writeText(s.id); toast('Session id copied — resume with: copilot --resume=' + s.id, 'success')"
+                                :title="'Click to copy the session id (resume manually with: copilot --resume=' + s.id + ')'"
+                                x-text="'🆔 ' + s.id"></span>
                             </div>
                           </div>
                           <div class="cli-sess-actions">
@@ -41309,8 +41313,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             out.push({ key, _flat: false, emoji: g.emoji || '🗂', label: g.label || 'Group', blurb: g.blurb || '', sessions, collapsed: !this.cliGroupExpanded[key] });
           });
           const stray = filtered.filter(s => !placed.has(s.id));
-          if (stray.length && out.length) {
-            out.push({ key: '__stray__', _flat: false, emoji: '🗂', label: 'Ungrouped', blurb: 'Sessions outside the most recent 150 that topic grouping covers (plus any created since the last grouping). Re-group to refresh, or use search to find a specific one.', sessions: stray, collapsed: !this.cliGroupExpanded['__stray__'] });
+          if (stray.length) {
+            if (out.length) {
+              // Some topic groups rendered — collect the leftovers under a
+              // collapsible "Ungrouped" bucket beneath them.
+              out.push({ key: '__stray__', _flat: false, emoji: '🗂', label: 'Ungrouped', blurb: 'Sessions outside the most recent 150 that topic grouping covers (plus any created since the last grouping). Re-group to refresh, or use search to find a specific one.', sessions: stray, collapsed: !this.cliGroupExpanded['__stray__'] });
+            } else {
+              // No cluster matched the current filter/search (e.g. an older or
+              // external session that predates the last topic grouping). Render
+              // the matches as a flat, immediately-visible list so the count and
+              // the list agree — never leave a non-empty result set blank.
+              out.push({ key: '__flat__', _flat: true, sessions: stray });
+            }
           }
           return out;
         },
@@ -41355,11 +41369,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         async resumeCliSession(session) {
           try {
-            await this.request(`/api/sessions/${encodeURIComponent(session.id)}/terminal`, {
+            const r = await this.request(`/api/sessions/${encodeURIComponent(session.id)}/terminal`, {
               method: 'POST',
               body: JSON.stringify({ cwd: session.cwd || undefined })
             });
-            this.showToast('Resuming session', 'A terminal window is opening to continue this session.', 'success');
+            this.showToast('Resuming session', (r && r.pid) ? ('A terminal window is opening (pid ' + r.pid + ').') : 'A terminal window is opening to continue this session.', 'success');
           } catch (e) {
             this.showToast('Resume failed', e.message, 'error');
           }
