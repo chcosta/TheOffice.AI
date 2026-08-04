@@ -71904,7 +71904,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.toast(`Finishing update to v${this.update.latest}…`);
               const r = await fireSelfDestruct('restart_sidecar');
               if (r === 'missing' || r === 'no-ipc') {
-                this.toast('Update staged — fully quit and reopen the app to finish updating.', 'info');
+                // Older installed shell that predates the in-place restart command.
+                // A transient toast is easy to miss and leaves the user thinking the
+                // button did nothing — give a clear, persistent instruction instead.
+                await this.uiConfirm({
+                  title: 'One quick step to finish',
+                  message: `This installed version can't restart itself to apply the update. Fully quit the app (close the window), then reopen it — v${this.update.latest} will be running.`,
+                  confirmLabel: 'Got it'
+                });
               } else {
                 // Backstop the supervisor's auto-navigate-back on __READY__.
                 setTimeout(() => location.reload(), 4500);
@@ -71916,7 +71923,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.toast(`Quitting to install v${this.update.latest}…`);
               const r = await fireSelfDestruct('quit_and_update');
               if (r === 'missing' || r === 'no-ipc') {
-                this.toast('Update staged — fully quit and reopen the app to finish updating.', 'info');
+                // Older installed shell without the on-demand quit command — it
+                // literally cannot force itself closed from here. Tell the user
+                // exactly what to do (the installer still runs automatically on a
+                // normal close), rather than flashing a toast that looks like the
+                // button failed.
+                await this.uiConfirm({
+                  title: 'One quick step to finish',
+                  message: `This installed version can't quit itself to run the installer. Fully quit the app (close the window) — the update installs automatically on close, then reopen to run v${this.update.latest}.`,
+                  confirmLabel: 'Got it'
+                });
               }
               // On success the app is exiting; nothing more to do here.
             }

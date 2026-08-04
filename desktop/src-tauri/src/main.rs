@@ -880,7 +880,32 @@ fn restart_sidecar(state: tauri::State<'_, Arc<SidecarState>>) -> Result<(), Str
 #[tauri::command]
 fn quit_and_update(app: tauri::AppHandle) {
     log_line("[desktop] quit-and-update requested — exiting to apply staged installer");
-    app.exit(0);
+    // Do the teardown on a short-lived thread so THIS command returns and its IPC
+    // ack reaches the webview first, then guarantee the app actually quits.
+    std::thread::spawn(move || {
+        // Let the IPC response settle, then ask Tauri to exit gracefully. This
+        // fires `RunEvent::Exit`, whose handler stops the sidecar and launches the
+        // staged installer.
+        std::thread::sleep(Duration::from_millis(300));
+        app.exit(0);
+        // Watchdog / force-quit backstop. `app.exit(0)` is not always honored — a
+        // busy event loop or a wedged webview can swallow it, which is exactly the
+        // "Quit & install now didn't force the app to quit" bug: the app just sat
+        // there open. If we're still alive after a healthy exit would have
+        // finished, force it. Guard on `shutting_down` (set by the Exit handler's
+        // teardown) so we don't run the teardown/installer twice.
+        std::thread::sleep(Duration::from_secs(12));
+        let state = app.state::<Arc<SidecarState>>();
+        if state.shutting_down.load(Ordering::SeqCst) {
+            log_line("[desktop] exit in progress but process still alive — forcing termination");
+        } else {
+            log_line("[desktop] graceful exit did not take — forcing quit to apply update");
+            let node_bin = resolve_node_bin(&app);
+            stop_sidecar_and_wait(state.inner(), &node_bin);
+            run_pending_update();
+        }
+        std::process::exit(0);
+    });
 }
 
 /// Open the desktop log folder in the OS file manager. Invoked from the recovery
