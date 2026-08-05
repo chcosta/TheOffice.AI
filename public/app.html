@@ -27072,7 +27072,7 @@
                   <div class="toolbar">
                     <button class="btn danger" type="button" x-show="!chainDraft._new" @click="deleteChain(chainDraft)">🗑 Delete</button>
                     <button class="btn" type="button" @click="closeChainModal()">Cancel</button>
-                    <button class="btn primary" type="button" @click="saveChain()" x-text="chainDraft._new ? 'Create flow' : 'Save flow'"></button>
+                    <button class="btn primary" type="button" @click="saveChain()" :disabled="chainSaving" x-text="chainSaving ? 'Saving…' : (chainDraft._new ? 'Create flow' : 'Save flow')"></button>
                   </div>
                 </div>
                 <div class="flow-editor-body">
@@ -32507,6 +32507,7 @@
         homeShowDoneDev: false,
         selectedChainId: null,
         chainDraft: null,
+        chainSaving: false,
         schedModal: { open: false, title: 'Schedule', mode: 'off', intervalN: 15, intervalUnit: 'm', days: [1, 2, 3, 4, 5], times: ['09:00'], cron: '', _apply: null },
         chainRunState: {},
         chainRuns: {},
@@ -70345,13 +70346,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         async saveChain() {
           if (!this.chainDraft) return;
-          const payload = this._cleanChainPayload(this.chainDraft);
+          // Guard re-entry so a double-click can't fire two saves.
+          if (this.chainSaving) return;
+          // Register the click immediately: flip a busy flag so the button shows
+          // "Saving…" and disables. Without this, a slow/unresponsive server left
+          // the click with ZERO feedback — the button just sat there, which read
+          // as "Save flow does nothing".
+          this.chainSaving = true;
+          let payload;
+          try {
+            payload = this._cleanChainPayload(this.chainDraft);
+          } catch (e) {
+            // _cleanChainPayload ran OUTSIDE the old try/catch — a throw here used
+            // to kill the handler silently. Surface it instead.
+            this.chainSaving = false;
+            this.showToast('Save failed', 'Could not prepare the flow: ' + (e && e.message || e), 'error');
+            return;
+          }
           const isNew = !!this.chainDraft._new;
           try {
+            // Bound the save so a wedged server surfaces a clear error in ~25s
+            // instead of hanging silently under the default 5-minute ceiling.
+            const opts = { timeoutMs: 25000 };
             if (isNew) {
-              await this.request('/api/chains', { method: 'POST', body: JSON.stringify(payload) });
+              await this.request('/api/chains', { method: 'POST', body: JSON.stringify(payload), ...opts });
             } else {
-              await this.request('/api/chains/' + encodeURIComponent(payload.id), { method: 'PUT', body: JSON.stringify(payload) });
+              await this.request('/api/chains/' + encodeURIComponent(payload.id), { method: 'PUT', body: JSON.stringify(payload), ...opts });
             }
             this.showToast('Flow saved', `"${payload.name}" saved.`, 'info');
             this.unmountFlowCanvas();
@@ -70360,7 +70380,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.route === 'chain') this.goTo('#/chains');
             await this.loadChains();
           } catch (e) {
-            this.showToast('Save failed', e.message, 'error');
+            const msg = (e && e.timeout)
+              ? 'The server didn’t respond — it may be busy or restarting. Your flow was not saved; try again in a moment.'
+              : (e && e.message) || 'Unknown error';
+            this.showToast('Save failed', msg, 'error');
+          } finally {
+            this.chainSaving = false;
           }
         },
 
