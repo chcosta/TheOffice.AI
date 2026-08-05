@@ -41503,13 +41503,23 @@ app.post('/api/codeflow/pr/playbook-agent', async (req, res) => {
     return res.status(400).json({ error: 'Create a worktree first.' });
   }
   const persona = _prPersona(b.persona || 'merge-steward', b.playbookId);
-  let pr;
-  try { pr = await forge(o).getPullRequest(o.org, o.project, o.repo, o.prId); }
-  catch (e) { return res.status(502).json({ error: (e && e.message) || 'Could not load the pull request.' }); }
-  if (!pr) return res.status(404).json({ error: 'Pull request not found.' });
+  // The agent file only needs PR context (title / branch / author / link) to
+  // ground its prompt — it does NOT require a live fetch. Try the forge for the
+  // freshest data, but bound each call and fall back to the cached worktree
+  // record when AzDo is slow / throttled / offline, so adding an agent never
+  // 502s, 404s, or hangs. (Mirrors the recommend-agents endpoint's fallback.)
+  const _raceTimeout = (p, ms) => Promise.race([
+    Promise.resolve(p).catch(() => null),
+    new Promise(r => setTimeout(() => r(null), ms)),
+  ]);
+  const pr = await _raceTimeout(forge(o).getPullRequest(o.org, o.project, o.repo, o.prId), 12000);
   let workItems = [];
-  try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
-  const prCtx = { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy };
+  if (pr) { workItems = (await _raceTimeout(forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId), 8000)) || []; }
+  const prCtx = pr
+    ? { ...pr, org: o.org, project: o.project, repo: o.repo, createdBy: pr.createdBy }
+    : { prId: o.prId, id: o.prId, org: o.org, project: o.project, repo: o.repo,
+        title: (rec && rec.prTitle) || '', url: (rec && rec.prUrl) || '',
+        sourceBranch: (rec && rec.sourceBranch) || '', targetBranch: (rec && rec.targetBranch) || '' };
   let written;
   try { written = _writePrPlaybookAgentFile(rec, prCtx, workItems, persona); }
   catch (e) { return res.status(500).json({ error: 'Failed to write the agent file: ' + ((e && e.message) || e) }); }

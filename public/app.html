@@ -66481,7 +66481,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!this.prReadyWt(pr)) { this.showToast('Pull request', 'Create a worktree first — the agent is written into it.', 'error'); return; }
           this.prAgentBusy[busyKey] = true;
           try {
-            const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: playbookId || '' })) });
+            const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: playbookId || '' })), timeoutMs: 20000 });
             if (r && r.worktree) {
               this.codeflow.worktrees[key] = r.worktree;
               const label = (this.prAgentList(pr).find(a => a.persona === personaId) || {}).label || 'Agent';
@@ -66490,7 +66490,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.showToast('Pull request', 'Agent returned no result — try again.', 'error');
             }
           } catch (e) {
-            this.showToast('Pull request', (e && e.message) || 'Create agent failed', 'error');
+            const msg = (e && e.timeout)
+              ? 'The server didn’t respond — it may be busy or restarting. The agent was not added; try again in a moment.'
+              : (e && e.message) || 'Create agent failed';
+            this.showToast('Pull request', msg, 'error');
           } finally {
             delete this.prAgentBusy[busyKey];
           }
@@ -66498,7 +66501,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // createPrAgent without the worktree-first toast (used by auto-add, already gated).
         async createPrAgentQuiet(pr, personaId) {
           const key = this.cfPrKey(pr);
-          const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: '' })) });
+          const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: '' })), timeoutMs: 20000 });
           if (r && r.worktree) this.codeflow.worktrees[key] = r.worktree;
           return r;
         },
@@ -66580,7 +66583,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async addRecoPrAgent(pr, rec) {
           if (!pr || !rec) return;
-          await this.createPrAgent(pr, rec.persona);
+          await this.createPrAgent(pr, rec.persona, rec.playbookId);
           const key = this.cfPrKey(pr);
           const st = this.prRecos[key];
           if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.prRecos[key] = { ...st }; }
