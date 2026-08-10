@@ -24370,6 +24370,7 @@
                         <option value="state">Group: State</option>
                         <option value="urgency">Group: AI urgency</option>
                         <option value="approval">Group: Approval</option>
+                        <option value="owner">Group: PR owner</option>
                       </select>
                     </div>
                   </div>
@@ -33207,7 +33208,7 @@
           filterRepo: '',        // repoId filter ('' = all)
           filterProvider: '',    // provider filter ('' = all | 'azdo' | 'github')
           sort: 'attention',     // 'attention' | 'newest' | 'oldest' | 'age' | 'urgency'
-          groupBy: (localStorage.getItem('cfGroupBy') || 'none'),  // 'none' | 'repo' | 'state' | 'urgency' | 'approval'
+          groupBy: (localStorage.getItem('cfGroupBy') || 'none'),  // 'none' | 'repo' | 'state' | 'urgency' | 'approval' | 'owner'
           ai: {},                // prId -> { summary, urgency, urgencyReason }
           aiBusy: false,
           aiGeneratedAt: null,
@@ -55230,6 +55231,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return list;
         },
+        // Display name of the PR's author/owner, tolerating the several shapes a
+        // PR object carries it in (createdBy object, or a flat author string).
+        cfPrOwner(pr) {
+          if (!pr) return '';
+          const cb = pr.createdBy;
+          if (cb) {
+            if (typeof cb === 'string') return cb.trim();
+            const n = cb.displayName || cb.name || cb.uniqueName || '';
+            if (n) return String(n).trim();
+          }
+          return String(pr.author || pr.authorName || '').trim();
+        },
         groupedCodeflowPrs() {
           const list = this.filteredCodeflowPrs();
           const g = this.codeflow.groupBy;
@@ -55259,6 +55272,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               const pill = this.codeflowApprovalPill(pr);
               const lbl = (pill && pill.label) ? pill.label : 'No vote';
               add('a-' + lbl, lbl, 0, pr);
+            } else if (g === 'owner') {
+              const name = this.cfPrOwner(pr);
+              if (name) add('o-' + name.toLowerCase(), name, 0, pr);
+              else add('o-none', 'Unknown owner', 1, pr);
             } else {
               add('__all', '', 0, pr);
             }
@@ -55781,7 +55798,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (c.filterProvider) parts.push(c.filterProvider === 'azdo' ? 'Azure DevOps' : 'GitHub');
           if (c.filterRepo) { const r = (c.repos || []).find(x => x.id === c.filterRepo); if (r) parts.push(r.repo); }
           if (c.groupBy && c.groupBy !== 'none') {
-            const g = { repo:'Repo', state:'State', urgency:'AI urgency', approval:'Approval' }[c.groupBy];
+            const g = { repo:'Repo', state:'State', urgency:'AI urgency', approval:'Approval', owner:'PR owner' }[c.groupBy];
             if (g) parts.push('by ' + g);
           }
           return parts.length ? parts.join(' · ') : 'No filters';
