@@ -66475,7 +66475,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const key = this.cfPrKey(pr);
           const open = !this.prPickerOpen[key];
           this.prPickerOpen[key] = open;
-          if (open) this.loadPrPersonas();
+          if (open) {
+            // Clear any stale busy flags for this PR so a prior timed-out add
+            // can't leave picker buttons permanently disabled (silent wedge).
+            try {
+              Object.keys(this.prAgentBusy || {}).forEach(k => {
+                if (k.indexOf(key + ':') === 0) delete this.prAgentBusy[k];
+              });
+            } catch (_) {}
+            this.loadPrPersonas();
+          }
         },
         async loadPrPersonas() {
           if (this.prPersonasLoaded) return;
@@ -66494,7 +66503,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           personaId = personaId || 'merge-steward';
           const key = this.cfPrKey(pr);
           const busyKey = key + ':' + (personaId === 'custom' ? 'pb-' + (playbookId || '') : personaId);
-          if (this.prAgentBusy[busyKey]) return;
+          if (this.prAgentBusy[busyKey]) { this.showToast('Pull request', 'Still adding that agent — one moment.', 'info'); return; }
           if (!this.prReadyWt(pr)) { this.showToast('Pull request', 'Create a worktree first — the agent is written into it.', 'error'); return; }
           this.prAgentBusy[busyKey] = true;
           try {
