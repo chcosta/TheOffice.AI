@@ -12228,7 +12228,7 @@
             </div>
 
             <!-- Studio: sticky rail (view + filters) beside a bordered stage -->
-            <div class="nlx-studio dvx-studio" x-show="devItemsLoaded && devItems.length">
+            <div class="nlx-studio cf-studio dvx-studio" x-show="devItemsLoaded && devItems.length" :style="'--cf-rail-w:' + cfRailW + 'px'">
               <aside class="nlx-rail">
                 <div class="nlx-card dvx-controls">
                   <!-- Status view: compact segmented toggle (icon + count; full name on hover) -->
@@ -12318,6 +12318,8 @@
                   </div>
                 </div>
               </aside>
+
+              <div class="cf-rail-splitter" @mousedown.prevent="cfRailResizeStart($event)" title="Drag to resize the left column"></div>
 
               <main class="nlx-stage">
                 <div class="nlx-stage-bar">
