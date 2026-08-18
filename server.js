@@ -1902,6 +1902,20 @@ app.get('/api/github/status', async (req, res) => {
 
 // Sign in to GitHub. method:'cli' launches `gh auth login` in a visible console
 // so the user completes the browser/device flow; method:'pat' stores a PAT.
+function _openWindowsAuthCli(args) {
+  const { spawn } = require('child_process');
+  const cmdExe = process.env.ComSpec || 'cmd.exe';
+  const child = spawn(cmdExe, [
+    '/d', '/c', 'start', '""', `"${cmdExe}"`, '/d', '/k', ...args,
+  ], {
+    detached: true,
+    stdio: 'ignore',
+    windowsHide: false,
+    windowsVerbatimArguments: true,
+  });
+  child.unref();
+}
+
 app.post('/api/github/connect', express.json(), async (req, res) => {
   const method = (req.body && req.body.method) || 'cli';
   try {
@@ -1962,11 +1976,9 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
     // method === 'cli' — launch an interactive sign-in in its own window.
     const { spawn } = require('child_process');
     if (process.platform === 'win32') {
-      // `start` opens a new console; `cmd /k` keeps it open so the user can
-      // read the device code / complete the browser flow.
-      spawn('cmd', ['/c', 'start', '"GitHub Sign-in"', 'cmd', '/k',
-        'gh', 'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
-        { detached: true, stdio: 'ignore', windowsHide: false });
+      _openWindowsAuthCli([
+        'gh', 'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web',
+      ]);
     } else {
       spawn('gh', ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
         { detached: true, stdio: 'ignore' });
@@ -2017,8 +2029,7 @@ app.post('/api/azdo/connect', express.json(), async (req, res) => {
       try { execSync('az logout', { timeout: 20_000, shell: true, stdio: 'ignore' }); } catch { /* ignore */ }
     }
     if (process.platform === 'win32') {
-      spawn('cmd', ['/c', 'start', '"Azure Sign-in"', 'cmd', '/k', 'az', 'login'],
-        { detached: true, stdio: 'ignore', windowsHide: false });
+      _openWindowsAuthCli(['az', 'login']);
     } else {
       spawn('az', ['login'], { detached: true, stdio: 'ignore' });
     }
