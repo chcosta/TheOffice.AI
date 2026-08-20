@@ -24353,6 +24353,10 @@
                     <span class="dvx-ctrl-sum" x-show="!cfCtrlsIsOpen('pr:'+codeflow.view)" x-text="cfCtrlsSummary()"></span>
                   </div>
                   <div class="dvx-ctrl-body" x-show="cfCtrlsIsOpen('pr:'+codeflow.view)">
+                    <label class="cf-reviews-toggle" title="Exclude draft pull requests from this view">
+                      <input type="checkbox" :checked="codeflow.hideDrafts" @change="toggleCodeflowDrafts()">
+                      <span>Hide draft PRs</span>
+                    </label>
                     <!-- Search -->
                     <input class="field-input" type="text" placeholder="🔍  Title, repo, author…" x-model="codeflow.q" aria-label="Search pull requests">
                     <div class="dvx-selrow">
@@ -33202,6 +33206,7 @@
           // repos; this toggle (default on) narrows that to PRs that list me as a
           // reviewer. On → view 'reviews'; off → view 'active'.
           reviewsOnly: (() => { try { const v = localStorage.getItem('cfReviewsOnly'); return v === null ? true : !!JSON.parse(v); } catch { return true; } })(),
+          hideDrafts: (() => { try { return localStorage.getItem('cfHideDrafts') === '1'; } catch { return false; } })(),
           focusKey: '',          // cfPrKey to scroll-to/highlight after a deep-link
           selectedKey: '',       // cfPrKey of the PR shown in the master-detail stage
           q: '',                 // free-text search over the PR index (title/repo/author)
@@ -54520,6 +54525,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
           this.loadCodeFlow();
         },
+        toggleCodeflowDrafts() {
+          this.codeflow.hideDrafts = !this.codeflow.hideDrafts;
+          try { localStorage.setItem('cfHideDrafts', this.codeflow.hideDrafts ? '1' : '0'); } catch {}
+        },
         // Top-tab entry into a PR view: flips to the Pull Requests tab AND selects
         // the view (My / Active / Other). 'active' honors the reviews-only toggle.
         cfGoView(view) {
@@ -55205,6 +55214,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         filteredCodeflowPrs() {
           let list = (this.codeflow.pullRequests || []).slice();
+          if (this.codeflow.hideDrafts) list = list.filter(p => !p.isDraft);
           if (this.codeflow.filterProvider) {
             const want = this.codeflow.filterProvider === 'github' ? 'github' : 'azdo';
             list = list.filter(p => (String(p.provider || 'azdo').toLowerCase() === 'github' ? 'github' : 'azdo') === want);
@@ -55810,6 +55820,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (c.q && c.q.trim()) parts.push('“' + c.q.trim() + '”');
           if (c.filterProvider) parts.push(c.filterProvider === 'azdo' ? 'Azure DevOps' : 'GitHub');
           if (c.filterRepo) { const r = (c.repos || []).find(x => x.id === c.filterRepo); if (r) parts.push(r.repo); }
+          if (c.hideDrafts) parts.push('No drafts');
           if (c.groupBy && c.groupBy !== 'none') {
             const g = { repo:'Repo', state:'State', urgency:'AI urgency', approval:'Approval', owner:'PR owner' }[c.groupBy];
             if (g) parts.push('by ' + g);

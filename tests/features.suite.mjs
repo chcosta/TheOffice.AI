@@ -193,6 +193,16 @@ await t.test('code flow: GET /api/codeflow/pullrequests answers', async () => {
   t.ok(r.status >= 200 && r.status < 500, `status ${r.status}`);
 });
 
+await t.test('code flow: draft PR filter is persisted and applied centrally', () => {
+  const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/<span>Hide draft PRs<\/span>/.test(html), 'filters expose the Hide draft PRs checkbox');
+  t.ok(/hideDrafts:\s*\(\(\) => \{[\s\S]{0,180}cfHideDrafts/.test(html), 'filter state restores from localStorage');
+  const toggle = _win(html, 'toggleCodeflowDrafts() {', 350);
+  t.ok(/localStorage\.setItem\('cfHideDrafts'/.test(toggle), 'filter changes persist to localStorage');
+  const filter = _win(html, 'filteredCodeflowPrs() {', 450);
+  t.ok(/if \(this\.codeflow\.hideDrafts\) list = list\.filter\(p => !p\.isDraft\)/.test(filter), 'shared PR list excludes drafts');
+});
+
 // --- System agents + water cooler backing data ---
 await t.test('system agents: GET /api/agents returns an array', async () => {
   await probe('/api/agents', (j) => {
