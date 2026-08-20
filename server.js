@@ -35229,6 +35229,7 @@ function _meetingsRecapQualityScore(recap) {
     + (Array.isArray(story.segments) ? story.segments.length : 0);
 }
 const _MEETINGS_PHOTO_CACHE_DIR = path.join(dataPath('meetings'), 'profile-photos');
+const _MEETINGS_PHOTO_CACHE_VERSION = 2;
 const _MEETINGS_PHOTO_CACHE_POSITIVE_TTL = 30 * 24 * 60 * 60 * 1000;
 const _MEETINGS_PHOTO_CACHE_NEGATIVE_TTL = 24 * 60 * 60 * 1000;
 const _meetingsPhotoCache = new Map();
@@ -35257,7 +35258,8 @@ function _meetingsReadCachedProfilePhoto(person) {
     try {
       const file = _meetingsPhotoCacheFile(cacheKey);
       const saved = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (!saved || saved.cacheKey !== cacheKey) {
+      if (!saved || saved.cacheKey !== cacheKey || saved.version !== _MEETINGS_PHOTO_CACHE_VERSION) {
+        try { fs.unlinkSync(file); } catch (_) {}
         sawUncached = true;
         continue;
       }
@@ -35286,7 +35288,12 @@ function _meetingsWriteCachedProfilePhoto(person, dataUri) {
       fs.mkdirSync(_MEETINGS_PHOTO_CACHE_DIR, { recursive: true });
       const file = _meetingsPhotoCacheFile(cacheKey);
       const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
-      fs.writeFileSync(tmp, JSON.stringify({ cacheKey, cachedAt: Date.now(), dataUri: value }));
+      fs.writeFileSync(tmp, JSON.stringify({
+        version: _MEETINGS_PHOTO_CACHE_VERSION,
+        cacheKey,
+        cachedAt: Date.now(),
+        dataUri: value,
+      }));
       fs.renameSync(tmp, file);
     } catch (error) {
       console.warn('[meetings] could not persist profile photo cache —', error && error.message);
@@ -35359,14 +35366,18 @@ async function _meetingsProfilePhotos(people) {
         _meetingsWriteCachedProfilePhoto(person, '');
         return null;
       }
-      let response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photos/96x96/$value`);
+      let response = null;
+      for (const size of ['648x648', '504x504', '360x360', '240x240']) {
+        response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photos/${size}/$value`);
+        if (response.ok) break;
+      }
       if (!response.ok) response = await fetchGraph(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userId)}/photo/$value`);
       if (!response.ok) {
         _meetingsWriteCachedProfilePhoto(person, '');
         return null;
       }
       const bytes = Buffer.from(await response.arrayBuffer());
-      if (!bytes.length || bytes.length > 512 * 1024) return null;
+      if (!bytes.length || bytes.length > 2 * 1024 * 1024) return null;
       const contentType = String(response.headers.get('content-type') || 'image/jpeg').split(';')[0];
       if (!/^image\//i.test(contentType)) return null;
       const dataUri = `data:${contentType};base64,${bytes.toString('base64')}`;
@@ -35396,6 +35407,7 @@ function _meetingsEnrichCachedPhotos(meetingId, recap) {
   const work = new Promise(resolve => setTimeout(resolve, 1000)).then(() => _meetingsProfilePhotos(missingPeople)).then(photos => {
     if (!Object.keys(photos).length) return;
     recap.photos = { ...current, ...photos };
+    recap.photoVersion = _MEETINGS_PHOTO_CACHE_VERSION;
     _meetingsCacheRecap(meetingId, recap);
   }).catch(error => console.warn('[meetings] could not enrich cached profile photos —', error && error.message))
     .finally(() => _meetingsPhotoEnrichment.delete(meetingId));
@@ -35604,6 +35616,11 @@ app.post('/api/meetings/recap', async (req, res) => {
     const cached = !force && prior;
     if (cached) {
       const c = cached;
+      const photoCacheUpgraded = c.photoVersion !== _MEETINGS_PHOTO_CACHE_VERSION;
+      if (photoCacheUpgraded) {
+        c.photos = {};
+        c.photoVersion = _MEETINGS_PHOTO_CACHE_VERSION;
+      }
       const requestedRosterChanged = occurrence.attendees.length
         && JSON.stringify(c.requestedAttendees || []) !== JSON.stringify(occurrence.attendees);
       const reshaped = _meetingsNormalizeNewscast(c.story, c.people, subject, date, occurrence.attendees);
@@ -35612,7 +35629,7 @@ app.post('/api/meetings/recap', async (req, res) => {
         c.people = reshaped.people;
         if (occurrence.attendees.length) c.requestedAttendees = occurrence.attendees;
       }
-      if (requestedRosterChanged) _meetingsCacheRecap(meetingId, c);
+      if (requestedRosterChanged || photoCacheUpgraded) _meetingsCacheRecap(meetingId, c);
       const served = _meetingsWithLocalMedia(meetingId, c);
       const photos = (c.photos && typeof c.photos === 'object') ? c.photos : {};
       const photoPending = _meetingsEnrichCachedPhotos(meetingId, c);
@@ -35634,10 +35651,11 @@ app.post('/api/meetings/recap', async (req, res) => {
     const best = force && built && built.story && !built.empty
       ? built
       : _meetingsRecapQualityScore(prior) > _meetingsRecapQualityScore(built) ? prior : built;
-    const photos = (best.photos && typeof best.photos === 'object' && Object.keys(best.photos).length)
+    const photos = (best.photoVersion === _MEETINGS_PHOTO_CACHE_VERSION
+      && best.photos && typeof best.photos === 'object' && Object.keys(best.photos).length)
       ? best.photos
       : await _meetingsProfilePhotos(best.people);
-    const payload = { ...best, photos };
+    const payload = { ...best, photos, photoVersion: _MEETINGS_PHOTO_CACHE_VERSION };
     if (payload.story && !payload.empty) _meetingsCacheRecap(meetingId, payload);
     const served = _meetingsWithLocalMedia(meetingId, payload);
     res.json({ ok: true, meetingId, story: served.story, people: served.people, photos, demo: !!served.demo, empty: !!served.empty, quality: served.story && served.story.newscast });

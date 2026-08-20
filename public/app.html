@@ -4817,7 +4817,8 @@
     }
     .message-input {
       min-height: 78px;
-      resize: vertical;
+      resize: none;
+      overflow-y: hidden;
     }
     /* Shared chat image-attachment preview strip (used by every composer) */
     .chat-att-strip {
@@ -28011,7 +28012,7 @@
                     </template>
                   </div>
                   <!-- Live activity stream while agent is running -->
-                  <div class="agent-activity" x-show="activeChat && chatActivity[activeChat?.id] && typingChats[activeChat?.id]"
+                  <div class="agent-activity" x-show="chatPrimaryActivityVisible(activeChat)"
                        :class="{ 'wc-agent-activity': chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId }"
                        :style="chatIsGroup(activeChat) && chatActivity[activeChat?.id]?.agentId ? ('--wc-agent:' + wcColor(chatActivity[activeChat?.id]?.agentId)) : ''">
                     <div class="activity-header"
@@ -28132,7 +28133,11 @@
                           <span class="chat-att-hint">Images will be sent for the agent to analyze</span>
                         </div>
                       </template>
-                      <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()" @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }" @paste="chatAttPaste('chat', $event)" @drop.prevent="chatAttDrop('chat', $event)" @dragover.prevent></textarea>
+                      <textarea class="message-input" x-model="chatDraft" :placeholder="chatPlaceholder()"
+                                x-effect="chatDraft; chatFocused; $nextTick(() => chatInputAutoSize($el))"
+                                @input="chatInputAutoSize($el)" @resize.window="chatInputAutoSize($el)"
+                                @keydown.enter="if(!$event.shiftKey){ $event.preventDefault(); sendChat(); }"
+                                @paste="chatAttPaste('chat', $event)" @drop.prevent="chatAttDrop('chat', $event)" @dragover.prevent></textarea>
                       <button class="btn primary" type="button" @click="sendChat()" :disabled="!chatDraft.trim() &amp;&amp; !chatAttHas('chat')">Send</button>
                     </div>
                   </template>
@@ -40759,6 +40764,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             delete this.chatActivity[chatId];
             this.chatActivity = { ...this.chatActivity };
           }
+        },
+        chatPrimaryActivityVisible(chat) {
+          if (!chat || !this.chatActivity[chat.id] || !this.typingChats[chat.id]) return false;
+          if (this.chatIsGroup(chat)) return true;
+          const messages = chat.messages || [];
+          return !messages.length || messages[messages.length - 1].role === 'user';
         },
         async _wcGroupSend(chat, prompt) {
           const roster = this.wcEffectiveRoster(chat);
@@ -68180,16 +68191,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const chat = await this.request(`/api/chats/${encodeURIComponent(chatId)}`);
             this.activeChat = chat;
+            const messages = chat.messages || [];
+            const lastMessage = messages.length ? messages[messages.length - 1] : null;
+            const persistedTurnComplete = !this.chatIsGroup(chat) && lastMessage && lastMessage.role === 'assistant';
             // Self-heal: a live-activity/typing entry with no in-flight turn is a
             // phantom (a leaked "Running…" indicator). When no active poller owns this
             // chat, force-clear both typingChats AND chatActivity (with a reactive
             // reassign so Alpine repaints). openChat runs after every post / on nav /
             // on background refresh, so a stranded phantom self-heals within a cycle.
-            // A genuine live run keeps _chatPolling[chatId] true, so it's never cleared.
-            if (!(this._chatPolling && this._chatPolling[chatId])) {
-              if (this.typingChats[chatId]) this.typingChats[chatId] = false;
-              if (this.chatActivity[chatId]) { delete this.chatActivity[chatId]; this.chatActivity = { ...this.chatActivity }; }
-            }
+            // A genuine live run keeps _chatPolling[chatId] true while its latest
+            // persisted message is still the user's prompt. A persisted assistant
+            // reply is definitive completion evidence and overrides a leaked flag.
+            if (persistedTurnComplete || !(this._chatPolling && this._chatPolling[chatId])) this._endChatBusy(chatId);
             if (navigate && this.app.routeParam !== chatId) this.goTo(`#/chat/${chatId}`);
             // CLI-backed chats mirror an interactive terminal — poll for new turns.
             this.stopCliPoll();
@@ -68606,6 +68619,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         toggleChatLive() {
           this.chatLive = !this.chatLive;
           try { localStorage.setItem('chatLive', this.chatLive ? '1' : '0'); } catch {}
+        },
+
+        chatInputAutoSize(el) {
+          if (!el) return;
+          const chatMain = el.closest('.chat-main');
+          const availableHeight = chatMain ? chatMain.clientHeight : window.innerHeight;
+          const maxHeight = Math.max(78, Math.floor(availableHeight / 2));
+          el.style.height = 'auto';
+          const height = Math.min(Math.max(el.scrollHeight, 78), maxHeight);
+          el.style.height = height + 'px';
+          el.style.maxHeight = maxHeight + 'px';
+          el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden';
         },
 
         async sendChat() {

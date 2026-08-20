@@ -4274,7 +4274,7 @@ await t.test('meetings.ai: studio page — verified calendar occurrences + AI ti
        /const best = force && built && built\.story && !built\.empty/.test(rcp),
     'force regeneration bypasses the durable cache and replaces it only with a valid rebuilt story');
   t.ok(/await _meetingsProfilePhotos\(best\.people\)/.test(rcp) &&
-       /const payload = \{ \.\.\.best, photos \}/.test(rcp) &&
+       /const payload = \{ \.\.\.best, photos, photoVersion: _MEETINGS_PHOTO_CACHE_VERSION \}/.test(rcp) &&
        /const served = _meetingsWithLocalMedia\(meetingId, payload\)/.test(rcp) &&
        /story: served\.story, people: served\.people, photos/.test(rcp),
     'recap returns the best durable story/people/quality payload with resolved profile photos');
@@ -4662,7 +4662,7 @@ await t.test('meetings.ai: durable brief state — a summary that already ran (e
        /child_process'\)\.exec\(/.test(_win(srv, 'async function _meetingsGraphTokenAsync(', 2200) || '') &&
        /token = await _meetingsGraphTokenAsync\(\)/.test(srv) &&
        /displayName eq/.test(_win(srv, 'async function _meetingsProfilePhotos(', 4200) || '') &&
-       /\/photos\/96x96\/\$value/.test(srv) &&
+       /'648x648', '504x504', '360x360', '240x240'/.test(srv) &&
        /data:\$\{contentType\};base64/.test(srv) &&
        /function _meetingsEnrichCachedPhotos\(/.test(srv) &&
        /new Promise\(resolve => setTimeout\(resolve, 1000\)\)\.then\(\(\) => _meetingsProfilePhotos/.test(srv) &&
@@ -4865,6 +4865,8 @@ await t.test('meetings.ai recap: unattributed speakers and missing photos use ho
     'profile lookup never searches Graph for an anonymous Teams voice token');
   const durablePhotos = _win(srv, "const _MEETINGS_PHOTO_CACHE_DIR", 6500) || '';
   t.ok(/path\.join\(dataPath\('meetings'\), 'profile-photos'\)/.test(durablePhotos)
+    && /const _MEETINGS_PHOTO_CACHE_VERSION = 2/.test(durablePhotos)
+    && /saved\.version !== _MEETINGS_PHOTO_CACHE_VERSION/.test(durablePhotos)
     && /function _meetingsReadCachedProfilePhoto\(/.test(durablePhotos)
     && /function _meetingsWriteCachedProfilePhoto\(/.test(durablePhotos)
     && /fs\.renameSync\(tmp, file\)/.test(durablePhotos),
