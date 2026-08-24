@@ -14091,6 +14091,38 @@ async function _composeFetchUrl(url, timeoutMs = 8000) {
     return { ok: r.ok, status: r.status, text: String(text || '').slice(0, 200000) };
   } finally { clearTimeout(to); }
 }
+function _composeLocalPath(ref) {
+  let value = String(ref || '').trim();
+  if (value.length >= 2 && ((value[0] === '"' && value.at(-1) === '"') || (value[0] === "'" && value.at(-1) === "'"))) {
+    value = value.slice(1, -1).trim();
+  }
+  if (/^file:\/\//i.test(value)) {
+    try { return require('url').fileURLToPath(value); }
+    catch { throw new Error('invalid file URL'); }
+  }
+  if (path.isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value) || /^\\\\[^\\]+\\[^\\]+/.test(value)) return value;
+  return '';
+}
+async function _composeFetchReference(ref, timeoutMs = 8000) {
+  const localPath = _composeLocalPath(ref);
+  if (!localPath) {
+    if (!/^https?:\/\//i.test(String(ref || '').trim())) {
+      throw new Error('use an http(s) URL or an absolute local file path');
+    }
+    return _composeFetchUrl(ref, timeoutMs);
+  }
+  const stat = await fs.promises.stat(localPath).catch((e) => {
+    if (e && e.code === 'ENOENT') throw new Error('local file not found');
+    if (e && e.code === 'EACCES') throw new Error('local file access denied');
+    throw e;
+  });
+  if (!stat.isFile()) throw new Error('local path is not a file');
+  const maxBytes = 2 * 1024 * 1024;
+  if (stat.size > maxBytes) throw new Error('local file is larger than 2 MB');
+  const body = await fs.promises.readFile(localPath);
+  if (body.includes(0)) throw new Error('binary local files are not supported');
+  return { ok: true, status: 200, text: body.toString('utf8'), local: true };
+}
 // Real server-side fetchers (overridable in tests via opts.fetchers).
 const _composeSourceFetchers = {
   pursuit: async (ref) => _composePursuitCorpusText(ref),
@@ -14103,7 +14135,7 @@ const _composeSourceFetchers = {
   },
   workitem: async (m) => azdo.getWorkItem(m.org, m.project, m.workItemId),
   repo: async (m) => azdo.getRepo(m.org, m.project, m.repo),
-  url: async (u) => _composeFetchUrl(u),
+  url: async (u) => _composeFetchReference(u),
 };
 
 // Build the grounded "sources" block AND a per-source resolution report. The
@@ -14130,6 +14162,7 @@ async function _composeSourceContext(c, opts = {}) {
   const links = Array.isArray(src.links) ? src.links.filter(Boolean) : [];
   if (links.length) {
     const fetched = [];
+    const failures = [];
     let okCount = 0, chars = 0;
     for (const l of links.slice(0, 6)) {
       try {
@@ -14137,13 +14170,21 @@ async function _composeSourceContext(c, opts = {}) {
         if (r && r.ok !== false && r.text && r.text.trim()) {
           fetched.push(`#### ${l}\n${r.text.trim()}`);
           okCount++; chars += r.text.length;
-        } else { fetched.push(`#### ${l}\n(could not fetch — HTTP ${r && r.status || '?'})`); }
-      } catch (e) { fetched.push(`#### ${l}\n(could not fetch — ${e.message})`); }
+        } else {
+          const reason = `HTTP ${r && r.status || '?'}`;
+          failures.push(reason);
+          fetched.push(`#### ${l}\n(could not load — ${reason})`);
+        }
+      } catch (e) {
+        failures.push(e.message);
+        fetched.push(`#### ${l}\n(could not load — ${e.message})`);
+      }
     }
-    parts.push('### Linked pages (fetched content below — cite what you actually use)');
+    parts.push('### Reference links and local files (loaded content below — cite what you actually use)');
     parts.push(fetched.join('\n\n---\n\n'));
     evidenceCount += okCount;
-    report('links', 'Links', true, okCount > 0, chars, okCount ? `${okCount}/${links.length} fetched` : 'none reachable server-side');
+    report('links', 'Links & local files', true, okCount > 0, chars,
+      okCount ? `${okCount}/${links.length} loaded` : (failures[0] || 'none reachable server-side'));
   }
   // Reference sources — fetched + INLINED server-side so they reach the assistant
   // regardless of its live tool access. Fallback = the old investigate instruction.

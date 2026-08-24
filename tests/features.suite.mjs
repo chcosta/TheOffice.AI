@@ -1876,6 +1876,19 @@ await t.test('compose: sources auto-flush before a chat ask (Check sources not a
   t.ok(persistIdx >= 0 && (chatIdx < 0 || persistIdx < chatIdx), 'the persist happens before the /chat request');
 });
 
+await t.test('compose: reference sources support absolute local text-file paths', () => {
+  const src = readFileSync('server.js', 'utf8');
+  const html = readFileSync('public/app.html', 'utf8');
+  const resolver = _win(src, 'async function _composeFetchReference', 1800);
+  t.ok(/_composeLocalPath\(ref\)/.test(resolver), 'reference resolver detects local paths');
+  t.ok(/fs\.promises\.readFile\(localPath\)/.test(resolver), 'local source content is read server-side');
+  t.ok(/2 \* 1024 \* 1024/.test(resolver), 'local files have a bounded 2 MB limit');
+  t.ok(/binary local files are not supported/.test(resolver), 'binary files fail with an explicit message');
+  t.ok(/Reference links &amp; local files/.test(html), 'source rail labels local-file support');
+  t.ok(/C:\\path\\file\.md/.test(html), 'source input shows a Windows path example');
+  t.ok(/composeReferenceIsUrl\(l\)/.test(html), 'only web references render as anchors');
+});
+
 await t.test('compose: Brainstorm purpose blueprints options + strength scores + a recommendation', () => {
   const cjs = readFileSync('compose.js', 'utf8');
   t.ok(/id:\s*'brainstorm'/.test(cjs), 'compose has a brainstorm purpose');

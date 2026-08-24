@@ -23280,11 +23280,16 @@
                                 </div>
                               </template>
                             </div>
-                            <div class="nlx-fld"><label>Reference links</label>
+                            <div class="nlx-fld"><label>Reference links &amp; local files</label>
                               <template x-for="(l, i) in compose.current.sources.links" :key="i">
-                                <div class="cmpx-link"><a :href="l" target="_blank" rel="noopener" x-text="l"></a><button type="button" @click="composeStudioRemoveLink(i)" title="Remove">✕</button></div>
+                                <div class="cmpx-link">
+                                  <a x-show="composeReferenceIsUrl(l)" :href="l" target="_blank" rel="noopener" x-text="l"></a>
+                                  <span x-show="!composeReferenceIsUrl(l)" x-text="l"></span>
+                                  <button type="button" @click="composeStudioRemoveLink(i)" title="Remove">✕</button>
+                                </div>
                               </template>
-                              <div style="display:flex;gap:6px;margin-top:6px"><input class="field-input" type="text" x-model="compose.studioLinkInput" @keydown.enter.prevent="composeStudioAddLink()" placeholder="https://…" /><button class="btn ghost" type="button" style="padding:5px 10px" @click="composeStudioAddLink()">Add</button></div>
+                              <div style="display:flex;gap:6px;margin-top:6px"><input class="field-input" type="text" x-model="compose.studioLinkInput" @keydown.enter.prevent="composeStudioAddLink()" placeholder="https://… or C:\path\file.md" /><button class="btn ghost" type="button" style="padding:5px 10px" @click="composeStudioAddLink()">Add</button></div>
+                              <div class="hint" style="margin-top:4px">Local text files up to 2 MB are read from the machine running TheOffice.AI.</div>
                             </div>
                             <div class="nlx-fld"><label>Pasted context</label><textarea class="field-input" rows="3" style="resize:vertical" x-model="compose.current.sources.pasted" @input="composeMarkBriefDirty()" placeholder="Paste notes, data, or excerpts the writer should use…"></textarea></div>
                             <div class="cmpx-srccheck">
@@ -52534,6 +52539,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         composeToggleEdit() { this.compose.preview = !this.compose.preview; },
         // Studio rail: brief editing + sources, then regenerate from the changed brief.
         composeMarkBriefDirty() { this.compose.briefDirty = true; },
+        composeReferenceIsUrl(ref) { return /^https?:\/\//i.test(String(ref || '').trim()); },
         composeStudioAddLink() {
           const co = this.compose;
           const v = String(co.studioLinkInput || '').trim();
