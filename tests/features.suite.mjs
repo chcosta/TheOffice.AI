@@ -80,6 +80,33 @@ await t.test('desktop: internal Code Flow PR links stay in the SPA', () => {
     'the primary dev-card PR action is no longer an external-link anchor');
 });
 
+await t.test('Code Flow: PR tabs swap per-view data immediately and sequence in-flight loads', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  const state = sliceSource(APP_HTML, 'codeflow: {', 'filterRepo:');
+  const transition = sliceSource(APP_HTML, '_cfStoreViewCache(view, data) {', 'toggleCodeflowDrafts() {');
+  const focus = sliceSource(APP_HTML, 'async focusCodeflowPr(rawKey) {', 'cfWt(pr) {');
+
+  t.ok(/loadedView:\s*''/.test(state) && /viewCache:\s*\{\}/.test(state),
+    'Code Flow state tracks which view owns the visible list and caches each view separately');
+  t.ok(/_cfSaveActiveView\(\)[\s\S]*_cfRestoreView\(view\)[\s\S]*this\.codeflow\.loading = true[\s\S]*return this\.loadCodeFlow\(\)/.test(transition),
+    'a tab switch snapshots the outgoing view, restores or clears the incoming view, then starts loading');
+  t.ok(/this\.codeflow\.pullRequests = cached \? cached\.pullRequests : \[\]/.test(transition) &&
+       /this\.codeflow\.selectedKey = cached \? cached\.selectedKey : ''/.test(transition),
+    'an uncached view clears both cards and selection instead of leaking the previous tab');
+  t.ok(/this\._cfLoadEpochs\[view\] !== epoch/.test(transition) &&
+       /_cfStoreViewCache\(view,[\s\S]*if \(this\.codeflow\.view !== view\) return/.test(transition),
+    'late responses can warm their own cache but cannot overwrite the active or newer request');
+  t.ok(/toggleReviewsOnly\(\)[\s\S]*this\.setCodeflowView\(this\.codeflow\.reviewsOnly \? 'reviews' : 'active'\)/.test(html),
+    'the reviews-only toggle uses the same safe tab transition');
+  t.ok(/await this\.setCodeflowView\(this\.codeflow\.reviewsOnly \? 'reviews' : 'active'\)/.test(focus) &&
+       /await this\.setCodeflowView\('active'\)/.test(focus),
+    'deep-link fallback uses the same safe tab transition');
+  t.ok(/class="cf-view-updating" x-show="codeflow\.loading"/.test(html) &&
+       /x-show="codeflow\.loading && !cfViewReady\(\)" class="cf-view-loading"/.test(html) &&
+       /x-show="cfViewReady\(\) && filteredCodeflowPrs\(\)\.length"/.test(html),
+    'the active tab shows an updating state and never renders cards owned by another view');
+});
+
 await t.test('Code Flow: You are here rows use a gold rail border', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   t.ok(/here: yahIsOn\('dev:' \+ card\.id\)/.test(html) &&

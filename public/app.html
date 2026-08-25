@@ -24376,6 +24376,10 @@
                  header (the tabs) = calm, no ghosting. */
               .cf-studio .nlx-stage-bar { position:static; top:auto; z-index:auto; }
               .cf-studio .cf-pr-list { margin-top:0; }
+              .cf-view-updating { display:inline-flex; align-items:center; gap:6px; color:var(--cp-warning); font-size:11px; font-weight:600; }
+              .cf-view-updating::before { content:'↻'; display:inline-block; animation:dacSpin 1s linear infinite; }
+              .cf-view-loading { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:240px; gap:8px; color:var(--cp-text-muted); text-align:center; }
+              .cf-view-loading strong { color:var(--cp-text); font-size:14px; }
             </style>
             <div class="nlx-top">
               <div class="page-title">
@@ -24598,7 +24602,8 @@
                     </select>
                   </div>
                   <div class="dvx-index">
-                    <div x-show="!filteredCodeflowPrs().length" class="hint" style="padding:8px 4px" x-text="codeflow.q ? 'No pull requests match.' : 'No pull requests in this view.'"></div>
+                    <div x-show="codeflow.loading && !cfViewReady()" class="hint" style="padding:8px 4px" x-text="'Updating ' + codeflowViewLabel(codeflow.view) + '…'"></div>
+                    <div x-show="cfViewReady() && !filteredCodeflowPrs().length" class="hint" style="padding:8px 4px" x-text="codeflow.q ? 'No pull requests match.' : 'No pull requests in this view.'"></div>
                     <template x-for="grp in groupedCodeflowPrs()" :key="'cfi-' + grp.key">
                       <div class="dvx-idx-group">
                         <div class="dvx-idx-group-h" x-show="grp.label" @click="cfGrpToggle(grp)"
@@ -24642,6 +24647,7 @@
                     <span x-text="(filteredCodeflowPrs().length === 1 ? ' pull request' : ' pull requests') + ' · ' + codeflowViewLabel(codeflow.view)"></span>
                   </span>
                   <div class="nlx-stage-actions">
+                    <span class="cf-view-updating" x-show="codeflow.loading" x-text="'Updating ' + codeflowViewLabel(codeflow.view)"></span>
                     <span class="hint" x-text="codeflowFetchedLabel()"></span>
                   </div>
                 </div>
@@ -24657,13 +24663,16 @@
             </template>
 
             <!-- Loading / empty -->
-            <div x-show="codeflow.loading && !codeflow.pullRequests.length" class="hint" style="padding:24px">Loading pull requests…</div>
+            <div x-show="codeflow.loading && !cfViewReady()" class="cf-view-loading">
+              <strong x-text="'Updating ' + codeflowViewLabel(codeflow.view) + '…'"></strong>
+              <span>No cards from another tab are shown while this view loads.</span>
+            </div>
             <div x-show="!codeflow.loading && codeflow.repos.length && !filteredCodeflowPrs().length" class="empty-state">
               <span x-text="codeflow.view === 'mine' ? 'You have no open pull requests in the watched repos.' : (codeflow.view === 'active' ? 'No active pull requests in the watched repos.' : (codeflow.view === 'other' ? 'No dismissed pull requests. Use “Not reviewing” on a PR to stash it here.' : 'No pull requests are waiting on your review. 🎉'))"></span>
             </div>
 
             <!-- PR detail (master-detail): one selected PR fills the stage; pick from the index. -->
-            <div class="cf-pr-list cf-detail-list" x-show="filteredCodeflowPrs().length">
+            <div class="cf-pr-list cf-detail-list" x-show="cfViewReady() && filteredCodeflowPrs().length">
               <div x-show="!cfPageSelected()" class="hint" style="padding:24px">Select a pull request from the index.</div>
               <template x-for="pr in (cfPageSelected() ? [cfPageSelected()] : [])" :key="cfPrKey(pr)">
                 <article class="cf-pr-card cf-detail-card" :id="'cfpr-' + cfPrKey(pr)" :class="{ 'cf-attn': pr.attention, 'cf-focus': codeflow.focusKey && codeflow.focusKey === cfPrKey(pr), 'cf-here': yahIsOn('pr:' + cfPrKey(pr)) }">
@@ -33476,6 +33485,8 @@
           q: '',                 // free-text search over the PR index (title/repo/author)
           focusFallbackUrl: '',  // AzDO URL to open if the deep-linked PR isn't on the page (e.g. closed)
           loading: false,
+          loadedView: '',
+          viewCache: {},          // view -> last displayed PR state; prevents cross-tab data bleed while loading
           repos: [],             // watched repo entries {id,org,project,repo}
           pullRequests: [],
           errors: [],
@@ -35141,10 +35152,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 // toggle — re-sync it on every normal entry so a prior deep-link widen
                 // (focusCodeflowPr → view='active') can't leave the tab stuck on every
                 // open PR while the "Reviews needed from me" box is still checked.
+                let restoredViewLoad = null;
                 if (this.codeflow.view === 'active' || this.codeflow.view === 'reviews') {
-                  this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
+                  const restoredView = this.codeflow.reviewsOnly ? 'reviews' : 'active';
+                  if (restoredView !== this.codeflow.view) restoredViewLoad = this.setCodeflowView(restoredView);
                 }
-                await this.loadCodeFlow();
+                await (restoredViewLoad || this.loadCodeFlow());
                 this.codeflowPrefillRepoDefaults();
                 // Warm dev cards in the background so the Dev-cards tab count shows
                 // without the user having to open the tab first (non-blocking).
@@ -54607,29 +54620,71 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!pr || !pr.attention) return '';
           return /reject|wait for author/i.test(pr.attentionReason || '') ? 'var(--cp-warning)' : 'var(--cp-accent)';
         },
-        async loadCodeFlow(silent) {
+        _cfStoreViewCache(view, data) {
+          const prior = this.codeflow.viewCache[view] || {};
+          this.codeflow.viewCache = {
+            ...this.codeflow.viewCache,
+            [view]: {
+              pullRequests: data.pullRequests !== undefined ? data.pullRequests : (prior.pullRequests || []),
+              errors: data.errors !== undefined ? data.errors : (prior.errors || []),
+              attentionCount: data.attentionCount !== undefined ? data.attentionCount : (prior.attentionCount || 0),
+              fetchedAt: data.fetchedAt !== undefined ? data.fetchedAt : (prior.fetchedAt || null),
+              selectedKey: data.selectedKey !== undefined ? data.selectedKey : (prior.selectedKey || '')
+            }
+          };
+        },
+        _cfSaveActiveView() {
+          const view = this.codeflow.view;
+          if (this.codeflow.loadedView !== view) return;
+          this._cfStoreViewCache(view, {
+            pullRequests: this.codeflow.pullRequests,
+            errors: this.codeflow.errors,
+            attentionCount: this.codeflow.attentionCount,
+            fetchedAt: this.codeflow.fetchedAt,
+            selectedKey: this.codeflow.selectedKey
+          });
+        },
+        _cfRestoreView(view) {
+          const cached = this.codeflow.viewCache[view];
+          this.codeflow.pullRequests = cached ? cached.pullRequests : [];
+          this.codeflow.errors = cached ? cached.errors : [];
+          this.codeflow.attentionCount = cached ? cached.attentionCount : 0;
+          this.codeflow.fetchedAt = cached ? cached.fetchedAt : null;
+          this.codeflow.selectedKey = cached ? cached.selectedKey : '';
+          this.codeflow.loadedView = cached ? view : '';
+        },
+        cfViewReady() {
+          return this.codeflow.loadedView === this.codeflow.view;
+        },
+        async loadCodeFlow(silent, refresh = false) {
           if (!silent) this.codeflow.loading = true;
           // Capture the view this load is for. If the user switches tabs while the
           // request is in flight (or it fails), we must NOT apply/keep results under
           // the wrong view — otherwise a slow/timed-out reviews load leaves the
           // previous view's PRs (e.g. "My PRs") on screen labeled "Active PRs".
           const view = this.codeflow.view;
+          if (!this._cfLoadEpochs) this._cfLoadEpochs = {};
+          const epoch = (this._cfLoadEpochs[view] || 0) + 1;
+          this._cfLoadEpochs[view] = epoch;
           if (!Object.keys(this.codeflow.ai || {}).length) this._cfAiLoadCache(view);
           try {
             // Load watched repos and PRs for the current view together.
             const [reposResp, prResp] = await Promise.all([
               this.request('/api/codeflow/repos').catch(() => ({ repos: [] })),
-              this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view))
+              this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view) + (refresh ? '&refresh=1' : ''))
             ]);
-            // Stale response: the user moved to another view mid-flight. Drop it so a
-            // newer load owns the list.
-            if (this.codeflow.view !== view) return;
+            if (this._cfLoadEpochs[view] !== epoch) return;
             this.codeflow.repos = Array.isArray(reposResp.repos) ? reposResp.repos : [];
-            this.codeflow.pullRequests = Array.isArray(prResp.pullRequests) ? prResp.pullRequests : [];
-            this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
-            this.codeflow.attentionCount = prResp.attentionCount || 0;
-            this.codeflow.fetchedAt = prResp.fetchedAt || null;
-            this.codeflow.loadedView = view;
+            this._cfStoreViewCache(view, {
+              pullRequests: Array.isArray(prResp.pullRequests) ? prResp.pullRequests : [],
+              errors: Array.isArray(prResp.errors) ? prResp.errors : [],
+              attentionCount: prResp.attentionCount || 0,
+              fetchedAt: prResp.fetchedAt || null
+            });
+            // Cache a completed request even if the user moved away, but never paint it
+            // into a different active tab.
+            if (this.codeflow.view !== view) return;
+            this._cfRestoreView(view);
             // Drop the repo filter if it points at a now-removed repo.
             if (this.codeflow.filterRepo && !this.codeflow.repos.some(r => r.id === this.codeflow.filterRepo)) {
               this.codeflow.filterRepo = '';
@@ -54642,7 +54697,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.loadCodeflowAttention(true);
             this.loadCfWorktrees();
             const selected = this.cfPageSelected();
-            if (selected) this.loadCfAttention(selected);
+            if (selected) this.loadCfAttention(selected, refresh);
             // Boards are needed to show which workspace a PR is pinned to (below title).
             if (!this.boards || !this.boards.length) { this.loadBoards(null, true).catch(() => {}); }
             // Baseline the change detector to what the user is now looking at.
@@ -54652,42 +54707,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             Promise.resolve((!this.boards || !this.boards.length) ? this.loadBoards(null, true).catch(() => {}) : null)
               .then(() => this.cfScanMergedPins().catch(() => {}));
           } catch (e) {
-            // A newer view switch already superseded this load — let it own the error UI.
+            if (this._cfLoadEpochs[view] !== epoch) return;
+            this._cfStoreViewCache(view, { errors: [{ repo: '', error: e.message }] });
             if (this.codeflow.view !== view) return;
-            this.codeflow.errors = [{ repo: '', error: e.message }];
-            // Never leave the PREVIOUS view's PRs on screen under this view's label
-            // (the "Active PRs showing my PRs" bug): if the data we hold isn't this
-            // view's, clear it so the list matches the header (empty + error banner).
-            if (this.codeflow.loadedView !== view) {
-              this.codeflow.pullRequests = [];
-              this.codeflow.attentionCount = 0;
-            }
+            this._cfRestoreView(view);
+            if (refresh) this.showToast('Code Flow', e.message, 'error');
           } finally {
-            if (this.codeflow.view === view) this.codeflow.loading = false;
+            if (this.codeflow.view === view && this._cfLoadEpochs[view] === epoch) this.codeflow.loading = false;
           }
         },
-        async refreshCodeFlow() {
-          this.codeflow.loading = true;
-          try {
-            const prResp = await this.request(
-              '/api/codeflow/pullrequests?view=' + encodeURIComponent(this.codeflow.view) + '&refresh=1');
-            this.codeflow.pullRequests = Array.isArray(prResp.pullRequests) ? prResp.pullRequests : [];
-            this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
-            this.codeflow.attentionCount = prResp.attentionCount || 0;
-            this.codeflow.fetchedAt = prResp.fetchedAt || null;
-            const selected = this.cfPageSelected();
-            if (selected) this.loadCfAttention(selected, true);
-            this.loadCodeflowAttention(true);
-            // Re-generate AI summaries for any PRs that changed since last analysis.
-            if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
-            // Re-baseline the change detector so the next auto-poll only flags
-            // changes since this manual refresh.
-            this._codeflowSeedSnap();
-          } catch (e) {
-            this.showToast('Code Flow', e.message, 'error');
-          } finally {
-            this.codeflow.loading = false;
-          }
+        refreshCodeFlow() {
+          return this.loadCodeFlow(false, true);
         },
         // --- Background change detection (15-minute auto-refresh) ---
         // A lightweight snapshot of the current PR list, keyed repoId:prId. The
@@ -54734,6 +54764,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             data = await this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view) + '&refresh=' + (force ? '1' : '0'));
           } catch { return; }
           const list = Array.isArray(data.pullRequests) ? data.pullRequests : [];
+          this._cfStoreViewCache(view, {
+            pullRequests: list,
+            errors: Array.isArray(data.errors) ? data.errors : [],
+            attentionCount: data.attentionCount || 0,
+            fetchedAt: data.fetchedAt || null
+          });
           const next = this._codeflowSnap(list);
           const prev = this._codeflowSnaps[view];
           // Keep the open page live so a user watching Code Flow sees fresh data.
@@ -54742,6 +54778,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.codeflow.errors = Array.isArray(data.errors) ? data.errors : [];
             this.codeflow.attentionCount = data.attentionCount || 0;
             this.codeflow.fetchedAt = data.fetchedAt || null;
+            this.codeflow.loadedView = view;
             if (list.length) this.loadCodeflowAi(false, true);
           }
           this._codeflowSnaps[view] = next;
@@ -54792,11 +54829,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         setCodeflowView(view) {
           if (view !== 'mine' && view !== 'reviews' && view !== 'active' && view !== 'other') return;
-          if (this.codeflow.view === view) return;
+          if (this.codeflow.view === view) return Promise.resolve();
+          this._cfSaveActiveView();
           this.codeflow.view = view;
+          this._cfRestoreView(view);
+          this.codeflow.loading = true;
           this._cfAiLoadCache(view);
           if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
-          this.loadCodeFlow();
+          return this.loadCodeFlow();
         },
         toggleCodeflowDrafts() {
           this.codeflow.hideDrafts = !this.codeflow.hideDrafts;
@@ -55289,10 +55329,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.codeflow.reviewsOnly = !this.codeflow.reviewsOnly;
           try { localStorage.setItem('cfReviewsOnly', JSON.stringify(this.codeflow.reviewsOnly)); } catch {}
           if (this.codeflow.view === 'mine') return; // only affects the Active PRs tab
-          this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
-          this._cfAiLoadCache(this.codeflow.view);
-          if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
-          this.loadCodeFlow();
+          this.setCodeflowView(this.codeflow.reviewsOnly ? 'reviews' : 'active');
         },
         // Drag-resize the Code Flow left column (view + filters rail). Width clamps
         // 200–560px and persists to localStorage (cfRailW). Applied via the --cf-rail-w
@@ -55595,6 +55632,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfPageSelect(pr) {
           if (!pr) return;
           this.codeflow.selectedKey = this.cfPrKey(pr);
+          this._cfStoreViewCache(this.codeflow.view, { selectedKey: this.codeflow.selectedKey });
           this.codeflow.focusKey = ''; // a manual click supersedes a stale deep-link
           this.loadCfAttention(pr);
         },
@@ -55835,10 +55873,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!has() && this.codeflow.view === 'mine') {
             // Not one of my PRs — switch to the Active PRs tab (honoring the
             // reviews-only toggle) to find a PR I review or any open PR.
-            this.codeflow.view = this.codeflow.reviewsOnly ? 'reviews' : 'active';
-            this._cfAiLoadCache(this.codeflow.view);
-            if (this.codeflow.sort === 'urgency') this.codeflow.sort = 'attention';
-            try { await this.loadCodeFlow(); } catch {}
+            try { await this.setCodeflowView(this.codeflow.reviewsOnly ? 'reviews' : 'active'); } catch {}
           }
           if (!has() && this.codeflow.reviewsOnly && this.codeflow.view === 'reviews') {
             // Still not found and we were narrowing to my reviews — widen to all
@@ -55847,9 +55882,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // (otherwise the toggle reads "on" while every active PR is shown).
             this.codeflow.reviewsOnly = false;
             try { localStorage.setItem('cfReviewsOnly', JSON.stringify(false)); } catch {}
-            this.codeflow.view = 'active';
-            this._cfAiLoadCache(this.codeflow.view);
-            try { await this.loadCodeFlow(); } catch {}
+            try { await this.setCodeflowView('active'); } catch {}
           }
           // The PR isn't on the Code Flows page (e.g. it's closed/completed, so
           // it's filtered out, or it lives in a view we can't load). Fall back to
