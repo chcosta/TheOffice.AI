@@ -922,6 +922,99 @@ function prDrift(wt, sourceBranch, { fetch = true, desc = null } = {}) {
   };
 }
 
+// One authoritative snapshot for the Dev Card's answer-first worktree UI.
+// Keeps the comparisons distinct:
+//   local files -> local HEAD -> remote PR branch -> target branch
+// and, when a separate PR worktree exists, compares its HEAD + file-status set.
+function worktreeReadiness(wt, {
+  sourceBranch = '', targetBranch = 'main', prWorktreePath = '', fetch = true,
+  desc = null
+} = {}) {
+  if (!wt || !_isRepo(wt)) return null;
+  if (fetch) _gitTry(['fetch', '--prune', 'origin'], wt, { auth: desc || true });
+  const norm = (b) => String(b || '').replace(/^refs\/heads\//, '').replace(/^origin\//, '').trim();
+  const localBranch = _gitTry(['rev-parse', '--abbrev-ref', 'HEAD'], wt).out || '';
+  const localHead = _gitTry(['rev-parse', 'HEAD'], wt).out || '';
+  const upstream = _gitTry(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'], wt);
+  const remoteBranch = norm(sourceBranch) || norm(upstream.ok ? upstream.out : '') || localBranch;
+  const target = norm(targetBranch) || 'main';
+
+  const compare = (remote) => {
+    const ref = remote ? 'origin/' + remote : '';
+    const head = ref ? (_gitTry(['rev-parse', '--verify', '--quiet', ref], wt).out || '') : '';
+    let ahead = 0, behind = 0, comparable = false;
+    if (head) {
+      const counts = _gitTry(['rev-list', '--left-right', '--count', ref + '...HEAD'], wt);
+      if (counts.ok) {
+        const m = counts.out.split(/\s+/);
+        behind = parseInt(m[0], 10) || 0;
+        ahead = parseInt(m[1], 10) || 0;
+        comparable = true;
+      }
+    }
+    return { branch: remote, head, ahead, behind, comparable, inSync: comparable && ahead === 0 && behind === 0 };
+  };
+
+  const remote = compare(remoteBranch);
+  const base = compare(target);
+  const changes = listWorktreeFiles(wt);
+  const cls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
+
+  const branchFiles = [];
+  const fileSeen = new Set();
+  const fileOut = _gitTry(['diff', '--name-status', 'origin/' + target + '...HEAD'], wt);
+  if (fileOut.ok) {
+    for (const line of String(fileOut.out || '').split('\n')) {
+      if (!line.trim()) continue;
+      const cols = line.split('\t');
+      const code = cols[0] || '';
+      const rel = cols.length > 2 ? cols[2] : cols[1];
+      if (!rel || fileSeen.has(rel)) continue;
+      fileSeen.add(rel);
+      branchFiles.push({ rel, status: _porcelainStatus(code) });
+    }
+  }
+
+  let prWorktree = null;
+  if (prWorktreePath && _isRepo(prWorktreePath)) {
+    const prHead = _gitTry(['rev-parse', 'HEAD'], prWorktreePath).out || '';
+    const prCls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], prWorktreePath).out || '');
+    const localSet = cls.changed.slice().sort();
+    const prSet = prCls.changed.slice().sort();
+    const headSame = !!localHead && localHead === prHead;
+    const filesSame = JSON.stringify(localSet) === JSON.stringify(prSet);
+    const fingerprint = (dir, files) => {
+      const hash = crypto.createHash('sha256');
+      for (const rel of files) {
+        hash.update(rel).update('\0');
+        const blob = _gitTry(['hash-object', '--', rel], dir);
+        hash.update(blob.ok ? blob.out : '<deleted>').update('\0');
+      }
+      return hash.digest('hex');
+    };
+    const localFingerprint = fingerprint(wt, localSet);
+    const prFingerprint = fingerprint(prWorktreePath, prSet);
+    const contentSame = filesSame && localFingerprint === prFingerprint;
+    prWorktree = {
+      path: prWorktreePath, head: prHead, headSame, filesSame, contentSame,
+      equivalent: headSame && contentSame,
+      localFiles: localSet, prFiles: prSet
+    };
+  }
+
+  return {
+    localBranch, localHead, remote, target: base,
+    changes: changes.files || [], changesTruncated: !!changes.truncated,
+    changeCount: (changes.files || []).length,
+    ignored: cls.ignored || [],
+    branchFiles: branchFiles.slice(0, 120),
+    branchFilesTruncated: branchFiles.length > 120,
+    branchChangeCount: branchFiles.length,
+    prWorktree,
+    lastChecked: new Date().toISOString()
+  };
+}
+
 // Push the worktree's current HEAD up to the PR's source branch on origin. Works
 // even when the worktree is on a detached HEAD (review worktrees) by pushing
 // `HEAD:refs/heads/<sourceBranch>`. Commits any uncommitted changes first so the
@@ -1906,6 +1999,7 @@ module.exports = {
   syncWorktree,
   commitAll,
   prDrift,
+  worktreeReadiness,
   pushPrBranch,
   pushPrBranchSafe,
   syncToPrBranch,

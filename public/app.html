@@ -5350,6 +5350,53 @@
     .cal-meta .mono { font-family: Consolas, "Courier New", Courier, monospace; }
     .cal-path { font-size: 10px; color: var(--cp-text-soft); opacity: .75; word-break: break-all; }
     .cal-toolbar { display: inline-flex; align-items: center; gap: 2px; flex-wrap: wrap; background: var(--cp-surface-soft); border-radius: calc(var(--cp-radius-scale, 1) * 9px); padding: 2px; }
+    .dcgit { border: 1px solid var(--cp-border); border-radius: calc(var(--cp-radius-scale, 1) * 10px); overflow: hidden; margin-top: 4px; }
+    .dcgit-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--cp-surface-soft); border-bottom: 1px solid var(--cp-border); padding: 7px 10px; }
+    .dcgit-tabs { display: flex; align-items: center; gap: 14px; min-width: 0; }
+    .dcgit-tab { appearance: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--cp-text-muted); padding: 3px 0 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .dcgit-tab:hover { color: var(--cp-text); }
+    .dcgit-tab.active { color: var(--cp-text); border-bottom-color: var(--cp-accent); }
+    .dcgit-stamp { color: var(--cp-text-muted); font-size: 10px; white-space: nowrap; }
+    .dcgit-body { padding: 9px 10px; }
+    .dcgit-ready { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 0 18px; }
+    .dcgit-answer { display: grid; grid-template-columns: 15px minmax(0,1fr); gap: 7px; padding: 7px 0; border-top: 1px solid var(--cp-border); }
+    .dcgit-answer:nth-child(-n+2) { border-top: 0; }
+    .dcgit-answer .mk { font-weight: 700; }
+    .dcgit-answer .tx { min-width: 0; }
+    .dcgit-answer .tx b { display: block; font-size: 11.5px; font-weight: 600; }
+    .dcgit-answer .tx span { display: block; color: var(--cp-text-muted); font-size: 10.5px; margin-top: 1px; line-height: 1.35; }
+    .dcgit-answer.ok .mk, .dcgit-answer.ok .tx b { color: var(--cp-success); }
+    .dcgit-answer.warn .mk, .dcgit-answer.warn .tx b { color: var(--cp-warning); }
+    .dcgit-answer.bad .mk, .dcgit-answer.bad .tx b { color: var(--cp-danger); }
+    .dcgit-answer.muted .mk { color: var(--cp-text-muted); }
+    .dcgit-facts { display: flex; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--cp-border); margin-top: 7px; padding-top: 7px; }
+    .dcgit-fact { color: var(--cp-text-muted); font-size: 10.5px; }
+    .dcgit-fact b { color: var(--cp-text); font-size: 12px; margin-right: 3px; }
+    .dcgit-flow { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 18px; align-items: stretch; }
+    .dcgit-node { position: relative; border-left: 2px solid var(--cp-border-strong); padding: 5px 8px; min-width: 0; }
+    .dcgit-node:not(:last-child)::after { content: '→'; position: absolute; right: -15px; top: 13px; color: var(--cp-text-muted); }
+    .dcgit-node.active { border-left-color: var(--cp-accent); }
+    .dcgit-node b { display: block; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dcgit-node .mono { display: block; color: var(--cp-text-muted); font-size: 9.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 3px 0; }
+    .dcgit-node span:last-child { display: block; color: var(--cp-text-soft); font-size: 10px; line-height: 1.3; }
+    .dcgit-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; border-top: 1px solid var(--cp-border); margin-top: 9px; padding-top: 8px; }
+    .dcgit-compare > div { display: flex; justify-content: space-between; gap: 8px; font-size: 10.5px; }
+    .dcgit-compare span { color: var(--cp-text-muted); }
+    .dcgit-files { display: flex; flex-direction: column; }
+    .dcgit-file { display: grid; grid-template-columns: 64px minmax(0,1fr) auto; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--cp-border); font-size: 10.5px; }
+    .dcgit-file:first-child { border-top: 0; }
+    .dcgit-file .st { color: var(--cp-text-muted); }
+    .dcgit-file .pth { font-family: Consolas, "Courier New", Courier, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .dcgit-file .why { color: var(--cp-success); white-space: nowrap; }
+    .dcgit-file.ignored .pth { color: var(--cp-text-muted); }
+    .dcgit-file.ignored .why { color: var(--cp-text-muted); }
+    .dcgit-empty { color: var(--cp-text-muted); font-size: 11px; padding: 5px 0; }
+    @media (max-width: 900px) {
+      .dcgit-ready, .dcgit-compare { grid-template-columns: 1fr; }
+      .dcgit-answer:nth-child(2) { border-top: 1px solid var(--cp-border); }
+      .dcgit-flow { grid-template-columns: 1fr; gap: 7px; }
+      .dcgit-node:not(:last-child)::after { display: none; }
+    }
     .cal-tbtn { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; color: var(--cp-text-muted); font: inherit; font-size: 12px; padding: 5px 9px; border-radius: calc(var(--cp-radius-scale, 1) * 7px); cursor: pointer; transition: background .12s ease, color .12s ease; }
     .cal-tbtn:hover { background: var(--cp-surface); color: var(--cp-text); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
     .cal-tbtn:disabled { opacity: .4; cursor: default; background: transparent; box-shadow: none; }
@@ -10645,6 +10692,64 @@
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
                                                 </div>
+                                                <div class="dcgit">
+                                                  <div class="dcgit-head">
+                                                    <div class="dcgit-tabs">
+                                                      <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='readiness'}" @click="devSetStateTab(d,s,'readiness')">Readiness</button>
+                                                      <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='relationship'}" @click="devSetStateTab(d,s,'relationship')">Branch relationship</button>
+                                                      <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='files'}" @click="devSetStateTab(d,s,'files')" x-text="'Files ' + ((devReadiness(s) && devReadiness(s).changeCount) || 0)"></button>
+                                                    </div>
+                                                    <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
+                                                  </div>
+                                                  <div class="dcgit-body">
+                                                    <div x-show="devStateTab(d,s)==='readiness'">
+                                                      <div class="dcgit-ready">
+                                                        <template x-for="(row,ri) in devReadinessRows(s)" :key="ri">
+                                                          <div class="dcgit-answer" :class="row.tone"><span class="mk" x-text="row.mark"></span><span class="tx"><b x-text="row.title"></b><span x-text="row.detail"></span></span></div>
+                                                        </template>
+                                                      </div>
+                                                      <div class="dcgit-facts">
+                                                        <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).branchChangeCount) || 0"></b>files changed in branch</span>
+                                                        <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).changeCount) || 0"></b>uncommitted</span>
+                                                        <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).remote && devReadiness(s).remote.ahead) || 0"></b>local-only commits</span>
+                                                        <button class="quiet-link" type="button" x-show="devStateAttentionCount(s)" @click="devSetStateTab(d,s,'files')">Review what needs attention →</button>
+                                                      </div>
+                                                    </div>
+                                                    <div x-show="devStateTab(d,s)==='relationship'">
+                                                      <div class="dcgit-flow">
+                                                        <div class="dcgit-node active"><b>Files on disk</b><span class="mono" x-text="s.worktreePath"></span><span x-text="((devReadiness(s) && devReadiness(s).changeCount) || 0) + ' uncommitted file(s)'"></span></div>
+                                                        <div class="dcgit-node"><b>Local branch</b><span class="mono" x-text="(devReadiness(s) && devReadiness(s).localHead || '').slice(0,8) || '—'"></span><span x-text="s.branch || 'branch'"></span></div>
+                                                        <div class="dcgit-node"><b>Remote PR branch</b><span class="mono" x-text="(devReadiness(s) && devReadiness(s).remote && devReadiness(s).remote.branch) || '—'"></span><span x-text="devRemoteStateText(s)"></span></div>
+                                                        <div class="dcgit-node"><b x-text="'Target: ' + ((devReadiness(s) && devReadiness(s).target && devReadiness(s).target.branch) || s.baseBranch || 'main')"></b><span class="mono" x-text="(devReadiness(s) && devReadiness(s).target && devReadiness(s).target.head || '').slice(0,8) || '—'"></span><span x-text="devTargetStateText(s)"></span></div>
+                                                      </div>
+                                                      <div class="dcgit-compare">
+                                                        <div><span>Dev worktree ↔ PR worktree</span><b x-text="devPrWorktreeStateText(s)"></b></div>
+                                                        <div><span>Commit evidence</span><button class="quiet-link" type="button" @click="slotToggleCommits(d,s)" x-text="slotCommitsOpen[slotCommitsKey(d,s)] ? 'Hide history' : 'Show local / remote commits'"></button></div>
+                                                      </div>
+                                                    </div>
+                                                    <div x-show="devStateTab(d,s)==='files'">
+                                                      <div class="cal-caption">Uncommitted decisions</div>
+                                                      <div class="dcgit-files">
+                                                        <template x-for="f in devStateFiles(s)" :key="(f.ignored?'i:':'c:')+f.rel">
+                                                          <div class="dcgit-file" :class="{ignored:f.ignored}">
+                                                            <span class="st" x-text="f.ignored ? 'Ignored' : devFileStatusLabel(f)"></span>
+                                                            <template x-if="!f.ignored && !f.deleted"><a class="pth" :href="devStateFileHref(d,s,f)" target="_blank" rel="noopener" x-text="f.rel"></a></template>
+                                                            <template x-if="f.ignored || f.deleted"><span class="pth" x-text="f.rel"></span></template>
+                                                            <span class="why" x-text="f.ignored ? 'App-generated / build output' : 'Should be reviewed'"></span>
+                                                          </div>
+                                                        </template>
+                                                        <div class="dcgit-empty" x-show="!devStateFiles(s).length">No uncommitted or app-ignored files.</div>
+                                                      </div>
+                                                      <div class="cal-caption" style="margin-top:9px" x-text="'Committed branch changes · ' + ((devReadiness(s) && devReadiness(s).branchChangeCount) || 0)"></div>
+                                                      <div class="dcgit-files">
+                                                        <template x-for="f in ((devReadiness(s) && devReadiness(s).branchFiles) || [])" :key="'b:'+f.rel">
+                                                          <div class="dcgit-file"><span class="st" x-text="f.status"></span><span class="pth" x-text="f.rel"></span><span class="why">In branch diff</span></div>
+                                                        </template>
+                                                        <div class="dcgit-empty" x-show="!((devReadiness(s) && devReadiness(s).branchFiles || []).length)">No committed file changes versus the target branch.</div>
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                                                </div>
                                                 <template x-if="slotCommitsOpen[slotCommitsKey(d,s)]">
                                                   <div style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);background:var(--cp-surface-soft);padding:8px;display:flex;flex-direction:column;gap:8px;font-size:11px;margin-top:6px">
                                                     <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
@@ -12733,6 +12838,64 @@
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
+                                                </div>
+                                                <div class="dcgit">
+                                                  <div class="dcgit-head">
+                                                    <div class="dcgit-tabs">
+                                                      <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='readiness'}" @click="devSetStateTab(d,s,'readiness')">Readiness</button>
+                                                      <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='relationship'}" @click="devSetStateTab(d,s,'relationship')">Branch relationship</button>
+                                                      <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='files'}" @click="devSetStateTab(d,s,'files')" x-text="'Files ' + ((devReadiness(s) && devReadiness(s).changeCount) || 0)"></button>
+                                                    </div>
+                                                    <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
+                                                  </div>
+                                                  <div class="dcgit-body">
+                                                    <div x-show="devStateTab(d,s)==='readiness'">
+                                                      <div class="dcgit-ready">
+                                                        <template x-for="(row,ri) in devReadinessRows(s)" :key="ri">
+                                                          <div class="dcgit-answer" :class="row.tone"><span class="mk" x-text="row.mark"></span><span class="tx"><b x-text="row.title"></b><span x-text="row.detail"></span></span></div>
+                                                        </template>
+                                                      </div>
+                                                      <div class="dcgit-facts">
+                                                        <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).branchChangeCount) || 0"></b>files changed in branch</span>
+                                                        <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).changeCount) || 0"></b>uncommitted</span>
+                                                        <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).remote && devReadiness(s).remote.ahead) || 0"></b>local-only commits</span>
+                                                        <button class="quiet-link" type="button" x-show="devStateAttentionCount(s)" @click="devSetStateTab(d,s,'files')">Review what needs attention →</button>
+                                                      </div>
+                                                    </div>
+                                                    <div x-show="devStateTab(d,s)==='relationship'">
+                                                      <div class="dcgit-flow">
+                                                        <div class="dcgit-node active"><b>Files on disk</b><span class="mono" x-text="s.worktreePath"></span><span x-text="((devReadiness(s) && devReadiness(s).changeCount) || 0) + ' uncommitted file(s)'"></span></div>
+                                                        <div class="dcgit-node"><b>Local branch</b><span class="mono" x-text="(devReadiness(s) && devReadiness(s).localHead || '').slice(0,8) || '—'"></span><span x-text="s.branch || 'branch'"></span></div>
+                                                        <div class="dcgit-node"><b>Remote PR branch</b><span class="mono" x-text="(devReadiness(s) && devReadiness(s).remote && devReadiness(s).remote.branch) || '—'"></span><span x-text="devRemoteStateText(s)"></span></div>
+                                                        <div class="dcgit-node"><b x-text="'Target: ' + ((devReadiness(s) && devReadiness(s).target && devReadiness(s).target.branch) || s.baseBranch || 'main')"></b><span class="mono" x-text="(devReadiness(s) && devReadiness(s).target && devReadiness(s).target.head || '').slice(0,8) || '—'"></span><span x-text="devTargetStateText(s)"></span></div>
+                                                      </div>
+                                                      <div class="dcgit-compare">
+                                                        <div><span>Dev worktree ↔ PR worktree</span><b x-text="devPrWorktreeStateText(s)"></b></div>
+                                                        <div><span>Commit evidence</span><button class="quiet-link" type="button" @click="slotToggleCommits(d,s)" x-text="slotCommitsOpen[slotCommitsKey(d,s)] ? 'Hide history' : 'Show local / remote commits'"></button></div>
+                                                      </div>
+                                                    </div>
+                                                    <div x-show="devStateTab(d,s)==='files'">
+                                                      <div class="cal-caption">Uncommitted decisions</div>
+                                                      <div class="dcgit-files">
+                                                        <template x-for="f in devStateFiles(s)" :key="(f.ignored?'i:':'c:')+f.rel">
+                                                          <div class="dcgit-file" :class="{ignored:f.ignored}">
+                                                            <span class="st" x-text="f.ignored ? 'Ignored' : devFileStatusLabel(f)"></span>
+                                                            <template x-if="!f.ignored && !f.deleted"><a class="pth" :href="devStateFileHref(d,s,f)" target="_blank" rel="noopener" x-text="f.rel"></a></template>
+                                                            <template x-if="f.ignored || f.deleted"><span class="pth" x-text="f.rel"></span></template>
+                                                            <span class="why" x-text="f.ignored ? 'App-generated / build output' : 'Should be reviewed'"></span>
+                                                          </div>
+                                                        </template>
+                                                        <div class="dcgit-empty" x-show="!devStateFiles(s).length">No uncommitted or app-ignored files.</div>
+                                                      </div>
+                                                      <div class="cal-caption" style="margin-top:9px" x-text="'Committed branch changes · ' + ((devReadiness(s) && devReadiness(s).branchChangeCount) || 0)"></div>
+                                                      <div class="dcgit-files">
+                                                        <template x-for="f in ((devReadiness(s) && devReadiness(s).branchFiles) || [])" :key="'b:'+f.rel">
+                                                          <div class="dcgit-file"><span class="st" x-text="f.status"></span><span class="pth" x-text="f.rel"></span><span class="why">In branch diff</span></div>
+                                                        </template>
+                                                        <div class="dcgit-empty" x-show="!((devReadiness(s) && devReadiness(s).branchFiles || []).length)">No committed file changes versus the target branch.</div>
+                                                      </div>
+                                                    </div>
+                                                  </div>
                                                 </div>
                                                 <template x-if="slotCommitsOpen[slotCommitsKey(d,s)]">
                                                   <div style="border:1px solid var(--cp-border);border-radius:calc(var(--cp-radius-scale, 1) * 8px);background:var(--cp-surface-soft);padding:8px;display:flex;flex-direction:column;gap:8px;font-size:11px;margin-top:6px">
@@ -32724,6 +32887,8 @@
         // Per-slot commit-detail panel: open flag + loaded data keyed by slot.
         slotCommitsOpen: {},
         slotCommits: {},
+        // Per-worktree answer-first Git view: readiness | relationship | files.
+        devStateView: {},
         // Per-slot "new approach" input sheet: open flag + aspect/scope draft,
         // keyed by slotCommitsKey (card id + repo slot).
         devApproachOpen: {},
@@ -64243,6 +64408,19 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Compact git badge for the worktree state. attention=true (red) when the
         // branch is behind origin or has uncommitted changes.
         devGitBadge(d) {
+          const r = d && d.readiness;
+          if (r) {
+            let attention = 0;
+            if (r.remote && r.remote.comparable && (r.remote.ahead || r.remote.behind)) attention++;
+            if (r.changeCount) attention++;
+            if (r.target && r.target.comparable && r.target.behind) attention++;
+            if (r.prWorktree && !r.prWorktree.equivalent) attention++;
+            const ignored = (r.ignored || []).length;
+            const note = ignored ? ('; ' + ignored + ' generated/build file' + (ignored === 1 ? '' : 's') + ' ignored') : '';
+            return attention
+              ? { text: attention + ' need attention', title: 'Open Readiness for the branch-state breakdown' + note + '.', attention: true }
+              : { text: '✓ ready', title: 'Local files, remote branch, and target comparisons are clear' + note + '.', attention: false };
+          }
           const g = d && d.git;
           if (!g) return { text: 'untracked', title: 'No git status yet — refresh to check.', attention: false };
           const ahead = g.ahead || 0, behind = g.behind || 0, dirty = !!g.dirty;
@@ -66771,7 +66949,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               id: 'primary', primary: true, org: d.org, project: d.project, repo: d.repo,
               branch: d.branch, baseBranch: d.baseBranch,
               worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
-              worktreeError: d.worktreeError || null, git: d.git || null,
+              worktreeError: d.worktreeError || null, git: d.git || null, readiness: d.readiness || null,
                 prBranch: d.prBranch || '', prWorktreePath: d.prWorktreePath || '', prDivergence: d.prDivergence || null,
                   agentName: d.devAgentName || '', prId: d.prId || '', pr: d.pr || null,
                   devs: Array.isArray(d.devs) ? d.devs : null, activeDevId: d.activeDevId || null
@@ -66806,6 +66984,93 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // The devBusy key for a slot: the card id for the primary, a composite for extras.
         slotBusyKey(d, s) { return (s && s.primary) ? d.id : d.id + '#' + (s && s.id); },
+        devStateKey(d, s) { return this.slotCommitsKey(d, s); },
+        devStateTab(d, s) { return this.devStateView[this.devStateKey(d, s)] || 'readiness'; },
+        devSetStateTab(d, s, tab) {
+          if (!['readiness', 'relationship', 'files'].includes(tab)) return;
+          this.devStateView[this.devStateKey(d, s)] = tab;
+        },
+        devReadiness(s) { return (s && s.readiness) || null; },
+        devStateStamp(s) {
+          const at = this.devReadiness(s) && this.devReadiness(s).lastChecked;
+          return at ? ('checked ' + this.formatRelative(at)) : 'refresh to compare';
+        },
+        devReadinessRows(s) {
+          const r = this.devReadiness(s);
+          const g = (s && s.git) || {};
+          const rows = [];
+          const remote = r && r.remote;
+          if (remote && remote.comparable) {
+            rows.push(remote.behind
+              ? { tone: 'bad', mark: '!', title: remote.behind + ' origin commit' + (remote.behind === 1 ? ' is' : 's are') + ' missing locally', detail: 'Sync before continuing.' }
+              : { tone: 'ok', mark: '✓', title: 'All origin changes are local', detail: remote.ahead ? (remote.ahead + ' local commit' + (remote.ahead === 1 ? '' : 's') + ' not on the remote PR branch.') : 'Local and remote commits match.' });
+          } else if (g.comparable) {
+            rows.push((g.behind || 0)
+              ? { tone: 'bad', mark: '!', title: (g.behind || 0) + ' origin commit(s) missing locally', detail: 'Sync before continuing.' }
+              : { tone: 'ok', mark: '✓', title: 'All tracked origin changes are local', detail: 'Based on the branch upstream.' });
+          } else rows.push({ tone: 'muted', mark: '—', title: 'Origin comparison unavailable', detail: 'Refresh to fetch and compare the branch.' });
+
+          const count = r ? (r.changeCount || 0) : (g.dirty ? 1 : 0);
+          rows.push(count
+            ? { tone: 'warn', mark: '●', title: count + ' uncommitted file' + (count === 1 ? '' : 's'), detail: 'Review Files before committing or pushing.' }
+            : { tone: 'ok', mark: '✓', title: 'Working tree is committed', detail: 'No committable files are open.' });
+
+          if (!(s && s.prId)) rows.push({ tone: 'muted', mark: '—', title: 'No remote PR branch yet', detail: 'Create or link a PR to compare it.' });
+          else if (remote && remote.comparable) {
+            rows.push((remote.inSync && !count)
+              ? { tone: 'ok', mark: '✓', title: 'Remote PR branch matches local', detail: 'Reviewers can see the current work.' }
+              : { tone: remote.behind ? 'bad' : 'warn', mark: remote.behind ? '!' : '●', title: remote.behind ? 'Remote PR branch is ahead of local' : 'Remote PR branch is missing local work', detail: remote.behind ? (remote.behind + ' commit(s) need to be pulled.') : ((remote.ahead || 0) + ' commit(s)' + (count ? ' plus ' + count + ' uncommitted file(s)' : '') + ' are local only.') });
+          } else rows.push({ tone: 'muted', mark: '—', title: 'PR branch comparison unavailable', detail: 'Refresh to fetch the remote PR branch.' });
+
+          const pw = r && r.prWorktree;
+          if (!(s && s.prWorktreePath)) rows.push({ tone: 'muted', mark: '—', title: 'No separate PR worktree', detail: 'The Dev worktree is the only local checkout.' });
+          else if (!pw) rows.push({ tone: 'muted', mark: '—', title: 'PR worktree could not be compared', detail: 'Refresh after the PR worktree is available.' });
+          else rows.push(pw.equivalent
+            ? { tone: 'ok', mark: '✓', title: 'Dev and PR worktrees are equivalent', detail: 'Same HEAD and same uncommitted file contents.' }
+            : { tone: 'bad', mark: '!', title: 'Dev and PR worktrees differ', detail: (pw.headSame ? (pw.filesSame ? 'HEAD and paths match; file contents differ.' : 'HEAD matches; changed file sets differ.') : 'HEAD commits differ.') });
+
+          const target = r && r.target;
+          if (target && target.comparable) {
+            rows.push(target.behind
+              ? { tone: 'warn', mark: '●', title: 'Branch is ' + target.behind + ' commit' + (target.behind === 1 ? '' : 's') + ' behind ' + (target.branch || 'main'), detail: 'Update from the target branch before review.' }
+              : { tone: 'ok', mark: '✓', title: 'Branch includes current ' + (target.branch || 'main'), detail: (target.ahead || 0) + ' feature commit(s) ahead of target.' });
+          } else rows.push({ tone: 'muted', mark: '—', title: 'Target branch comparison unavailable', detail: 'Refresh to compare with main.' });
+          return rows;
+        },
+        devStateAttentionCount(s) { return this.devReadinessRows(s).filter(x => x.tone === 'warn' || x.tone === 'bad').length; },
+        devStateFiles(s) {
+          const r = this.devReadiness(s);
+          if (!r) return [];
+          const changed = (r.changes || []).map(f => ({ ...f, ignored: false }));
+          const ignored = (r.ignored || []).map(rel => {
+            const name = String(rel || '').replace(/\\/g, '/').split('/').pop();
+            return { rel, name, status: 'ignored', kind: (name.split('.').pop() || 'file').toLowerCase(), ignored: true };
+          });
+          return changed.concat(ignored);
+        },
+        devStateFileHref(d, s, f) {
+          return this.devFileUrl(d, { ...f, repoId: (s && s.id) || 'primary' });
+        },
+        devBaseFileName(rel) { return String(rel || '').replace(/\\/g, '/').split('/').pop() || rel || ''; },
+        devRemoteStateText(s) {
+          const x = this.devReadiness(s) && this.devReadiness(s).remote;
+          if (!x || !x.comparable) return 'not compared';
+          if (x.behind) return x.behind + ' ahead of local';
+          if (x.ahead) return x.ahead + ' behind local';
+          return 'matches local';
+        },
+        devTargetStateText(s) {
+          const x = this.devReadiness(s) && this.devReadiness(s).target;
+          if (!x || !x.comparable) return 'not compared';
+          if (x.behind) return x.behind + ' commits missing';
+          return 'included';
+        },
+        devPrWorktreeStateText(s) {
+          const x = this.devReadiness(s) && this.devReadiness(s).prWorktree;
+          if (!(s && s.prWorktreePath)) return 'not created';
+          if (!x) return 'not compared';
+          return x.equivalent ? 'equivalent' : 'different';
+        },
         // Per-slot dispatchers: route to the primary helper or the extra-repo equivalent.
         slotCreateWorktree(d, s, source) { return (s && s.primary) ? this.createDevWorktree(d, source) : this.createDevSlotWorktree(d, s); },
         slotOpen(d, s, target) { return (s && s.primary) ? this.openDevItem(d, target) : this.openDevSlot(d, s, target); },

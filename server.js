@@ -39008,7 +39008,7 @@ function _devRepoSlots(d) {
       branch: d.branch, baseBranch: d.baseBranch,
       prId: d.prId || '', prBranch: d.prBranch || '', prWorktreePath: d.prWorktreePath || '', prSeq: d.prSeq || 0,
       worktreePath: d.worktreePath || '', worktreeStatus: d.worktreeStatus || null,
-      worktreeError: d.worktreeError || null, git: d.git || null,
+      worktreeError: d.worktreeError || null, git: d.git || null, readiness: d.readiness || null,
       devs: Array.isArray(d.devs) ? d.devs : null, activeDevId: d.activeDevId || null
     });
   }
@@ -39056,6 +39056,7 @@ function _slotDevWorktrees(slot) {
     worktreeStatus: (slot && slot.worktreeStatus) || null,
     worktreeError: (slot && slot.worktreeError) || null,
     git: (slot && slot.git) || null,
+    readiness: (slot && slot.readiness) || null,
     agentName: (slot && (slot.agentName || slot.devAgentName)) || '',
     promotedPrId: (slot && slot.prId && slot.prBranch) ? String(slot.prId) : '',
     createdAt: (slot && slot.createdAt) || null
@@ -39078,7 +39079,7 @@ function _resolveDevWt(slot, wtId) {
 }
 // Runtime fields that mirror between an active dev worktree entry and the slot's
 // legacy top-level fields, so passive readers never need to know about devs[].
-const _DEV_WT_MIRROR = ['branch', 'worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'agentName'];
+const _DEV_WT_MIRROR = ['branch', 'worktreePath', 'worktreeStatus', 'worktreeError', 'git', 'readiness', 'agentName'];
 // Persist the full devs[] array (and optionally activeDevId) onto a slot, then
 // re-mirror the active entry's runtime fields to the slot top level.
 function _saveDevWorktrees(ctx, slotId, devs, activeDevId) {
@@ -39111,6 +39112,13 @@ function _saveDevWorktree(ctx, slotId, wtId, partial) {
   const next = list.map(w => (w.id === id ? (found = true, { ...w, ...partial }) : w));
   if (!found) next.push({ id, aspect: 'Main', scope: '', branch: '', worktreePath: '', worktreeStatus: null, worktreeError: null, git: null, agentName: '', promotedPrId: '', createdAt: null, ...partial });
   return _saveDevWorktrees(ctx, slotId, next, slot.activeDevId);
+}
+// Build a slot-shaped partial that updates the active approach and its legacy mirror
+// together. This is used by aggregate refreshes that persist several slots at once.
+function _withActiveDevRuntime(slot, partial) {
+  const active = _activeDevWtId(slot);
+  const list = _slotDevWorktrees(slot).map(w => w.id === active ? { ...w, ...partial } : w);
+  return { ...partial, devs: list, activeDevId: active };
 }
 // Slug base for a dev worktree branch, shared with the client _cfSlug.
 function _devSlug(d) {
@@ -39220,6 +39228,17 @@ function _rescanDevFiles(d) {
 function _devDesc(x) {
   if (!x) return { provider: 'azdo' };
   return { provider: x.provider || 'azdo', org: x.org, project: x.project, repo: x.repo };
+}
+function _devReadiness(slot, fetch = true) {
+  if (!slot || !slot.worktreePath) return null;
+  const pr = slot.pr || {};
+  return devitems.worktreeReadiness(slot.worktreePath, {
+    sourceBranch: pr.sourceBranch || pr.sourceRefName || slot.prBranch || slot.branch,
+    targetBranch: pr.targetBranch || pr.targetRefName || slot.baseBranch || 'main',
+    prWorktreePath: slot.prWorktreePath || '',
+    fetch,
+    desc: _devDesc(slot)
+  });
 }
 // Work items diverge: azdo.getWorkItem(org, project, id) vs
 // github.getWorkItem(owner, repo, number) — position 2 differs (project vs repo).
@@ -39601,6 +39620,9 @@ app.post('/api/boards/:id/dev-items/:devId/worktree', async (req, res) => {
       // legacy single-worktree slot into devs[0] on first write, so no-devs cards are
       // unaffected. Falls back to a plain slot save if the slot can't be resolved.
       const freshSlot = _findRepoSlot(fresh.dev, slot.id);
+      if (freshSlot) {
+        try { save.readiness = _devReadiness({ ...freshSlot, ...save }, false); } catch {}
+      }
       if (freshSlot) _saveDevWorktree(fresh, slot.id, _activeDevWtId(freshSlot), save);
       else _saveRepoSlot(fresh, slot.id, save);
       // Re-aggregate reports across EVERY repo slot (this newly-ready worktree plus
@@ -39681,7 +39703,12 @@ app.post('/api/boards/:id/dev-items/:devId/dev-worktree', async (req, res) => {
       if (!fresh) return;
       // Mark ready and flip active to the new approach (its path is now real, so
       // mirroring it to the slot top level is safe).
-      _saveDevWorktree(fresh, slot.id, wtId, { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null, aspect, scope });
+      const save = { worktreePath: r.worktreePath, branch: r.branch, worktreeStatus: 'ready', worktreeError: null, git: r.git || null, aspect, scope };
+      const freshSlot = _findRepoSlot(fresh.dev, slot.id);
+      if (freshSlot) {
+        try { save.readiness = _devReadiness({ ...freshSlot, ...save }, false); } catch {}
+      }
+      _saveDevWorktree(fresh, slot.id, wtId, save);
       const afterSet = _devItemCtx(req.params.id, req.params.devId);
       if (afterSet) _setActiveDevWt(afterSet, slot.id, wtId);
       // Per-worktree agents: seed the newly-active aspect worktree with its OWN
@@ -39831,6 +39858,13 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
   if (d.prId && d.org && d.project && d.repo) {
     try { partial.pr = await _devPullRequest(_devDesc(d), d.prId); } catch (e) { partial.prError = (e && e.message) || 'PR failed'; }
   }
+  if (d.worktreePath) {
+    try { partial.readiness = _devReadiness({ ...d, pr: partial.pr || d.pr }, false); } catch (e) { partial.readinessError = (e && e.message) || 'readiness check failed'; }
+    Object.assign(partial, _withActiveDevRuntime(d, {
+      git: partial.git != null ? partial.git : d.git,
+      readiness: partial.readiness != null ? partial.readiness : d.readiness
+    }));
+  }
   // Extra repos: refresh each slot's git status + its own PR (PRs are per repo).
   const extras = _devExtraRepos(d);
   if (extras.length) {
@@ -39839,6 +39873,10 @@ app.post('/api/boards/:id/dev-items/:devId/refresh', async (req, res) => {
       if (r.worktreePath) { try { out.git = devitems.worktreeStatus(r.worktreePath, { baseBranch: r.baseBranch, desc: _devDesc(r) }); } catch {} }
       if (r.branch && r.prBranch) { try { out.prDivergence = devitems.devPrDivergence({ org: r.org, project: r.project, repo: r.repo, provider: r.provider, devBranch: r.branch, prBranch: r.prBranch }); } catch {} }
       if (r.prId && r.org && r.project && r.repo) { try { out.pr = await _devPullRequest(_devDesc(r), r.prId); } catch {} }
+      if (r.worktreePath) {
+        try { out.readiness = _devReadiness(out, false); } catch {}
+        Object.assign(out, _withActiveDevRuntime(out, { git: out.git || null, readiness: out.readiness || null }));
+      }
       return out;
     }));
   }
@@ -39857,7 +39895,9 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   let r;
   try { r = devitems.syncWorktree(slot.worktreePath, { baseBranch: slot.baseBranch, desc: _devDesc(slot) }); }
   catch (e) { return res.status(500).json({ ok: false, error: (e && e.message) || 'Sync failed' }); }
-  const updated = _saveRepoSlot(ctx, slot.id, { git: r.status || slot.git });
+  let readiness = slot.readiness || null;
+  try { readiness = _devReadiness(slot, false); } catch {}
+  const updated = _saveDevWorktree(ctx, slot.id, _activeDevWtId(slot), { git: r.status || slot.git, readiness });
   res.json({ ok: r.ok, message: r.message, dev: updated });
 });
 
@@ -39886,7 +39926,9 @@ app.post('/api/boards/:id/dev-items/:devId/push', async (req, res) => {
   if (!push.ok) return res.status(500).json({ ok: false, error: 'Failed to push: ' + push.message });
   let git = slot.git;
   try { git = devitems.worktreeStatus(slot.worktreePath, { fetch: true, baseBranch: slot.baseBranch, desc: _devDesc(slot) }); } catch {}
-  const updated = _saveRepoSlot(ctx, slot.id, { git });
+  let readiness = slot.readiness || null;
+  try { readiness = _devReadiness(slot, false); } catch {}
+  const updated = _saveDevWorktree(ctx, slot.id, _activeDevWtId(slot), { git, readiness });
   const message = committed
     ? ('Committed ' + committed + ' change' + (committed === 1 ? '' : 's') + ' and pushed to ' + (push.branch || slot.branch) + '.')
     : ('Pushed to ' + (push.branch || slot.branch) + '.');
@@ -40226,9 +40268,10 @@ app.post('/api/boards/:id/dev-items/:devId/remove-worktree', async (req, res) =>
   const slot = _findRepoSlot(d, req.body && req.body.repoId ? req.body.repoId : 'primary');
   if (!slot) return res.status(404).json({ error: 'Repo not found' });
   try { devitems.removeWorktree(slot.org, slot.project, slot.repo, d.id, slot.worktreePath, slot.provider); } catch {}
-  // Clear this slot's worktree fields (primary lives at top-level; extras in d.repos[]).
-  if (slot.primary) ctx.save({ worktreePath: '', worktreeStatus: null, git: null });
-  else _saveRepoSlot(ctx, slot.id, { worktreePath: '', worktreeStatus: null, worktreeError: null, git: null });
+  // Clear the active approach and its slot mirror together.
+  _saveDevWorktree(ctx, slot.id, _activeDevWtId(slot), {
+    worktreePath: '', worktreeStatus: null, worktreeError: null, git: null, readiness: null
+  });
   // Re-aggregate reports across all slots: the removed repo's reports fall back to
   // their durable cache (findable via listCachedReportsForSlots), and every other
   // repo's live/cached reports are preserved — so nothing is lost on cleanup.

@@ -578,6 +578,66 @@ await t.test('devitems: exports the worktree file lister + reader', () => {
   t.ok(/\breadWorktreeFile\b/.test(exp), 'readWorktreeFile is exported');
 });
 
+await t.test('dev cards: readiness distinguishes commits, local files, and worktree contents', () => {
+  const fsM = require('node:fs');
+  const osM = require('node:os');
+  const pathM = require('node:path');
+  const { execFileSync } = require('node:child_process');
+  const root = fsM.mkdtempSync(pathM.join(osM.tmpdir(), 'readiness-'));
+  const origin = pathM.join(root, 'origin.git');
+  const dev = pathM.join(root, 'dev');
+  const pr = pathM.join(root, 'pr');
+  const git = (cwd, ...args) => execFileSync('git', args, { cwd, stdio: 'pipe' });
+  try {
+    git(root, 'init', '--bare', origin);
+    fsM.mkdirSync(dev);
+    git(dev, 'init');
+    git(dev, 'config', 'user.email', 'readiness@example.test');
+    git(dev, 'config', 'user.name', 'Readiness Test');
+    fsM.writeFileSync(pathM.join(dev, 'README.md'), 'base\n');
+    git(dev, 'add', 'README.md');
+    git(dev, 'commit', '-m', 'base');
+    git(dev, 'branch', '-M', 'main');
+    git(dev, 'remote', 'add', 'origin', origin);
+    git(dev, 'push', '-u', 'origin', 'main');
+    git(dev, 'checkout', '-b', 'feature');
+    fsM.writeFileSync(pathM.join(dev, 'committed.txt'), 'committed\n');
+    git(dev, 'add', 'committed.txt');
+    git(dev, 'commit', '-m', 'feature');
+    git(dev, 'push', '-u', 'origin', 'feature');
+    fsM.writeFileSync(pathM.join(dev, 'working.txt'), 'dev contents\n');
+    git(root, 'clone', origin, pr);
+    git(pr, 'checkout', 'feature');
+    fsM.writeFileSync(pathM.join(pr, 'working.txt'), 'different PR contents\n');
+
+    const snap = require('../devitems.js').worktreeReadiness(dev, {
+      sourceBranch: 'feature', targetBranch: 'main', prWorktreePath: pr, fetch: false
+    });
+    t.ok(snap.remote.inSync, 'local HEAD matches the remote feature branch');
+    t.eq(snap.target.ahead, 1, 'feature commit is counted against the target branch');
+    t.eq(snap.changeCount, 1, 'the uncommitted file is counted separately');
+    t.eq(snap.branchChangeCount, 1, 'the committed branch file is listed separately');
+    t.ok(snap.prWorktree.headSame && snap.prWorktree.filesSame, 'the two worktrees share HEAD and changed paths');
+    t.notOk(snap.prWorktree.contentSame, 'different contents at the same path are detected');
+    t.notOk(snap.prWorktree.equivalent, 'same paths alone do not make worktrees equivalent');
+  } finally {
+    try { fsM.rmSync(root, { recursive: true, force: true }); } catch {}
+  }
+});
+
+await t.test('dev cards: readiness is persisted per approach and rendered in both card surfaces', () => {
+  const server = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/const _DEV_WT_MIRROR = \[[^\]]*'readiness'/.test(server), 'readiness participates in the active-approach mirror');
+  t.ok(/function _withActiveDevRuntime\(slot, partial\)/.test(server), 'aggregate refreshes update the active approach');
+  t.ok(/partial\.readiness = _devReadiness/.test(server) && /out\.readiness = _devReadiness/.test(server), 'primary and extra repos calculate readiness');
+  t.ok(/_saveDevWorktree\(ctx, slot\.id, _activeDevWtId\(slot\), \{ git: r\.status \|\| slot\.git, readiness \}\)/.test(server), 'sync persists readiness through the active approach');
+  t.ok(/_saveDevWorktree\(ctx, slot\.id, _activeDevWtId\(slot\), \{ git, readiness \}\)/.test(server), 'push persists readiness through the active approach');
+  t.eq((html.match(/class="dcgit"/g) || []).length, 2, 'both duplicated Dev Card surfaces render the readiness module');
+  t.ok(/devReadinessRows\(s\)/.test(html) && /devStateFiles\(s\)/.test(html), 'readiness and file triage helpers are wired');
+  t.ok(/AI summary/.test(html) && /Workspaces\.AI/.test(html) && /Artifacts/.test(html), 'existing Dev Card capabilities remain present');
+});
+
 await t.test('server: _rescanDevFiles aggregates live worktree files + a repo-scoped serve route', () => {
   const s = readFileSync('server.js', 'utf8');
   t.ok(/function _rescanDevFiles\(d\)/.test(s), '_rescanDevFiles helper exists');
