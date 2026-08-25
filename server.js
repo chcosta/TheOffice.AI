@@ -40059,6 +40059,44 @@ app.post('/api/boards/:id/dev-items/:devId/sync', async (req, res) => {
   res.json({ ok: r.ok, message: r.message, dev: updated });
 });
 
+// Bring a dev-card branch up to date with its target/base branch. This is
+// intentionally separate from /sync: sync follows the branch's own upstream,
+// while this merges or rebases origin/<base> into the feature branch.
+app.post('/api/boards/:id/dev-items/:devId/update-from-target', async (req, res) => {
+  const ctx = _devItemCtx(req.params.id, req.params.devId);
+  if (!ctx) return res.status(404).json({ error: 'Dev card not found' });
+  const slotId = (req.body && req.body.repoId) || 'primary';
+  const slot = _findRepoSlot(ctx.dev, slotId);
+  if (!slot || !slot.worktreePath || !fs.existsSync(slot.worktreePath)) {
+    return res.status(400).json({ error: 'No worktree to update — create one first.' });
+  }
+  const pr = slot.pr || {};
+  const targetBranch = String(pr.targetBranch || pr.targetRefName || slot.baseBranch || 'main').replace(/^refs\/heads\//, '');
+  const sourceBranch = String(pr.sourceBranch || pr.sourceRefName || slot.prBranch || slot.branch || '').replace(/^refs\/heads\//, '');
+  const strategy = req.body && req.body.strategy === 'rebase' ? 'rebase' : 'merge';
+  let r;
+  try {
+    r = devitems.updateFromTargetBranch(slot.worktreePath, {
+      sourceBranch, targetBranch, strategy, desc: _devDesc(slot)
+    });
+  } catch (e) {
+    return res.status(500).json({ error: (e && e.message) || 'Update failed' });
+  }
+  if (!r || r.ok === false) {
+    return res.status(409).json({
+      error: (r && r.message) || 'Update failed.',
+      conflict: !!(r && r.conflict), needsClean: !!(r && r.needsClean),
+      strategy: (r && r.strategy) || strategy
+    });
+  }
+  let git = slot.git;
+  try { git = devitems.worktreeStatus(slot.worktreePath, { fetch: false, baseBranch: slot.baseBranch, desc: _devDesc(slot) }); } catch {}
+  let readiness = slot.readiness || null;
+  try { readiness = _devReadiness(slot, false); } catch {}
+  const updated = _saveDevWorktree(ctx, slot.id, _activeDevWtId(slot), { git, readiness });
+  res.json({ ok: true, message: r.message, noop: !!r.noop, targetBranch, dev: updated });
+});
+
 // Push local worktree changes up to origin for a dev card's repo slot. Commits any
 // uncommitted changes first so the user's full local state lands on the remote
 // branch, then refreshes the slot's git status. This is the dev-card counterpart
@@ -40074,9 +40112,14 @@ app.post('/api/boards/:id/dev-items/:devId/push', async (req, res) => {
   }
   let committed = 0;
   try {
-    const c = devitems.commitAll(slot.worktreePath, { message: 'Update ' + (slot.branch || 'branch') });
-    if (!c.ok) return res.status(500).json({ ok: false, error: 'Failed to commit local changes: ' + c.message });
-    if (c.committed) committed = c.files;
+    if (req.body && req.body.commit === false) {
+      const changes = devitems.worktreeChanges(slot.worktreePath);
+      if (changes.dirty) return res.status(409).json({ error: 'Review and commit the uncommitted files before pushing.' });
+    } else {
+      const c = devitems.commitAll(slot.worktreePath, { message: 'Update ' + (slot.branch || 'branch') });
+      if (!c.ok) return res.status(500).json({ ok: false, error: 'Failed to commit local changes: ' + c.message });
+      if (c.committed) committed = c.files;
+    }
   } catch (e) { return res.status(500).json({ ok: false, error: 'Failed to commit local changes: ' + ((e && e.message) || e) }); }
   let push;
   try { push = devitems.pushBranch(slot.worktreePath, { branch: slot.branch, desc: _devDesc(slot) }); }

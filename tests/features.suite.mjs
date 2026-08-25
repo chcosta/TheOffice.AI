@@ -660,10 +660,36 @@ await t.test('dev cards: readiness is persisted per approach and rendered in bot
   t.ok(/_saveDevWorktree\(ctx, slot\.id, _activeDevWtId\(slot\), \{ git, readiness \}\)/.test(server), 'push persists readiness through the active approach');
   t.eq((html.match(/class="dcgit"/g) || []).length, 2, 'both duplicated Dev Card surfaces render the readiness module');
   t.ok(/devReadinessRows\(s\)/.test(html) && /devStateFiles\(s\)/.test(html), 'readiness and file triage helpers are wired');
-  t.eq((html.match(/x-show="!devReadiness\(s\)" class="quiet-link"/g) || []).length, 2, 'an unchecked snapshot has a visible action in both card surfaces');
+  t.eq((html.match(/devReadiness\(s\) \? '↻ Refresh' : 'Check now'/g) || []).length, 2, 'both card surfaces expose a persistent readiness refresh');
   t.ok(/Detailed branch comparison has not been checked/.test(html) && /No problem is implied/.test(html), 'unchecked and unavailable states are explicitly non-alarming');
   t.ok(/PR uses this Dev worktree/.test(html), 'a shared Dev/PR checkout is explained as healthy');
   t.ok(/AI summary/.test(html) && /Workspaces\.AI/.test(html) && /Artifacts/.test(html), 'existing Dev Card capabilities remain present');
+});
+
+await t.test('dev cards: readiness issues expose the operation that resolves them', () => {
+  const server = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/app\.post\('\/api\/boards\/:id\/dev-items\/:devId\/update-from-target'/.test(server),
+    'dev cards can merge or rebase the target branch locally');
+  t.ok(/devitems\.updateFromTargetBranch\(slot\.worktreePath/.test(server),
+    'target update uses the existing guarded git operation');
+  t.ok(/action:\s*'update-target'[\s\S]{0,160}actionLabel:\s*'Update from '/.test(html),
+    'a behind-target readiness row offers Update from <target>');
+  t.ok(/action:\s*'sync'[\s\S]{0,100}actionLabel:\s*'Sync branch'/.test(html),
+    'missing origin commits offer branch sync');
+  t.ok(/action:\s*'files'[\s\S]{0,100}actionLabel:\s*'Review files'/.test(html),
+    'uncommitted files open the file decisions');
+  t.ok(/action:\s*remote\.behind\s*\?\s*'sync'\s*:\s*\(count\s*\?\s*'files'\s*:\s*'push'\)/.test(html) &&
+    /actionLabel:[^\n]*'Push commits'/.test(html) && /slotPushCommits\(d, s\)/.test(html),
+    'committed local-only work can be pushed without auto-committing files');
+  t.eq((html.match(/@click="devRunReadinessAction\(d,s,row\)"/g) || []).length, 2,
+    'both duplicated readiness surfaces render row actions');
+  t.eq((html.match(/>↕ Commits<\/button>/g) || []).length, 0,
+    'the redundant worktree toolbar Commits button is removed');
+  t.eq((html.match(/'⟳ Sync'/g) || []).length, 0,
+    'the redundant worktree toolbar Sync button is removed');
+  t.ok(/Show local \/ remote commits/.test(html),
+    'commit evidence remains available from Branch relationship');
 });
 
 await t.test('server: _rescanDevFiles aggregates live worktree files + a repo-scoped serve route', () => {

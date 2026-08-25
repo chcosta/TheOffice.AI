@@ -5393,7 +5393,7 @@
     .dcgit-stamp { color: var(--cp-text-muted); font-size: 10px; white-space: nowrap; }
     .dcgit-body { padding: 9px 10px; }
     .dcgit-ready { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 0 18px; }
-    .dcgit-answer { display: grid; grid-template-columns: 15px minmax(0,1fr); gap: 7px; padding: 7px 0; border-top: 1px solid var(--cp-border); }
+    .dcgit-answer { display: grid; grid-template-columns: 15px minmax(0,1fr) auto; gap: 7px; align-items:center; padding: 7px 0; border-top: 1px solid var(--cp-border); }
     .dcgit-answer:nth-child(-n+2) { border-top: 0; }
     .dcgit-answer .mk { font-weight: 700; }
     .dcgit-answer .tx { min-width: 0; }
@@ -5403,6 +5403,9 @@
     .dcgit-answer.warn .mk, .dcgit-answer.warn .tx b { color: var(--cp-warning); }
     .dcgit-answer.bad .mk, .dcgit-answer.bad .tx b { color: var(--cp-danger); }
     .dcgit-answer.muted .mk { color: var(--cp-text-muted); }
+    .dcgit-answer .act { align-self:center; border:1px solid var(--cp-border); background:var(--cp-surface); color:var(--cp-text); border-radius:6px; padding:3px 7px; font:inherit; font-size:10.5px; font-weight:600; cursor:pointer; white-space:nowrap; }
+    .dcgit-answer .act:hover:not(:disabled) { border-color:var(--cp-accent); color:var(--cp-accent); }
+    .dcgit-answer .act:disabled { opacity:.55; cursor:default; }
     .dcgit-facts { display: flex; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--cp-border); margin-top: 7px; padding-top: 7px; }
     .dcgit-fact { color: var(--cp-text-muted); font-size: 10.5px; }
     .dcgit-fact b { color: var(--cp-text); font-size: 12px; margin-right: 3px; }
@@ -10719,9 +10722,6 @@
                                                   <button class="cal-tbtn" type="button" title="Open a Copilot CLI session in the worktree (auto-selects this repo's dev agent)" @click="slotOpen(d,s,'cli')">🤖 CLI</button>
                                                   <button class="cal-tbtn" type="button" title="Open the worktree folder in Explorer" @click="slotOpen(d,s,'explorer')">📁</button>
                                                   <button class="cal-tbtn" type="button" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
-                                                  <span class="cal-tsep"></span>
-                                                  <button class="cal-tbtn" type="button" :class="slotCommitsOpen[slotCommitsKey(d,s)] ? 'primary' : ''" @click="slotToggleCommits(d,s)" title="Show which commits are local-only (unpushed), which are on the origin/PR branch but missing locally, and recent history">↕ Commits</button>
-                                                  <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? '⟳…' : '⟳ Sync'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
@@ -10735,21 +10735,20 @@
                                                     </div>
                                                     <div style="display:flex;align-items:center;gap:8px">
                                                       <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
-                                                      <button x-show="!devReadiness(s)" class="quiet-link" type="button" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? 'Checking…' : 'Check now'"></button>
+                                                      <button class="quiet-link" type="button" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? 'Checking…' : (devReadiness(s) ? '↻ Refresh' : 'Check now')"></button>
                                                     </div>
                                                   </div>
                                                   <div class="dcgit-body">
                                                     <div x-show="devStateTab(d,s)==='readiness'">
                                                       <div class="dcgit-ready">
                                                         <template x-for="(row,ri) in devReadinessRows(s)" :key="ri">
-                                                          <div class="dcgit-answer" :class="row.tone"><span class="mk" x-text="row.mark"></span><span class="tx"><b x-text="row.title"></b><span x-text="row.detail"></span></span></div>
+                                                          <div class="dcgit-answer" :class="row.tone"><span class="mk" x-text="row.mark"></span><span class="tx"><b x-text="row.title"></b><span x-text="row.detail"></span></span><button x-show="row.action" class="act" type="button" :disabled="devReadinessActionBusy(d,s,row)" @click="devRunReadinessAction(d,s,row)" x-text="devReadinessActionLabel(d,s,row)"></button></div>
                                                         </template>
                                                       </div>
                                                       <div class="dcgit-facts">
                                                         <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).branchChangeCount) || 0"></b>files changed in branch</span>
                                                         <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).changeCount) || 0"></b>uncommitted</span>
                                                         <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).remote && devReadiness(s).remote.ahead) || 0"></b>local-only commits</span>
-                                                        <button class="quiet-link" type="button" x-show="devStateAttentionCount(s)" @click="devSetStateTab(d,s,'files')">Review what needs attention →</button>
                                                       </div>
                                                     </div>
                                                     <div x-show="devStateTab(d,s)==='relationship'">
@@ -12869,9 +12868,6 @@
                                                   <button class="cal-tbtn" type="button" title="Open a Copilot CLI session in the worktree (auto-selects this repo's dev agent)" @click="slotOpen(d,s,'cli')">🤖 CLI</button>
                                                   <button class="cal-tbtn" type="button" title="Open the worktree folder in Explorer" @click="slotOpen(d,s,'explorer')">📁</button>
                                                   <button class="cal-tbtn" type="button" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
-                                                  <span class="cal-tsep"></span>
-                                                  <button class="cal-tbtn" type="button" :class="slotCommitsOpen[slotCommitsKey(d,s)] ? 'primary' : ''" @click="slotToggleCommits(d,s)" title="Show which commits are local-only (unpushed), which are on the origin/PR branch but missing locally, and recent history">↕ Commits</button>
-                                                  <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='sync'" @click="slotSync(d,s)" :title="'Fetch and fast-forward ' + (s.branch||'branch') + ' from origin'" x-text="devBusy[slotBusyKey(d,s)]==='sync' ? '⟳…' : '⟳ Sync'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
@@ -12885,21 +12881,20 @@
                                                     </div>
                                                     <div style="display:flex;align-items:center;gap:8px">
                                                       <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
-                                                      <button x-show="!devReadiness(s)" class="quiet-link" type="button" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? 'Checking…' : 'Check now'"></button>
+                                                      <button class="quiet-link" type="button" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? 'Checking…' : (devReadiness(s) ? '↻ Refresh' : 'Check now')"></button>
                                                     </div>
                                                   </div>
                                                   <div class="dcgit-body">
                                                     <div x-show="devStateTab(d,s)==='readiness'">
                                                       <div class="dcgit-ready">
                                                         <template x-for="(row,ri) in devReadinessRows(s)" :key="ri">
-                                                          <div class="dcgit-answer" :class="row.tone"><span class="mk" x-text="row.mark"></span><span class="tx"><b x-text="row.title"></b><span x-text="row.detail"></span></span></div>
+                                                          <div class="dcgit-answer" :class="row.tone"><span class="mk" x-text="row.mark"></span><span class="tx"><b x-text="row.title"></b><span x-text="row.detail"></span></span><button x-show="row.action" class="act" type="button" :disabled="devReadinessActionBusy(d,s,row)" @click="devRunReadinessAction(d,s,row)" x-text="devReadinessActionLabel(d,s,row)"></button></div>
                                                         </template>
                                                       </div>
                                                       <div class="dcgit-facts">
                                                         <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).branchChangeCount) || 0"></b>files changed in branch</span>
                                                         <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).changeCount) || 0"></b>uncommitted</span>
                                                         <span class="dcgit-fact"><b x-text="(devReadiness(s) && devReadiness(s).remote && devReadiness(s).remote.ahead) || 0"></b>local-only commits</span>
-                                                        <button class="quiet-link" type="button" x-show="devStateAttentionCount(s)" @click="devSetStateTab(d,s,'files')">Review what needs attention →</button>
                                                       </div>
                                                     </div>
                                                     <div x-show="devStateTab(d,s)==='relationship'">
@@ -67216,17 +67211,17 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const remote = r && r.remote;
           if (remote && remote.comparable) {
             rows.push(remote.behind
-              ? { tone: 'bad', mark: '!', title: remote.behind + ' origin commit' + (remote.behind === 1 ? ' is' : 's are') + ' missing locally', detail: 'Sync before continuing.' }
+              ? { tone: 'bad', mark: '!', title: remote.behind + ' origin commit' + (remote.behind === 1 ? ' is' : 's are') + ' missing locally', detail: 'Bring the remote branch changes into this worktree.', action: 'sync', actionLabel: 'Sync branch' }
               : { tone: 'ok', mark: '✓', title: 'All origin changes are local', detail: remote.ahead ? (remote.ahead + ' local commit' + (remote.ahead === 1 ? '' : 's') + ' not on the remote PR branch.') : 'Local and remote commits match.' });
           } else if (g.comparable) {
             rows.push((g.behind || 0)
-              ? { tone: 'bad', mark: '!', title: (g.behind || 0) + ' origin commit(s) missing locally', detail: 'Sync before continuing.' }
+              ? { tone: 'bad', mark: '!', title: (g.behind || 0) + ' origin commit(s) missing locally', detail: 'Bring the remote branch changes into this worktree.', action: 'sync', actionLabel: 'Sync branch' }
               : { tone: 'ok', mark: '✓', title: 'All tracked origin changes are local', detail: 'Based on the branch upstream.' });
-          } else rows.push({ tone: 'muted', mark: '—', title: 'Origin comparison unavailable', detail: 'Refresh to fetch and compare the branch.' });
+          } else rows.push({ tone: 'muted', mark: '—', title: 'Origin comparison unavailable', detail: 'Fetch and compare the branch again.', action: 'refresh', actionLabel: 'Refresh' });
 
           const count = r ? (r.changeCount || 0) : (g.dirty ? 1 : 0);
           rows.push(count
-            ? { tone: 'warn', mark: '●', title: count + ' uncommitted file' + (count === 1 ? '' : 's'), detail: 'Review Files before committing or pushing.' }
+            ? { tone: 'warn', mark: '●', title: count + ' uncommitted file' + (count === 1 ? '' : 's'), detail: 'Decide what should be committed or left out.', action: 'files', actionLabel: 'Review files' }
             : { tone: 'ok', mark: '✓', title: 'Working tree is committed', detail: 'No committable files are open.' });
 
           if (!r) {
@@ -67238,8 +67233,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           else if (remote && remote.comparable) {
             rows.push((remote.inSync && !count)
               ? { tone: 'ok', mark: '✓', title: 'Remote PR branch matches local', detail: 'Reviewers can see the current work.' }
-              : { tone: remote.behind ? 'bad' : 'warn', mark: remote.behind ? '!' : '●', title: remote.behind ? 'Remote PR branch is ahead of local' : 'Remote PR branch is missing local work', detail: remote.behind ? (remote.behind + ' commit(s) need to be pulled.') : ((remote.ahead || 0) + ' commit(s)' + (count ? ' plus ' + count + ' uncommitted file(s)' : '') + ' are local only.') });
-          } else rows.push({ tone: 'muted', mark: 'i', title: 'Remote PR branch details are not available', detail: 'No problem is implied; the remote branch could not be resolved during this check.' });
+              : { tone: remote.behind ? 'bad' : 'warn', mark: remote.behind ? '!' : '●', title: remote.behind ? 'Remote PR branch is ahead of local' : 'Remote PR branch is missing local work', detail: remote.behind ? (remote.behind + ' commit(s) need to be pulled.') : ((remote.ahead || 0) + ' commit(s)' + (count ? ' plus ' + count + ' uncommitted file(s)' : '') + ' are local only.'), action: remote.behind ? 'sync' : (count ? 'files' : 'push'), actionLabel: remote.behind ? 'Sync branch' : (count ? 'Review files' : 'Push commits') });
+          } else rows.push({ tone: 'muted', mark: 'i', title: 'Remote PR branch details are not available', detail: 'No problem is implied; the remote branch could not be resolved during this check.', action: 'refresh', actionLabel: 'Refresh' });
 
           const pw = r && r.prWorktree;
           if (!(s && s.prWorktreePath)) rows.push({ tone: 'muted', mark: '—', title: 'No separate PR worktree', detail: 'The Dev worktree is the only local checkout.' });
@@ -67247,15 +67242,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           else if (pw.samePath) rows.push({ tone: 'ok', mark: '✓', title: 'PR uses this Dev worktree', detail: 'There is only one local checkout to keep in sync.' });
           else rows.push(pw.equivalent
             ? { tone: 'ok', mark: '✓', title: 'Dev and PR worktrees are equivalent', detail: 'Same HEAD and same uncommitted file contents.' }
-            : { tone: 'bad', mark: '!', title: 'Dev and PR worktrees differ', detail: (pw.headSame ? (pw.filesSame ? 'HEAD and paths match; file contents differ.' : 'HEAD matches; changed file sets differ.') : 'HEAD commits differ.') });
+            : { tone: 'bad', mark: '!', title: 'Dev and PR worktrees differ', detail: (pw.headSame ? (pw.filesSame ? 'HEAD and paths match; file contents differ.' : 'HEAD matches; changed file sets differ.') : 'HEAD commits differ.'), action: 'relationship', actionLabel: 'Compare' });
 
           const target = r && r.target;
           if (target && target.comparable) {
             rows.push(target.behind
-              ? { tone: 'warn', mark: '●', title: 'Branch is ' + target.behind + ' commit' + (target.behind === 1 ? '' : 's') + ' behind ' + (target.branch || 'main'), detail: 'Update from the target branch before review.' }
+              ? { tone: 'warn', mark: '●', title: 'Branch is ' + target.behind + ' commit' + (target.behind === 1 ? '' : 's') + ' behind ' + (target.branch || 'main'), detail: 'Merge the current target branch into this worktree. Nothing is pushed.', action: 'update-target', actionLabel: 'Update from ' + (target.branch || 'main') }
               : { tone: 'ok', mark: '✓', title: 'Branch includes current ' + (target.branch || 'main'), detail: (target.ahead || 0) + ' feature commit(s) ahead of target.' });
-          } else rows.push({ tone: 'muted', mark: 'i', title: 'Target branch details are not available', detail: 'No problem is implied; the target ref could not be resolved during this check.' });
+          } else rows.push({ tone: 'muted', mark: 'i', title: 'Target branch details are not available', detail: 'No problem is implied; the target ref could not be resolved during this check.', action: 'refresh', actionLabel: 'Refresh' });
           return rows;
+        },
+        devReadinessActionBusy(d, s, row) {
+          if (!row || !row.action) return false;
+          if (row.action === 'refresh') return this.devBusy[d.id] === 'refresh';
+          return !!this.devBusy[d.id] || !!this.devBusy[this.slotBusyKey(d, s)];
+        },
+        devReadinessActionLabel(d, s, row) {
+          if (!row || !row.action) return '';
+          if (this.devReadinessActionBusy(d, s, row)) {
+            if (row.action === 'refresh') return 'Checking…';
+            if (row.action === 'update-target') return 'Updating…';
+            if (row.action === 'push') return 'Pushing…';
+            if (row.action === 'sync') return 'Syncing…';
+          }
+          return row.actionLabel || 'Open';
+        },
+        async devRunReadinessAction(d, s, row) {
+          if (!row || !row.action || this.devReadinessActionBusy(d, s, row)) return;
+          if (row.action === 'refresh') return this.refreshDevItem(d);
+          if (row.action === 'sync') return this.slotSync(d, s);
+          if (row.action === 'files') return this.devSetStateTab(d, s, 'files');
+          if (row.action === 'relationship') return this.devSetStateTab(d, s, 'relationship');
+          if (row.action === 'push') return this.slotPushCommits(d, s);
+          if (row.action === 'update-target') return this.slotUpdateFromTarget(d, s, 'merge');
         },
         devStateAttentionCount(s) { return this.devReadinessRows(s).filter(x => x.tone === 'warn' || x.tone === 'bad').length; },
         devStateFiles(s) {
@@ -67297,6 +67316,64 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         slotSync(d, s) { return (s && s.primary) ? this.syncDevItem(d) : this.syncDevSlot(d, s); },
         slotCleanup(d, s) { return (s && s.primary) ? this.cleanupDevWorktree(d) : this.cleanupDevSlot(d, s); },
         slotCreatePr(d, s) { return (s && s.primary) ? this.createDevPr(d) : this.createDevSlotPr(d, s); },
+        async slotUpdateFromTarget(d, s, strategy = 'merge') {
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s);
+          if (this.devBusy[key]) return;
+          const target = ((this.devReadiness(s) && this.devReadiness(s).target && this.devReadiness(s).target.branch) || s.baseBranch || 'main').replace(/^refs\/heads\//, '');
+          this.devBusy[key] = 'update-target';
+          const run = async (mode) => this.request(this._devUrl(d, 'update-from-target'), {
+            method: 'POST',
+            body: JSON.stringify({ repoId: s.id, strategy: mode })
+          });
+          try {
+            let r;
+            try {
+              r = await run(strategy);
+            } catch (e) {
+              const body = (e && e.body) || {};
+              if (e && e.status === 409 && body.needsClean) {
+                this.devSetStateTab(d, s, 'files');
+                this.showToast('Update from ' + target, 'Review and commit the uncommitted files first, then try again.', 'error');
+                return;
+              }
+              if (!(e && e.status === 409 && body.conflict)) throw e;
+              const other = strategy === 'rebase' ? 'merge' : 'rebase';
+              const retry = await this.uiConfirm('Update from ' + target,
+                (strategy === 'rebase' ? 'Rebase' : 'Merge') + ' hit conflicts and was aborted. Try a ' + other + ' instead?');
+              if (!retry) {
+                this.showToast('Update from ' + target, 'No changes were made. Resolve manually from the worktree if needed.', 'error');
+                return;
+              }
+              r = await run(other);
+            }
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.showToast('Update from ' + target, (r && r.message) || 'Branch updated locally.', 'success');
+          } catch (e) {
+            this.showToast('Update from ' + target, (e && e.message) || 'Update failed.', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
+        async slotPushCommits(d, s) {
+          if (!d || !s) return;
+          const key = this.slotBusyKey(d, s);
+          if (this.devBusy[key]) return;
+          this.devBusy[key] = 'push';
+          try {
+            const r = await this.request(this._devUrl(d, 'push'), {
+              method: 'POST',
+              body: JSON.stringify({ repoId: s.id, commit: false })
+            });
+            if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
+            this.showToast('Push', (r && r.message) || 'Commits pushed.', 'success');
+          } catch (e) {
+            if (e && e.status === 409) this.devSetStateTab(d, s, 'files');
+            this.showToast('Push', (e && e.message) || 'Push failed.', 'error');
+          } finally {
+            delete this.devBusy[key];
+          }
+        },
         // Commit-detail panel: stable key, open state, and a lazy fetch of the
         // branch's commit breakdown (unpushed / missing / recent) vs origin.
         slotCommitsKey(d, s) { return d.id + '#' + ((s && s.id) || 'primary'); },
