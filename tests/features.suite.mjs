@@ -203,6 +203,27 @@ await t.test('code flow: draft PR filter is persisted and applied centrally', ()
   t.ok(/if \(this\.codeflow\.hideDrafts\) list = list\.filter\(p => !p\.isDraft\)/.test(filter), 'shared PR list excludes drafts');
 });
 
+await t.test('code flow: PR cards track durable review checkpoints and answer what changed', () => {
+  const srv = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  const azdo = readFileSync('azdo.js', 'utf8');
+  const github = readFileSync('github.js', 'utf8');
+  t.ok(/codeflow-pr-checkpoints\.json/.test(srv), 'checkpoints persist outside the repository');
+  t.ok(/app\.get\('\/api\/codeflow\/pr\/attention'/.test(srv), 'detailed activity endpoint exists');
+  t.ok(/app\.post\('\/api\/codeflow\/pr\/attention\/checkpoint'/.test(srv), 'mark-caught-up endpoint exists');
+  t.ok(/previousCommitIds/.test(srv) && /approvalsDropped/.test(srv) && /awaitingConfirmation/.test(srv),
+    'server derives commit, approval, and feedback deltas');
+  t.ok(/async function getPrCommits/.test(azdo) && /async function getChangedFilesBetween/.test(azdo),
+    'Azure DevOps exposes commit and diff history');
+  t.ok(/async function getPrCommits/.test(github) && /async function getChangedFilesBetween/.test(github),
+    'GitHub exposes commit and diff history');
+  t.ok(/class="cf-attention-verdict"/.test(html) && /<h4>What changed<\/h4>/.test(html) &&
+    /<h4>Feedback<\/h4>/.test(html) && /<h4>Activity and approval<\/h4>/.test(html) &&
+    /<h4>Worktree<\/h4>/.test(html), 'shared PR card has the approved answer-first sections');
+  t.ok(/cfMarkCaughtUp\(pr\)/.test(html) && /loadCfAttention\(pr/.test(html),
+    'checkpoint and detail-loading actions are wired');
+});
+
 // --- System agents + water cooler backing data ---
 await t.test('system agents: GET /api/agents returns an array', async () => {
   await probe('/api/agents', (j) => {
@@ -620,6 +641,10 @@ await t.test('dev cards: readiness distinguishes commits, local files, and workt
     t.ok(snap.prWorktree.headSame && snap.prWorktree.filesSame, 'the two worktrees share HEAD and changed paths');
     t.notOk(snap.prWorktree.contentSame, 'different contents at the same path are detected');
     t.notOk(snap.prWorktree.equivalent, 'same paths alone do not make worktrees equivalent');
+    const shared = require('../devitems.js').worktreeReadiness(dev, {
+      sourceBranch: 'feature', targetBranch: 'main', prWorktreePath: dev, fetch: false
+    });
+    t.ok(shared.prWorktree.samePath && shared.prWorktree.equivalent, 'a shared Dev/PR checkout is identified explicitly');
   } finally {
     try { fsM.rmSync(root, { recursive: true, force: true }); } catch {}
   }
@@ -635,6 +660,9 @@ await t.test('dev cards: readiness is persisted per approach and rendered in bot
   t.ok(/_saveDevWorktree\(ctx, slot\.id, _activeDevWtId\(slot\), \{ git, readiness \}\)/.test(server), 'push persists readiness through the active approach');
   t.eq((html.match(/class="dcgit"/g) || []).length, 2, 'both duplicated Dev Card surfaces render the readiness module');
   t.ok(/devReadinessRows\(s\)/.test(html) && /devStateFiles\(s\)/.test(html), 'readiness and file triage helpers are wired');
+  t.eq((html.match(/x-show="!devReadiness\(s\)" class="quiet-link"/g) || []).length, 2, 'an unchecked snapshot has a visible action in both card surfaces');
+  t.ok(/Detailed branch comparison has not been checked/.test(html) && /No problem is implied/.test(html), 'unchecked and unavailable states are explicitly non-alarming');
+  t.ok(/PR uses this Dev worktree/.test(html), 'a shared Dev/PR checkout is explained as healthy');
   t.ok(/AI summary/.test(html) && /Workspaces\.AI/.test(html) && /Artifacts/.test(html), 'existing Dev Card capabilities remain present');
 });
 
@@ -741,7 +769,7 @@ await t.test('codeflow: PR Boards renders as a Workspaces.AI row below Notes, no
   t.notOk(/id:\s*'boards'/.test(cfSec), "cfSections does not push a 'boards' tab");
   t.notOk(/x-show="cfActivePane\(pr\) === 'boards'"/.test(secs), "the orphaned 'boards' pane is gone");
   // The PR card body has a Workspaces.AI cf-ws-row wired to the PR board helpers.
-  const body = secs.slice(secs.indexOf('<!--CF_PR_CARD_BODY:START-->'), secs.indexOf('<!--CF_PR_CARD_BODY:START-->') + 12000);
+  const body = secs.slice(secs.indexOf('<!--CF_PR_CARD_BODY:START-->'), secs.indexOf('<!--CF_PR_CARD_BODY:START-->') + 20000);
   t.ok(/class="cf-ws-row"[\s\S]{0,600}cfPrPinnedBoards\(pr\)/.test(body), 'a cf-ws-row iterates cfPrPinnedBoards(pr)');
   t.ok(/cfPrUnpinFromBoard\(pr, b\)/.test(body), 'the row can unpin a board');
   t.ok(/openQuickPin\('pr'/.test(body), 'the row can pin the PR to a workspace');

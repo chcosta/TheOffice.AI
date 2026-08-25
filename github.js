@@ -316,12 +316,12 @@ function _compactPr(d, owner, repo, reviews) {
       if (!login || login.toLowerCase() === authorLogin) continue;
       if (String(rv.state).toUpperCase() === 'PENDING') continue;
       // reviews are chronological; keep the last meaningful one per user
-      reviewerMap.set(login, { login, state: rv.state });
+      reviewerMap.set(login, { login, state: rv.state, reviewedCommitId: rv.commit_id || '', reviewedAt: rv.submitted_at || '' });
     }
   }
   const reviewers = [];
   for (const [login, r] of reviewerMap) {
-    reviewers.push({ id: login, name: login, login, vote: _voteFor(r.state), voteLabel: voteLabel(_voteFor(r.state)), isRequired: false });
+    reviewers.push({ id: login, name: login, login, vote: _voteFor(r.state), voteLabel: voteLabel(_voteFor(r.state)), isRequired: false, reviewedCommitId: r.reviewedCommitId, reviewedAt: r.reviewedAt });
   }
   for (const rr of (d.requested_reviewers || [])) {
     const login = rr.login || '';
@@ -356,6 +356,7 @@ function _compactPr(d, owner, repo, reviews) {
     headSha: head.sha || '',
     baseRepoFullName: baseRepoFull,
     baseRef: base.ref || '',
+    sourceHead: head.sha || '',
     isCrossRepo: !!(headRepoFull && headRepoFull !== baseRepoFull),
     org: owner, project: '', repo,
     url: pullRequestUrl(owner, '', repo, d.number),
@@ -451,8 +452,52 @@ async function getReviewers(owner, _project, repo, prId) {
 async function getPrThreads(owner, _project, repo, prId) {
   let review = [], issue = [];
   try { review = await apiAll(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}/comments`, { cap: 300 }); } catch {}
-  const open = review.filter(c => c.in_reply_to_id == null); // top-level threads
-  return { activeComments: open.length, resolvedComments: 0, totalThreads: open.length, resolutionUnknown: true };
+  const roots = new Map();
+  for (const c of review) {
+    const rootId = String(c.in_reply_to_id || c.id);
+    if (!roots.has(rootId)) roots.set(rootId, []);
+    roots.get(rootId).push(c);
+  }
+  const items = [...roots.entries()].map(([id, comments]) => {
+    comments.sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+    const root = comments[0] || {};
+    const last = comments[comments.length - 1] || root;
+    const active = root.position != null;
+    return {
+      id,
+      status: active ? 'active' : 'outdated',
+      active,
+      resolutionUnknown: true,
+      rootAuthorId: String((root.user && root.user.login) || ''),
+      rootAuthor: (root.user && root.user.login) || 'unknown',
+      lastAuthorId: String((last.user && last.user.login) || ''),
+      lastAuthor: (last.user && last.user.login) || 'unknown',
+      lastCommentAt: last.updated_at || last.created_at || '',
+      commentCount: comments.length,
+      file: root.path || null,
+      line: root.line || root.original_line || null,
+      preview: String(root.body || '').trim().slice(0, 240)
+    };
+  });
+  const active = items.filter(t => t.active).length;
+  return { activeComments: active, resolvedComments: items.length - active, totalThreads: items.length, resolutionUnknown: true, items };
+}
+
+async function getPrCommits(owner, _project, repo, prId, limit = 250) {
+  const commits = await apiAll(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/${encodeURIComponent(prId)}/commits`, { cap: Number(limit) || 250 });
+  return commits.map(c => ({
+    id: c.sha || '',
+    message: String((c.commit && c.commit.message) || '').split(/\r?\n/)[0],
+    author: (c.author && c.author.login) || (c.commit && c.commit.author && c.commit.author.name) || '',
+    date: (c.commit && c.commit.author && c.commit.author.date) || '',
+    url: c.html_url || ''
+  })).filter(c => c.id);
+}
+
+async function getChangedFilesBetween(owner, _project, repo, baseSha, headSha, limit = 300) {
+  if (!baseSha || !headSha || baseSha === headSha) return [];
+  const d = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`);
+  return (d.files || []).slice(0, Number(limit) || 300).map(f => f.filename).filter(Boolean);
 }
 
 // Detailed open review-comment threads (file/line + comments), for an agent that
@@ -1221,6 +1266,8 @@ module.exports = {
   getRepoContributors,
   getFileContributors,
   getPrChangedFiles,
+  getPrCommits,
+  getChangedFilesBetween,
   listPullRequests,
   listProjectPullRequests,
   getPrThreads,

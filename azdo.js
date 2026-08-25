@@ -788,7 +788,9 @@ async function getPullRequest(org, project, repo, prId) {
     mergeStatus: d.mergeStatus || '',  // succeeded | conflicts | queued | ...
     sourceBranch: strip(d.sourceRefName),
     targetBranch: strip(d.targetRefName),
+    sourceHead: (d.lastMergeSourceCommit && d.lastMergeSourceCommit.commitId) || '',
     reviewers: (d.reviewers || []).map(rv => ({
+      id: rv.id || '',
       name: rv.displayName || rv.uniqueName || '',
       vote: rv.vote,                   // 10 approve, 5 approve-w/-sug, 0 none, -5 waiting, -10 reject
       isRequired: !!rv.isRequired
@@ -890,6 +892,7 @@ function _compactPr(d, org, project, repo) {
     mergeStatus: d.mergeStatus || '',
     sourceBranch: strip(d.sourceRefName),
     targetBranch: strip(d.targetRefName),
+    sourceHead: (d.lastMergeSourceCommit && d.lastMergeSourceCommit.commitId) || '',
     creationDate: d.creationDate || '',
     closedDate: d.closedDate || '',
     createdBy: {
@@ -1158,15 +1161,60 @@ async function getPrThreads(org, project, repo, prId) {
     `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests/${seg(prId)}/threads?api-version=${API_VERSION}`
   );
   let active = 0, resolved = 0, total = 0;
+  const items = [];
   for (const t of (d.value || [])) {
     const comments = (t.comments || []).filter(c => !c.isDeleted && (c.commentType || 'text') === 'text');
     if (!comments.length) continue; // skip pure system/status threads
     total++;
     const st = (t.status || '').toLowerCase();
-    if (st === 'fixed' || st === 'closed' || st === 'wontfix' || st === 'bydesign') resolved++;
+    const isResolved = st === 'fixed' || st === 'closed' || st === 'wontfix' || st === 'bydesign';
+    if (isResolved) resolved++;
     else active++; // active, pending, or unset
+    const root = comments[0] || {};
+    const last = comments[comments.length - 1] || root;
+    const tc = t.threadContext || {};
+    items.push({
+      id: String(t.id),
+      status: st || 'active',
+      active: !isResolved,
+      rootAuthorId: String((root.author && root.author.id) || ''),
+      rootAuthor: (root.author && (root.author.displayName || root.author.uniqueName)) || 'unknown',
+      lastAuthorId: String((last.author && last.author.id) || ''),
+      lastAuthor: (last.author && (last.author.displayName || last.author.uniqueName)) || 'unknown',
+      lastCommentAt: last.lastUpdatedDate || last.publishedDate || '',
+      commentCount: comments.length,
+      file: tc.filePath ? String(tc.filePath).replace(/^\/+/, '') : null,
+      line: (tc.rightFileStart && tc.rightFileStart.line) || (tc.leftFileStart && tc.leftFileStart.line) || null,
+      preview: String(root.content || '').trim().slice(0, 240)
+    });
   }
-  return { activeComments: active, resolvedComments: resolved, totalThreads: total };
+  return { activeComments: active, resolvedComments: resolved, totalThreads: total, items };
+}
+
+// Ordered commits currently in a PR. The durable Code Flow checkpoint stores
+// these IDs so a later refresh can distinguish genuinely new commits from a
+// force-push or a comment-only update.
+async function getPrCommits(org, project, repo, prId, limit = 250) {
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullRequests/${seg(prId)}/commits?$top=${Number(limit) || 250}&api-version=${API_VERSION}`
+  );
+  return (d.value || []).map(c => ({
+    id: c.commitId || '',
+    message: String(c.comment || '').split(/\r?\n/)[0],
+    author: (c.author && (c.author.name || c.author.email)) || '',
+    date: (c.author && c.author.date) || (c.committer && c.committer.date) || '',
+    url: c.remoteUrl || ''
+  })).filter(c => c.id);
+}
+
+async function getChangedFilesBetween(org, project, repo, baseSha, headSha, limit = 300) {
+  if (!baseSha || !headSha || baseSha === headSha) return [];
+  const d = await apiSend(
+    org,
+    `${seg(project)}/_apis/git/repositories/${seg(repo)}/diffs/commits?baseVersion=${encodeURIComponent(baseSha)}&baseVersionType=commit&targetVersion=${encodeURIComponent(headSha)}&targetVersionType=commit&$top=${Number(limit) || 300}&api-version=${API_VERSION}`
+  );
+  return (d.changes || []).map(c => c.item || {}).filter(i => i.path && !i.isFolder).map(i => String(i.path).replace(/^\/+/, ''));
 }
 
 // Per-reviewer participation stats on a PR, for gauging how a person helped the
@@ -1458,6 +1506,8 @@ module.exports = {
   getRepoContributors,
   getFileContributors,
   getPrChangedFiles,
+  getPrCommits,
+  getChangedFilesBetween,
   listPullRequests,
   getPrThreads,
   getPrMyReview,

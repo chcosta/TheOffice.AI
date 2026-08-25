@@ -977,6 +977,7 @@ function worktreeReadiness(wt, {
 
   let prWorktree = null;
   if (prWorktreePath && _isRepo(prWorktreePath)) {
+    const samePath = path.resolve(prWorktreePath).toLowerCase() === path.resolve(wt).toLowerCase();
     const prHead = _gitTry(['rev-parse', 'HEAD'], prWorktreePath).out || '';
     const prCls = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], prWorktreePath).out || '');
     const localSet = cls.changed.slice().sort();
@@ -996,7 +997,7 @@ function worktreeReadiness(wt, {
     const prFingerprint = fingerprint(prWorktreePath, prSet);
     const contentSame = filesSame && localFingerprint === prFingerprint;
     prWorktree = {
-      path: prWorktreePath, head: prHead, headSame, filesSame, contentSame,
+      path: prWorktreePath, samePath, head: prHead, headSame, filesSame, contentSame,
       equivalent: headSame && contentSame,
       localFiles: localSet, prFiles: prSet
     };

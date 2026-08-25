@@ -2593,6 +2593,40 @@
     .cf-ai-refresh { background:none; border:0; padding:0; color:var(--cp-link); font-size:11px; cursor:pointer; }
     .cf-ai-refresh:hover:not(:disabled) { text-decoration:underline; }
     .cf-ai-refresh:disabled { color:var(--cp-text-soft); cursor:default; }
+    .cf-attention { margin-top:12px; border:1px solid var(--cp-border); border-radius:12px; background:var(--cp-surface); overflow:hidden; }
+    .cf-attention-loading { padding:18px; color:var(--cp-text-muted); font-size:12px; }
+    .cf-attention-verdict { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:16px; border-left:4px solid var(--cp-border-strong); background:var(--cp-surface-soft); }
+    .cf-attention-verdict.tone-success { border-left-color:var(--cp-success); }
+    .cf-attention-verdict.tone-warning { border-left-color:var(--cp-warning); }
+    .cf-attention-verdict.tone-danger { border-left-color:var(--cp-danger); }
+    .cf-attention-title { font-size:16px; font-weight:700; line-height:1.25; color:var(--cp-text); }
+    .cf-attention-body { margin-top:3px; color:var(--cp-text-muted); font-size:12px; line-height:1.45; }
+    .cf-attention-action { flex:0 0 auto; border:1px solid var(--cp-border-strong); background:var(--cp-surface); color:var(--cp-text); border-radius:8px; padding:6px 10px; font:inherit; font-size:12px; font-weight:600; cursor:pointer; }
+    .cf-attention-action:hover:not(:disabled) { border-color:var(--cp-accent); color:var(--cp-accent); }
+    .cf-attention-action:disabled { opacity:.55; cursor:default; }
+    .cf-attention-deltas { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border-top:1px solid var(--cp-border); border-bottom:1px solid var(--cp-border); }
+    .cf-attention-delta { padding:10px 14px; min-width:0; }
+    .cf-attention-delta + .cf-attention-delta { border-left:1px solid var(--cp-border); }
+    .cf-attention-delta strong { display:block; color:var(--cp-text); font-size:16px; line-height:1.2; }
+    .cf-attention-delta span { display:block; color:var(--cp-text-muted); font-size:10px; margin-top:2px; text-transform:uppercase; letter-spacing:.04em; }
+    .cf-attention-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .cf-attention-section { padding:14px 16px; min-width:0; border-bottom:1px solid var(--cp-border); }
+    .cf-attention-section:nth-child(odd) { border-right:1px solid var(--cp-border); }
+    .cf-attention-section:nth-last-child(-n+2) { border-bottom:0; }
+    .cf-attention-section h4 { margin:0 0 6px; font-size:12px; color:var(--cp-text); }
+    .cf-attention-section p { margin:0; color:var(--cp-text-muted); font-size:12px; line-height:1.45; }
+    .cf-attention-list { margin:8px 0 0; padding:0; list-style:none; display:flex; flex-direction:column; gap:5px; }
+    .cf-attention-list li { display:flex; gap:8px; min-width:0; color:var(--cp-text-muted); font-size:11px; }
+    .cf-attention-list code { color:var(--cp-text-soft); font-family:Consolas,"Courier New",Courier,monospace; }
+    .cf-attention-list .txt { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    @media (max-width: 760px) {
+      .cf-attention-deltas { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .cf-attention-delta:nth-child(3) { border-left:0; border-top:1px solid var(--cp-border); }
+      .cf-attention-delta:nth-child(4) { border-top:1px solid var(--cp-border); }
+      .cf-attention-grid { grid-template-columns:1fr; }
+      .cf-attention-section:nth-child(odd) { border-right:0; }
+      .cf-attention-section:nth-last-child(2) { border-bottom:1px solid var(--cp-border); }
+    }
     .cf-wt-envs { display:flex; flex-wrap:wrap; align-items:center; gap:10px; }
     .cf-panes { min-width:0; }
     .cf-pane { min-width:0; }
@@ -10699,7 +10733,10 @@
                                                       <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='relationship'}" @click="devSetStateTab(d,s,'relationship')">Branch relationship</button>
                                                       <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='files'}" @click="devSetStateTab(d,s,'files')" x-text="'Files ' + ((devReadiness(s) && devReadiness(s).changeCount) || 0)"></button>
                                                     </div>
-                                                    <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
+                                                    <div style="display:flex;align-items:center;gap:8px">
+                                                      <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
+                                                      <button x-show="!devReadiness(s)" class="quiet-link" type="button" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? 'Checking…' : 'Check now'"></button>
+                                                    </div>
                                                   </div>
                                                   <div class="dcgit-body">
                                                     <div x-show="devStateTab(d,s)==='readiness'">
@@ -12846,7 +12883,10 @@
                                                       <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='relationship'}" @click="devSetStateTab(d,s,'relationship')">Branch relationship</button>
                                                       <button class="dcgit-tab" type="button" :class="{active:devStateTab(d,s)==='files'}" @click="devSetStateTab(d,s,'files')" x-text="'Files ' + ((devReadiness(s) && devReadiness(s).changeCount) || 0)"></button>
                                                     </div>
-                                                    <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
+                                                    <div style="display:flex;align-items:center;gap:8px">
+                                                      <span class="dcgit-stamp" x-text="devStateStamp(s)"></span>
+                                                      <button x-show="!devReadiness(s)" class="quiet-link" type="button" :disabled="devBusy[d.id]==='refresh'" @click="refreshDevItem(d)" x-text="devBusy[d.id]==='refresh' ? 'Checking…' : 'Check now'"></button>
+                                                    </div>
                                                   </div>
                                                   <div class="dcgit-body">
                                                     <div x-show="devStateTab(d,s)==='readiness'">
@@ -24719,6 +24759,65 @@
                     </div>
                   </div>
 
+                  <!-- Answer-first PR activity: what changed since this user last caught up,
+                       whether feedback moved, approval freshness, and local branch state. -->
+                  <div class="cf-attention">
+                    <div class="cf-attention-loading" x-show="cfAttentionLoading(pr)">Checking commits, feedback, approvals, and worktree state…</div>
+                    <template x-if="cfAttention(pr)">
+                      <div>
+                        <div class="cf-attention-verdict" :class="'tone-' + cfAttention(pr).verdict.tone">
+                          <div>
+                            <div class="cf-attention-title" x-text="cfAttention(pr).verdict.title"></div>
+                            <div class="cf-attention-body" x-text="cfAttention(pr).verdict.body"></div>
+                          </div>
+                          <button type="button" class="cf-attention-action"
+                                  :disabled="cfAttentionBusy(pr)"
+                                  @click.stop="cfMarkCaughtUp(pr)"
+                                  x-text="cfAttentionBusy(pr) ? 'Saving…' : (cfAttention(pr).checkpoint ? 'Mark caught up' : 'Start tracking')"></button>
+                        </div>
+                        <div class="cf-attention-deltas">
+                          <div class="cf-attention-delta"><strong x-text="cfAttention(pr).deltas.commits"></strong><span>new commits</span></div>
+                          <div class="cf-attention-delta"><strong x-text="cfAttention(pr).deltas.comments"></strong><span>new comments</span></div>
+                          <div class="cf-attention-delta"><strong x-text="cfAttention(pr).deltas.files"></strong><span>files changed</span></div>
+                          <div class="cf-attention-delta"><strong x-text="cfAttention(pr).deltas.addressed"></strong><span>feedback addressed</span></div>
+                        </div>
+                        <div class="cf-attention-grid">
+                          <section class="cf-attention-section">
+                            <h4>What changed</h4>
+                            <p x-show="!cfAttention(pr).checkpoint">No checkpoint yet. Start tracking to measure future branch updates.</p>
+                            <p x-show="cfAttention(pr).checkpoint && !cfAttention(pr).deltas.commits">The PR head has not changed since your checkpoint.</p>
+                            <p x-show="cfAttention(pr).deltas.commits"
+                               x-text="cfAttention(pr).deltas.commits + ' new ' + (cfAttention(pr).deltas.commits === 1 ? 'commit' : 'commits') + ' touching ' + cfAttention(pr).deltas.files + ' ' + (cfAttention(pr).deltas.files === 1 ? 'file' : 'files') + '.'"></p>
+                            <ul class="cf-attention-list" x-show="cfAttention(pr).newCommits.length">
+                              <template x-for="c in cfAttention(pr).newCommits.slice(0,3)" :key="c.id">
+                                <li><code x-text="String(c.id).slice(0,7)"></code><span class="txt" x-text="c.message || 'Commit'"></span></li>
+                              </template>
+                            </ul>
+                          </section>
+                          <section class="cf-attention-section">
+                            <h4>Feedback</h4>
+                            <p x-text="cfFeedbackSummary(pr)"></p>
+                            <p x-show="cfAttention(pr).comments.resolutionUnknown" style="margin-top:5px">GitHub REST cannot confirm resolved state; outdated threads are treated as no longer active.</p>
+                          </section>
+                          <section class="cf-attention-section">
+                            <h4>Activity and approval</h4>
+                            <p x-text="cfApprovalSummary(pr)"></p>
+                            <ul class="cf-attention-list" x-show="cfAttention(pr).changedThreads.length">
+                              <template x-for="t in cfAttention(pr).changedThreads.slice(0,2)" :key="t.id">
+                                <li><span class="txt" x-text="t.lastAuthor + ': ' + (t.preview || 'Discussion updated')"></span></li>
+                              </template>
+                            </ul>
+                          </section>
+                          <section class="cf-attention-section">
+                            <h4>Worktree</h4>
+                            <p x-text="cfAttentionWorktreeSummary(pr)"></p>
+                          </section>
+                        </div>
+                      </div>
+                    </template>
+                    <div class="cf-attention-loading" x-show="!cfAttentionLoading(pr) && cfAttentionError(pr)" x-text="cfAttentionError(pr)"></div>
+                  </div>
+
                   <!-- Freeform notes: where you're at / what matters on this PR (above the tabs — the notes are the day-to-day working surface) -->
                   <div class="cf-pr-notes">
                     <div class="cf-pr-notes-head">
@@ -33396,6 +33495,10 @@
           aiGeneratedAt: null,
           worktrees: {},         // prKey -> review-worktree record
           wtBusy: {},            // prKey -> action string while busy
+          attentionDetails: {},  // prKey -> durable checkpoint + deltas + feedback/approval state
+          attentionLoading: {},  // prKey -> bool while detailed activity loads
+          attentionErrors: {},   // prKey -> provider/API error
+          attentionSaving: {},   // prKey -> bool while "Mark caught up" persists
           boardPrs: {},          // cfPrKey -> full PR object for board-pinned PRs (parity with the Code Flow card)
           boardPrState: {},      // key -> { status, isDraft } for pins NOT in the live lists (e.g. merged/closed) so their state badge is still accurate
           boardPrsLoading: false,
@@ -54543,6 +54646,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // 3-min interval — the owner saw the counts take a long time to show up.
             this.loadCodeflowAttention(true);
             this.loadCfWorktrees();
+            const selected = this.cfPageSelected();
+            if (selected) this.loadCfAttention(selected);
             // Boards are needed to show which workspace a PR is pinned to (below title).
             if (!this.boards || !this.boards.length) { this.loadBoards(null, true).catch(() => {}); }
             // Baseline the change detector to what the user is now looking at.
@@ -54575,6 +54680,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.codeflow.errors = Array.isArray(prResp.errors) ? prResp.errors : [];
             this.codeflow.attentionCount = prResp.attentionCount || 0;
             this.codeflow.fetchedAt = prResp.fetchedAt || null;
+            const selected = this.cfPageSelected();
+            if (selected) this.loadCfAttention(selected, true);
             this.loadCodeflowAttention(true);
             // Re-generate AI summaries for any PRs that changed since last analysis.
             if (this.codeflow.pullRequests.length) this.loadCodeflowAi(false, true);
@@ -55494,6 +55601,101 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!pr) return;
           this.codeflow.selectedKey = this.cfPrKey(pr);
           this.codeflow.focusKey = ''; // a manual click supersedes a stale deep-link
+          this.loadCfAttention(pr);
+        },
+        _cfAttentionQuery(pr) {
+          return 'org=' + encodeURIComponent(pr.org || '') +
+            '&project=' + encodeURIComponent(pr.project || '') +
+            '&repo=' + encodeURIComponent(pr.repo || '') +
+            '&prId=' + encodeURIComponent(pr.id || pr.pullRequestId || '') +
+            '&provider=' + encodeURIComponent(pr.provider || 'azdo') +
+            '&view=' + encodeURIComponent(this.codeflow.view || '');
+        },
+        cfAttention(pr) {
+          return pr ? (this.codeflow.attentionDetails[this.cfPrKey(pr)] || null) : null;
+        },
+        cfAttentionLoading(pr) {
+          return !!(pr && this.codeflow.attentionLoading[this.cfPrKey(pr)]);
+        },
+        cfAttentionError(pr) {
+          return pr ? (this.codeflow.attentionErrors[this.cfPrKey(pr)] || '') : '';
+        },
+        cfAttentionBusy(pr) {
+          return !!(pr && this.codeflow.attentionSaving[this.cfPrKey(pr)]);
+        },
+        async loadCfAttention(pr, force) {
+          if (!pr) return;
+          const key = this.cfPrKey(pr);
+          if (!force && (this.codeflow.attentionLoading[key] || this.codeflow.attentionDetails[key])) return;
+          this.codeflow.attentionLoading = { ...this.codeflow.attentionLoading, [key]: true };
+          this.codeflow.attentionErrors = { ...this.codeflow.attentionErrors, [key]: '' };
+          try {
+            const r = await this.request('/api/codeflow/pr/attention?' + this._cfAttentionQuery(pr));
+            if (r && r.attention) this.codeflow.attentionDetails = { ...this.codeflow.attentionDetails, [key]: r.attention };
+          } catch (e) {
+            this.codeflow.attentionErrors = { ...this.codeflow.attentionErrors, [key]: (e && e.message) || 'Detailed PR activity is unavailable.' };
+          } finally {
+            this.codeflow.attentionLoading = { ...this.codeflow.attentionLoading, [key]: false };
+          }
+        },
+        async cfMarkCaughtUp(pr) {
+          if (!pr) return;
+          const key = this.cfPrKey(pr);
+          this.codeflow.attentionSaving = { ...this.codeflow.attentionSaving, [key]: true };
+          try {
+            const r = await this.request('/api/codeflow/pr/attention/checkpoint', {
+              method: 'POST',
+              body: JSON.stringify({
+                org: pr.org || '', project: pr.project || '', repo: pr.repo || '',
+                prId: pr.id || pr.pullRequestId || '', provider: pr.provider || 'azdo',
+                view: this.codeflow.view || ''
+              })
+            });
+            if (r && r.attention) this.codeflow.attentionDetails = { ...this.codeflow.attentionDetails, [key]: r.attention };
+            this.showToast('PR activity', 'Checkpoint saved. Future commits and comments will be measured from here.', 'success');
+          } catch (e) {
+            this.showToast('PR activity', (e && e.message) || 'Could not save the checkpoint.', 'error');
+          } finally {
+            this.codeflow.attentionSaving = { ...this.codeflow.attentionSaving, [key]: false };
+          }
+        },
+        cfFeedbackSummary(pr) {
+          const a = this.cfAttention(pr);
+          if (!a) return '';
+          const d = a.deltas || {};
+          if (!a.checkpoint) return (d.activeFeedback || 0) ? `${d.activeFeedback} feedback thread${d.activeFeedback === 1 ? ' is' : 's are'} open now.` : 'No feedback threads are open now.';
+          const parts = [];
+          if (d.addressed) parts.push(`${d.addressed} addressed`);
+          if (d.awaitingConfirmation) parts.push(`${d.awaitingConfirmation} awaiting your confirmation`);
+          if (d.activeFeedback) parts.push(`${d.activeFeedback} still open`);
+          return parts.length ? parts.join(' · ') : 'No feedback is waiting on you.';
+        },
+        cfApprovalSummary(pr) {
+          const a = this.cfAttention(pr);
+          if (!a) return '';
+          const x = a.approval || {};
+          if (x.requiresReapproval) return 'Your prior approval was reset; this PR requires your approval again.';
+          if (x.changedAfterReview) return 'Your approval predates the current PR head. Review the new changes before approving again.';
+          if (x.approvalsDropped) return `${x.approvalsDropped} reviewer approval${x.approvalsDropped === 1 ? ' was' : 's were'} reset after changes.`;
+          if (x.approvalsOutdated) return `${x.approvalsOutdated} current approval${x.approvalsOutdated === 1 ? ' predates' : 's predate'} the latest commit.`;
+          if (!a.checkpoint) return 'Approval freshness will be tracked after the first checkpoint.';
+          if (a.deltas.commits && !x.freshnessKnown) return `${a.deltas.commits} new commit${a.deltas.commits === 1 ? '' : 's'}; the provider still reports the current vote state and will reset approvals when policy requires it.`;
+          return a.deltas.comments ? `${a.deltas.comments} new discussion comment${a.deltas.comments === 1 ? '' : 's'} since your checkpoint.` : 'No approval or discussion changes since your checkpoint.';
+        },
+        cfAttentionWorktreeSummary(pr) {
+          const a = this.cfAttention(pr);
+          const w = a && a.worktree;
+          if (!w) return 'No local review worktree is linked to this PR.';
+          if (w.status && w.status !== 'ready') return `Worktree is ${w.status}.`;
+          const d = w.drift || {};
+          const parts = [];
+          if (d.comparable) {
+            if (d.ahead) parts.push(`${d.ahead} to push`);
+            if (d.behind) parts.push(`${d.behind} to pull`);
+            if (!d.ahead && !d.behind) parts.push('remote branch in sync');
+          } else parts.push('remote comparison not checked');
+          parts.push(w.changeCount ? `${w.changeCount} uncommitted file${w.changeCount === 1 ? '' : 's'}` : 'working tree clean');
+          return parts.join(' · ') + '.';
         },
         // Compact per-row status for the PR index (state dot tone + attention flag).
         cfIdxMeta(pr) {
@@ -55504,6 +55706,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Compact, calm attention reason for the left index (no emoji — the tinted
         // row + dot carry the visual weight; this just names why).
         cfIdxAttnLabel(pr) {
+          const detail = this.cfAttention(pr);
+          if (detail && detail.checkpoint) {
+            const d = detail.deltas || {};
+            const approval = detail.approval || {};
+            if (approval.requiresReapproval) return 'Approval reset · review again';
+            if (approval.changedAfterReview) return `${d.commits || 0} new commit${d.commits === 1 ? '' : 's'} · approval predates head`;
+            const changes = [];
+            if (d.commits) changes.push(`${d.commits} new commit${d.commits === 1 ? '' : 's'}`);
+            if (d.comments) changes.push(`${d.comments} new comment${d.comments === 1 ? '' : 's'}`);
+            if (d.addressed) changes.push(`${d.addressed} addressed`);
+            if (changes.length) return changes.join(' · ');
+          }
           const map = {
             'awaiting-your-review': 'Awaiting your review',
             'group-review-requested': 'Awaiting group review',
@@ -66993,7 +67207,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devReadiness(s) { return (s && s.readiness) || null; },
         devStateStamp(s) {
           const at = this.devReadiness(s) && this.devReadiness(s).lastChecked;
-          return at ? ('checked ' + this.formatRelative(at)) : 'refresh to compare';
+          return at ? ('checked ' + this.formatRelative(at)) : 'not checked yet';
         },
         devReadinessRows(s) {
           const r = this.devReadiness(s);
@@ -67015,16 +67229,22 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             ? { tone: 'warn', mark: '●', title: count + ' uncommitted file' + (count === 1 ? '' : 's'), detail: 'Review Files before committing or pushing.' }
             : { tone: 'ok', mark: '✓', title: 'Working tree is committed', detail: 'No committable files are open.' });
 
+          if (!r) {
+            rows.push({ tone: 'muted', mark: 'i', title: 'Detailed branch comparison has not been checked', detail: 'No problem is implied. Choose Check now to compare the PR checkout and target branch.' });
+            return rows;
+          }
+
           if (!(s && s.prId)) rows.push({ tone: 'muted', mark: '—', title: 'No remote PR branch yet', detail: 'Create or link a PR to compare it.' });
           else if (remote && remote.comparable) {
             rows.push((remote.inSync && !count)
               ? { tone: 'ok', mark: '✓', title: 'Remote PR branch matches local', detail: 'Reviewers can see the current work.' }
               : { tone: remote.behind ? 'bad' : 'warn', mark: remote.behind ? '!' : '●', title: remote.behind ? 'Remote PR branch is ahead of local' : 'Remote PR branch is missing local work', detail: remote.behind ? (remote.behind + ' commit(s) need to be pulled.') : ((remote.ahead || 0) + ' commit(s)' + (count ? ' plus ' + count + ' uncommitted file(s)' : '') + ' are local only.') });
-          } else rows.push({ tone: 'muted', mark: '—', title: 'PR branch comparison unavailable', detail: 'Refresh to fetch the remote PR branch.' });
+          } else rows.push({ tone: 'muted', mark: 'i', title: 'Remote PR branch details are not available', detail: 'No problem is implied; the remote branch could not be resolved during this check.' });
 
           const pw = r && r.prWorktree;
           if (!(s && s.prWorktreePath)) rows.push({ tone: 'muted', mark: '—', title: 'No separate PR worktree', detail: 'The Dev worktree is the only local checkout.' });
-          else if (!pw) rows.push({ tone: 'muted', mark: '—', title: 'PR worktree could not be compared', detail: 'Refresh after the PR worktree is available.' });
+          else if (!pw) rows.push({ tone: 'muted', mark: 'i', title: 'Separate PR checkout is not available locally', detail: 'This does not imply a branch problem; only the checkout-to-checkout comparison was skipped.' });
+          else if (pw.samePath) rows.push({ tone: 'ok', mark: '✓', title: 'PR uses this Dev worktree', detail: 'There is only one local checkout to keep in sync.' });
           else rows.push(pw.equivalent
             ? { tone: 'ok', mark: '✓', title: 'Dev and PR worktrees are equivalent', detail: 'Same HEAD and same uncommitted file contents.' }
             : { tone: 'bad', mark: '!', title: 'Dev and PR worktrees differ', detail: (pw.headSame ? (pw.filesSame ? 'HEAD and paths match; file contents differ.' : 'HEAD matches; changed file sets differ.') : 'HEAD commits differ.') });
@@ -67034,7 +67254,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             rows.push(target.behind
               ? { tone: 'warn', mark: '●', title: 'Branch is ' + target.behind + ' commit' + (target.behind === 1 ? '' : 's') + ' behind ' + (target.branch || 'main'), detail: 'Update from the target branch before review.' }
               : { tone: 'ok', mark: '✓', title: 'Branch includes current ' + (target.branch || 'main'), detail: (target.ahead || 0) + ' feature commit(s) ahead of target.' });
-          } else rows.push({ tone: 'muted', mark: '—', title: 'Target branch comparison unavailable', detail: 'Refresh to compare with main.' });
+          } else rows.push({ tone: 'muted', mark: 'i', title: 'Target branch details are not available', detail: 'No problem is implied; the target ref could not be resolved during this check.' });
           return rows;
         },
         devStateAttentionCount(s) { return this.devReadinessRows(s).filter(x => x.tone === 'warn' || x.tone === 'bad').length; },
