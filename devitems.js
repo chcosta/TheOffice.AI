@@ -1169,10 +1169,10 @@ function _trackedDirty(wt) {
 // INTO the PR branch. It never pushes — the caller pushes separately (steward-only)
 // via pushPrBranch once satisfied. A merge/rebase needs a clean tree, so it refuses
 // (needsClean) when there are uncommitted changes rather than silently stashing.
-// On conflict it aborts cleanly (leaving the worktree usable) and returns
-// { ok:false, conflict:true, strategy } so the UI can offer the other strategy or
-// manual resolution. Returns { ok, message, drift, conflict?, needsClean?, noop? }.
-function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'merge', desc = null } = {}) {
+// On conflict it normally aborts cleanly. Callers that can resolve conflicts
+// automatically may set preserveConflict=true to leave the operation in progress.
+// Returns { ok, message, drift, conflict?, conflicts?, needsClean?, noop? }.
+function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'merge', desc = null, preserveConflict = false } = {}) {
   if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to update.' };
   const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
   const tgt = String(targetBranch || '').replace(/^refs\/heads\//, '').trim();
@@ -1202,18 +1202,82 @@ function updateFromTargetBranch(wt, { sourceBranch, targetBranch, strategy = 'me
     ? _gitTry(['rebase', tgtRef], wt)
     : _gitTry(['merge', '--no-edit', tgtRef], wt);
   if (!res.ok) {
-    // Conflict (or other failure) — abort so the worktree is left clean and usable.
-    _gitTry([mode, '--abort'], wt);
-    const conflict = /conflict/i.test(res.err || '') || /CONFLICT/.test(res.err || '');
+    const conflicts = conflictedFiles(wt);
+    const conflict = conflicts.length > 0;
+    // Non-conflict failures and callers without an automatic resolver retain the
+    // historical behavior: abort and return the worktree to its original state.
+    if (!conflict || !preserveConflict) _gitTry([mode, '--abort'], wt);
     return {
-      ok: false, conflict, strategy: mode,
+      ok: false, conflict, conflicts, strategy: mode,
       message: conflict
-        ? (mode === 'rebase' ? 'Rebase' : 'Merge') + ' onto ' + tgt + ' hit conflicts and was aborted. Try the other strategy or resolve manually in the worktree.'
+        ? (mode === 'rebase' ? 'Rebase' : 'Merge') + ' onto ' + tgt + ' hit conflicts.'
         : (res.err.split('\n').slice(-2).join(' ').slice(0, 300) || (mode + ' failed.'))
     };
   }
   const drift = src ? prDrift(wt, src, { fetch: false, desc }) : null;
   return { ok: true, message: (mode === 'rebase' ? 'Rebased onto ' : 'Merged in ') + tgt + '.', drift };
+}
+
+// Paths that still have unmerged index entries in an in-progress merge/rebase.
+function conflictedFiles(wt) {
+  if (!wt || !_isRepo(wt)) return [];
+  const r = _gitTry(['diff', '--name-only', '--diff-filter=U'], wt);
+  if (!r.ok || !r.out) return [];
+  return r.out.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+}
+
+function _conflictUpdateInProgress(wt, strategy) {
+  if (strategy !== 'rebase') {
+    return _gitTry(['rev-parse', '--verify', '--quiet', 'MERGE_HEAD'], wt).ok;
+  }
+  for (const name of ['rebase-merge', 'rebase-apply']) {
+    const r = _gitTry(['rev-parse', '--git-path', name], wt);
+    if (!r.ok || !r.out) continue;
+    const gitPath = path.isAbsolute(r.out) ? r.out : path.resolve(wt, r.out);
+    if (fs.existsSync(gitPath)) return true;
+  }
+  return false;
+}
+
+function abortConflictUpdate(wt, { strategy = 'merge' } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to abort.' };
+  const mode = strategy === 'rebase' ? 'rebase' : 'merge';
+  if (!_conflictUpdateInProgress(wt, mode)) return { ok: true, noop: true };
+  const r = _gitTry([mode, '--abort'], wt);
+  return r.ok
+    ? { ok: true }
+    : { ok: false, message: r.err.split('\n').slice(-3).join(' ').slice(0, 500) || ('Could not abort the ' + mode + '.') };
+}
+
+// Continue an integration after an external resolver has edited and staged the
+// current conflict set. Rebases can encounter another conflict on a later commit,
+// so callers should repeat resolution while conflict=true.
+function continueConflictUpdate(wt, { strategy = 'merge', targetBranch = '' } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, message: 'No worktree to continue.' };
+  const mode = strategy === 'rebase' ? 'rebase' : 'merge';
+  const pending = conflictedFiles(wt);
+  if (pending.length) {
+    return { ok: false, conflict: true, conflicts: pending, strategy: mode, message: 'Some conflicts are still unresolved.' };
+  }
+  if (!_conflictUpdateInProgress(wt, mode)) {
+    const tgt = String(targetBranch || '').replace(/^refs\/heads\//, '').trim();
+    const integrated = tgt && _gitTry(['merge-base', '--is-ancestor', 'origin/' + tgt, 'HEAD'], wt).ok;
+    return integrated
+      ? { ok: true, strategy: mode, alreadyCompleted: true }
+      : { ok: false, strategy: mode, message: 'The ' + mode + ' is no longer in progress and the target branch is not integrated.' };
+  }
+  const r = mode === 'rebase'
+    ? _gitTry(['-c', 'core.editor=true', 'rebase', '--continue'], wt)
+    : _gitTry(['commit', '--no-edit'], wt);
+  if (r.ok) return { ok: true, strategy: mode };
+  const conflicts = conflictedFiles(wt);
+  return {
+    ok: false,
+    conflict: conflicts.length > 0,
+    conflicts,
+    strategy: mode,
+    message: r.err.split('\n').slice(-3).join(' ').slice(0, 500) || ('Could not continue the ' + mode + '.')
+  };
 }
 
 // Bring the local PR branch up to date with its OWN remote tip by merging (or
@@ -2005,6 +2069,9 @@ module.exports = {
   pushPrBranchSafe,
   syncToPrBranch,
   updateFromTargetBranch,
+  conflictedFiles,
+  continueConflictUpdate,
+  abortConflictUpdate,
   pullPrBranch,
   listWorktrees,
   resolveUsableWorktree,

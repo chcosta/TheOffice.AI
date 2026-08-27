@@ -579,14 +579,15 @@ async function getProject(org, project) {
 // Open a pull request from sourceBranch into targetBranch. When `workItemId` is
 // provided, best-effort links the work item to the new PR (so the PR shows on
 // the work item and vice-versa). The PR is returned regardless of link success.
-async function createPullRequest(org, project, repo, { sourceBranch, targetBranch, title, description, workItemId } = {}) {
+async function createPullRequest(org, project, repo, { sourceBranch, targetBranch, title, description, workItemId, draft = false } = {}) {
   const d = await apiSend(org, `${seg(project)}/_apis/git/repositories/${seg(repo)}/pullrequests?api-version=${API_VERSION}`, {
     method: 'POST',
     body: {
       sourceRefName: 'refs/heads/' + sourceBranch.replace(/^refs\/heads\//, ''),
       targetRefName: 'refs/heads/' + targetBranch.replace(/^refs\/heads\//, ''),
       title: title || 'Add exported agent',
-      description: description || ''
+      description: description || '',
+      isDraft: !!draft
     }
   });
   const webUrl = `https://dev.azure.com/${seg(org)}/${seg(project)}/_git/${seg(repo)}/pullrequest/${d.pullRequestId}`;

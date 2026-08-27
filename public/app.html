@@ -2735,7 +2735,8 @@
     .cf-wt-changes-actions { display:inline-flex; align-items:center; gap:12px; }
     .cf-wt-change-row { display:flex; align-items:baseline; gap:10px; font-family:Consolas,"Courier New",Courier,monospace; font-size:11.5px; }
     .cf-wt-change-st { min-width:64px; color:var(--cp-text-soft); font-weight:600; }
-    .cf-wt-change-path { color:var(--cp-text); word-break:break-all; }
+    .cf-wt-change-path { color:var(--cp-text); word-break:break-all; flex:1; min-width:0; }
+    .cf-wt-change-actions { display:inline-flex; align-items:center; gap:10px; white-space:nowrap; font-family:var(--cp-font); }
     .cf-wt-sync, .cf-wt-push { font-size:12px; padding:4px 12px; }
     .cf-wt-approve { font-size:12px; padding:4px 12px; border-color:var(--cp-success); color:var(--cp-success); }
     .cf-wt-approve:not(:disabled):hover { background:rgba(22,163,74,0.08); }
@@ -10724,7 +10725,8 @@
                                                   <button class="cal-tbtn" type="button" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card on the board)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
-                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s,false)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s,true)" :title="'Push ' + s.repo + ' and create the pull request as a draft'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '…' : 'Draft PR'"></button>
                                                 </div>
                                                 <div class="dcgit">
                                                   <div class="dcgit-head">
@@ -10771,7 +10773,10 @@
                                                             <span class="st" x-text="f.ignored ? 'Ignored' : devFileStatusLabel(f)"></span>
                                                             <template x-if="!f.ignored && !f.deleted"><a class="pth" :href="devStateFileHref(d,s,f)" target="_blank" rel="noopener" x-text="f.rel"></a></template>
                                                             <template x-if="f.ignored || f.deleted"><span class="pth" x-text="f.rel"></span></template>
-                                                            <span class="why" x-text="f.ignored ? 'App-generated / build output' : 'Should be reviewed'"></span>
+                                                            <span class="why">
+                                                              <template x-if="!f.ignored"><button class="quiet-link" type="button" @click="openDevStateFileDiff(d,s,f)">Diff</button></template>
+                                                              <span x-text="f.ignored ? 'App-generated / build output' : ' · Should be reviewed'"></span>
+                                                            </span>
                                                           </div>
                                                         </template>
                                                         <div class="dcgit-empty" x-show="!devStateFiles(s).length">No uncommitted or app-ignored files.</div>
@@ -12870,7 +12875,8 @@
                                                   <button class="cal-tbtn" type="button" title="Open a VS Code window with this branch's diff vs the default branch" :disabled="devBusy[slotBusyKey(d,s)]==='diff'" @click="slotOpen(d,s,'diff')" x-text="devBusy[slotBusyKey(d,s)]==='diff' ? '⏳ Diff…' : '🔍 Diff'"></button>
                                                   <button class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='cleanup'" @click="slotCleanup(d,s)" :title="s.primary ? 'Remove the local git worktree from disk (keeps the dev card)' : 'Remove this repo\'s worktree from disk'" x-text="devBusy[slotBusyKey(d,s)]==='cleanup' ? '🧹…' : '🧹 Clean'"></button>
                                                   <button x-show="!s.prId" class="cal-tbtn" type="button" @click="openSlotLinkPr(d,s)" title="Link an existing pull request to this repo slot">🔗 Link PR</button>
-                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s,false)" :title="'Push ' + s.repo + ' and have AI open a nicely-formatted pull request for this repo'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '🔀…' : '🔀 Create PR'"></button>
+                                                  <button x-show="!s.prId" class="cal-tbtn" type="button" :disabled="devBusy[slotBusyKey(d,s)]==='pr'" @click="slotCreatePr(d,s,true)" :title="'Push ' + s.repo + ' and create the pull request as a draft'" x-text="devBusy[slotBusyKey(d,s)]==='pr' ? '…' : 'Draft PR'"></button>
                                                 </div>
                                                 <div class="dcgit">
                                                   <div class="dcgit-head">
@@ -12917,7 +12923,10 @@
                                                             <span class="st" x-text="f.ignored ? 'Ignored' : devFileStatusLabel(f)"></span>
                                                             <template x-if="!f.ignored && !f.deleted"><a class="pth" :href="devStateFileHref(d,s,f)" target="_blank" rel="noopener" x-text="f.rel"></a></template>
                                                             <template x-if="f.ignored || f.deleted"><span class="pth" x-text="f.rel"></span></template>
-                                                            <span class="why" x-text="f.ignored ? 'App-generated / build output' : 'Should be reviewed'"></span>
+                                                            <span class="why">
+                                                              <template x-if="!f.ignored"><button class="quiet-link" type="button" @click="openDevStateFileDiff(d,s,f)">Diff</button></template>
+                                                              <span x-text="f.ignored ? 'App-generated / build output' : ' · Should be reviewed'"></span>
+                                                            </span>
                                                           </div>
                                                         </template>
                                                         <div class="dcgit-empty" x-show="!devStateFiles(s).length">No uncommitted or app-ignored files.</div>
@@ -25211,6 +25220,10 @@
                                   <div class="cf-wt-change-row">
                                     <span class="cf-wt-change-st" x-text="cfChangeStatusLabel(c.xy)"></span>
                                     <span class="cf-wt-change-path" x-text="c.path"></span>
+                                    <span class="cf-wt-change-actions">
+                                      <button x-show="!String(c.xy || '').includes('D')" class="cf-wt-link" type="button" @click="cfOpenChangedFile(pr,c,'editor')" title="Open this file in VS Code">Open</button>
+                                      <button class="cf-wt-link" type="button" @click="cfOpenChangedFile(pr,c,'diff')" title="Open only this file's diff in VS Code">Diff</button>
+                                    </span>
                                   </div>
                                 </template>
                               </div>
@@ -56639,8 +56652,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         // Update the PR branch FROM its target/base branch (merge or rebase
         // origin/<target> into the worktree). Opposite direction of cfSync. Does
-        // not push. On a conflict the server aborts cleanly and returns 409; we
-        // offer to retry with the other strategy.
+        // not push. The server asks AI to resolve conflicts and only returns 409
+        // when the worktree genuinely needs manual intervention.
         async cfUpdateFromTarget(pr, strategy = 'merge') {
           const key = this.cfPrKey(pr);
           const target = pr.targetBranch;
@@ -56663,6 +56676,15 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 return;
               }
               if (body.conflict) {
+                if (body.aiAttempted) {
+                  const files = (body.conflicts || []).join(', ');
+                  this.showToast('Update from ' + target,
+                    (body.error || 'AI could not safely finish conflict resolution.') +
+                    (files ? ' Manual attention is needed for: ' + files : '') +
+                    (body.operationAborted ? ' The worktree was restored to its pre-update state.' : ' Open the worktree to recover the Git operation.'),
+                    'error');
+                  return;
+                }
                 const other = strategy === 'rebase' ? 'merge' : 'rebase';
                 const ok = await this.uiConfirm('Update from ' + target,
                   (strategy === 'rebase' ? 'Rebase' : 'Merge') + ' onto ' + target +
@@ -56768,6 +56790,29 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (s.indexOf('D') >= 0) return 'deleted';
           if (s.indexOf('R') >= 0) return 'renamed';
           return s || 'changed';
+        },
+        async cfOpenChangedFile(pr, change, target) {
+          const rec = this.cfWt(pr);
+          if (!rec || !rec.worktreePath || !change || !change.path) return;
+          let dir = rec.worktreePath;
+          try {
+            const r = await this.request('/api/codeflow/pr/worktree/open-dir', {
+              method: 'POST',
+              body: JSON.stringify({ org: rec.org, project: rec.project, repo: rec.repo, prId: rec.prId, provider: rec.provider })
+            });
+            if (r && r.dir) dir = r.dir;
+          } catch (e) { /* fall back to the review worktree path */ }
+          try {
+            const resp = await this.request('/api/fs/open', {
+              method: 'POST',
+              body: JSON.stringify({ path: dir, target, file: change.path })
+            });
+            if (target === 'diff' && resp && resp.empty) {
+              this.showToast('Diff', 'No diff was found for ' + change.path + '.', 'info');
+            }
+          } catch (e) {
+            this.showToast(target === 'diff' ? 'Diff' : 'Open file', e.message, 'error');
+          }
         },
         async cfCommit(pr) {
           const key = this.cfPrKey(pr);
@@ -67087,17 +67132,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (rec.confidence === 'high') return rec.readOnly ? 'High confidence \u00b7 read-only, won\u2019t change the PR' : 'High confidence';
           return 'Medium confidence \u00b7 optional';
         },
-        async createDevPr(d) {
+        // Push the branch and have AI open a nicely-formatted PR linked to this dev card.
+        async createDevPr(d, draft = false) {
           if (!d || this.devBusy[d.id]) return;
           if (!d.worktreePath) { this.showToast('Dev card', 'Create a worktree first.', 'error'); return; }
           if (d.prId) { this.showToast('Dev card', 'A PR already exists for this dev card.', 'info'); return; }
           this.devBusy[d.id] = 'pr';
           this.showToast('Dev card', '🔀 Pushing branch and drafting a pull request with AI…', 'info');
           try {
-            const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: '{}' });
+            const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: JSON.stringify({ draft: !!draft }) });
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
-              this.showToast('Dev card', '🔀 Pull request created and linked to this dev card.', 'success');
+              this.showToast('Dev card', '🔀 ' + (draft ? 'Draft pull request' : 'Pull request') + ' created and linked to this dev card.', 'success');
               if (r.stateWarning) {
                 this.showToast('Dev card', r.stateWarning, 'warning');
               } else if (r.dev.workItem && r.dev.workItem.state === 'In PR') {
@@ -67323,6 +67369,18 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devStateFileHref(d, s, f) {
           return this.devFileUrl(d, { ...f, repoId: (s && s.id) || 'primary' });
         },
+        async openDevStateFileDiff(d, s, f) {
+          if (!s || !s.worktreePath || !f || !f.rel) return;
+          try {
+            const r = await this.request('/api/fs/open', {
+              method: 'POST',
+              body: JSON.stringify({ path: s.worktreePath, target: 'diff', file: f.rel })
+            });
+            if (r && r.empty) this.showToast('Diff', 'No diff was found for ' + f.rel + '.', 'info');
+          } catch (e) {
+            this.showToast('Diff', (e && e.message) || 'Could not open the file diff.', 'error');
+          }
+        },
         devBaseFileName(rel) { return String(rel || '').replace(/\\/g, '/').split('/').pop() || rel || ''; },
         devRemoteStateText(s) {
           const x = this.devReadiness(s) && this.devReadiness(s).remote;
@@ -67348,7 +67406,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         slotOpen(d, s, target) { return (s && s.primary) ? this.openDevItem(d, target) : this.openDevSlot(d, s, target); },
         slotSync(d, s) { return (s && s.primary) ? this.syncDevItem(d) : this.syncDevSlot(d, s); },
         slotCleanup(d, s) { return (s && s.primary) ? this.cleanupDevWorktree(d) : this.cleanupDevSlot(d, s); },
-        slotCreatePr(d, s) { return (s && s.primary) ? this.createDevPr(d) : this.createDevSlotPr(d, s); },
+        slotCreatePr(d, s, draft = false) { return (s && s.primary) ? this.createDevPr(d, draft) : this.createDevSlotPr(d, s, draft); },
         async slotUpdateFromTarget(d, s, strategy = 'merge') {
           if (!d || !s) return;
           const key = this.slotBusyKey(d, s);
@@ -67360,29 +67418,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             body: JSON.stringify({ repoId: s.id, strategy: mode })
           });
           try {
-            let r;
-            try {
-              r = await run(strategy);
-            } catch (e) {
-              const body = (e && e.body) || {};
-              if (e && e.status === 409 && body.needsClean) {
-                this.devSetStateTab(d, s, 'files');
-                this.showToast('Update from ' + target, 'Review and commit the uncommitted files first, then try again.', 'error');
-                return;
-              }
-              if (!(e && e.status === 409 && body.conflict)) throw e;
-              const other = strategy === 'rebase' ? 'merge' : 'rebase';
-              const retry = await this.uiConfirm('Update from ' + target,
-                (strategy === 'rebase' ? 'Rebase' : 'Merge') + ' hit conflicts and was aborted. Try a ' + other + ' instead?');
-              if (!retry) {
-                this.showToast('Update from ' + target, 'No changes were made. Resolve manually from the worktree if needed.', 'error');
-                return;
-              }
-              r = await run(other);
-            }
+            const r = await run(strategy);
             if (r && r.dev) this._applyDevUpdate(d.id, r.dev);
             this.showToast('Update from ' + target, (r && r.message) || 'Branch updated locally.', 'success');
           } catch (e) {
+            const body = (e && e.body) || {};
+            if (e && e.status === 409 && body.needsClean) {
+              this.devSetStateTab(d, s, 'files');
+              this.showToast('Update from ' + target, 'Review and commit the uncommitted files first, then try again.', 'error');
+              return;
+            }
+            if (e && e.status === 409 && body.aiAttempted) {
+              const files = (body.conflicts || []).join(', ');
+              this.showToast('Update from ' + target,
+                (body.error || 'AI could not safely finish conflict resolution.') +
+                (files ? ' Manual attention is needed for: ' + files : '') +
+                (body.operationAborted ? ' The worktree was restored to its pre-update state.' : ' Open the worktree to recover the Git operation.'),
+                'error');
+              return;
+            }
             this.showToast('Update from ' + target, (e && e.message) || 'Update failed.', 'error');
           } finally {
             delete this.devBusy[key];
@@ -67471,7 +67525,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return norm(pr.sourceBranch) !== norm(s.branch);
         },
         // Create a PR for an extra repo slot (slot-aware /pr via repoId).
-        async createDevSlotPr(d, s) {
+        async createDevSlotPr(d, s, draft = false) {
           if (!d || !s) return;
           const key = d.id + '#' + s.id;
           if (this.devBusy[key]) return;
@@ -67480,10 +67534,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.devBusy[key] = 'pr';
           this.showToast('Dev card', '🔀 Pushing ' + s.repo + ' and drafting a pull request with AI…', 'info');
           try {
-            const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: JSON.stringify({ repoId: s.id }) });
+            const r = await this.request(this._devUrl(d, 'pr'), { method: 'POST', body: JSON.stringify({ repoId: s.id, draft: !!draft }) });
             if (r && r.dev) {
               this._applyDevUpdate(d.id, r.dev);
-              this.showToast('Dev card', '🔀 Pull request created for ' + s.repo + '.', 'success');
+              this.showToast('Dev card', '🔀 ' + (draft ? 'Draft pull request' : 'Pull request') + ' created for ' + s.repo + '.', 'success');
               if (r.stateWarning) this.showToast('Dev card', r.stateWarning, 'warning');
             } else {
               this.showToast('Dev card', 'PR creation returned no result — try again.', 'error');

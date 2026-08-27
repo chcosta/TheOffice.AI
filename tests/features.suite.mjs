@@ -717,6 +717,32 @@ await t.test('dev cards: readiness issues expose the operation that resolves the
     'the redundant worktree toolbar Sync button is removed');
   t.ok(/Show local \/ remote commits/.test(html),
     'commit evidence remains available from Branch relationship');
+  t.ok(/_cfAiResolveUpdateConflicts\(slot\.worktreePath/.test(server) &&
+    /manualRequired:\s*true/.test(server) &&
+    /operationAborted:/.test(server),
+    'target updates ask AI to resolve conflicts and restore the worktree before requiring manual help');
+  t.eq((html.match(/@click="openDevStateFileDiff\(d,s,f\)"/g) || []).length, 2,
+    'both readiness file lists expose a per-file diff action');
+  t.ok(/body:\s*JSON\.stringify\(\{\s*path:\s*s\.worktreePath,\s*target:\s*'diff',\s*file:\s*f\.rel\s*\}\)/.test(html),
+    'the file diff action requests only the selected worktree file');
+});
+
+await t.test('dev cards: pull requests can be created as drafts', () => {
+  const server = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  const github = readFileSync('github.js', 'utf8');
+  const azdo = readFileSync('azdo.js', 'utf8');
+  t.eq((html.match(/@click="slotCreatePr\(d,s,true\)"/g) || []).length, 2,
+    'both duplicated Dev Card surfaces offer Draft PR');
+  t.ok(/async createDevPr\(d, draft = false\)/.test(html) &&
+    /slotCreatePr\(d, s, draft = false\)/.test(html) &&
+    /body:\s*JSON\.stringify\(\{\s*draft/.test(html),
+    'the selected draft mode is sent through the Dev Card PR request');
+  t.ok(/const draft = !!\(req\.body && req\.body\.draft\)/.test(server) &&
+    /_devCreatePullRequest\(_devDesc\(slot\),\s*\{[\s\S]{0,300}\bdraft\b/.test(server),
+    'the Dev Card PR route passes draft mode to the forge provider');
+  t.ok(/\bdraft:\s*!!draft/.test(github), 'GitHub PR creation emits draft');
+  t.ok(/\bisDraft:\s*!!draft/.test(azdo), 'Azure DevOps PR creation emits isDraft');
 });
 
 await t.test('server: _rescanDevFiles aggregates live worktree files + a repo-scoped serve route', () => {

@@ -1100,10 +1100,10 @@ async function uploadImageToBranch(owner, repo, { branch, path: repoPath, base64
   return { url: raw, downloadUrl: (d.content && d.content.download_url) || raw };
 }
 
-async function createPullRequest(owner, _project, repo, { sourceBranch, targetBranch, title, description } = {}) {
+async function createPullRequest(owner, _project, repo, { sourceBranch, targetBranch, title, description, draft = false } = {}) {
   const d = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`, {
     method: 'POST',
-    body: { title: title || 'Update', head: sourceBranch, base: targetBranch, body: description || '' }
+    body: { title: title || 'Update', head: sourceBranch, base: targetBranch, body: description || '', draft: !!draft }
   });
   return { id: d.number, url: d.html_url, webUrl: d.html_url };
 }
