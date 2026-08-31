@@ -3986,6 +3986,10 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   // Computed (not persisted) enrichments for the card: agent-file presence,
   // cached review-report history, and the uncommitted-change breakdown.
   const extra = {};
+  if (rec.reviewStatus === 'reviewing') {
+    extra.reviewLive = _cfActiveReviews.has(key);
+    if (extra.reviewLive) extra.reviewHeartbeatAt = new Date().toISOString();
+  }
   try { Object.assign(extra, _cfAgentPresence(rec)); } catch {}
   try { extra.reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, _cfWtDevId(o)) || []; } catch { extra.reportHistory = []; }
   if (wc) {

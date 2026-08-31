@@ -295,6 +295,13 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /cfReviewMeta\(pr\)/.test(html) &&
     /cfReviewActivity\(pr\)/.test(html),
     'PR cards render current work, model, reasoning effort, elapsed time, and recent activity');
+  t.ok(/extra\.reviewLive = _cfActiveReviews\.has\(key\)/.test(server) &&
+    /extra\.reviewHeartbeatAt = new Date\(\)\.toISOString\(\)/.test(server),
+    'status polls include a live server heartbeat for an in-process review');
+  t.ok(/AI process active · server heartbeat received/.test(html) &&
+    /No recent heartbeat · checking whether the review stalled/.test(html) &&
+    /cfReviewTitle\(pr\)/.test(html),
+    'the card explicitly distinguishes active work from a possibly stalled review');
   t.ok(/const maxPolls = Math\.ceil/.test(html) &&
     /reviewTimeoutMinutes/.test(html),
     'browser polling follows the configured review window instead of silently stopping after 15 minutes');
