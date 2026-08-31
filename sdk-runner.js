@@ -115,6 +115,16 @@ class SdkRunner {
     this._usageSink = typeof fn === 'function' ? fn : null;
   }
 
+  _reasoningEffort(category, config, explicit) {
+    if (explicit) return explicit;
+    try {
+      const settings = require('./settings');
+      return settings.resolveReasoningEffort(category, config);
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   /**
    * Emit one usage ledger row for a completed run. Never throws. Skips when no
    * sink is registered or the caller opted out via meta.record === false.
@@ -628,7 +638,7 @@ class SdkRunner {
    * On a resolution failure the result has fallback:true so the caller can
    * record a terminal failure (no CLI fallback remains).
    */
-  async runAgent({ config, prompt, sessionId, onChunk, model, meta }) {
+  async runAgent({ config, prompt, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -641,6 +651,9 @@ class SdkRunner {
       onPermissionRequest: config.allowAll !== false ? approveAll : deny,
     };
     if (model) opts.model = model;
+    const effort = this._reasoningEffort('execution', config, reasoningEffort);
+    if (effort) opts.reasoningEffort = effort;
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
     opts.__meta = meta || { source: 'agent', category: 'agents_tasks' };
 
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
@@ -667,7 +680,7 @@ class SdkRunner {
       this._applyOverlayCaps(opts, config);
     }
 
-    return this._execute(opts, prompt, sessionId, onChunk);
+    return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }
 
   /**
@@ -677,7 +690,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runPrompt({ prompt, cwd, sessionId, onChunk, model, meta }) {
+  async runPrompt({ prompt, cwd, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -688,8 +701,11 @@ class SdkRunner {
       onPermissionRequest: approveAll,
     };
     if (model) opts.model = model;
+    const effort = this._reasoningEffort('system', null, reasoningEffort);
+    if (effort) opts.reasoningEffort = effort;
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
     opts.__meta = meta || { source: 'system', category: 'system' };
-    return this._execute(opts, prompt, sessionId, onChunk);
+    return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }
 
   /**
@@ -703,7 +719,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, availableTools, meta, onPermissionRequest }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, reasoningEffort, timeoutMs, availableTools, meta, onPermissionRequest }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
@@ -722,6 +738,9 @@ class SdkRunner {
       onPermissionRequest: permHandler,
     };
     if (model) opts.model = model;
+    const effort = this._reasoningEffort('chat', config, reasoningEffort);
+    if (effort) opts.reasoningEffort = effort;
+    if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
     // Default chat turns to the chat/system buckets; callers override via meta.
     opts.__meta = meta || { source: 'chat', category: 'chat' };
     // Optional tool gate: pass availableTools:[] for a pure text-generation turn
@@ -805,6 +824,7 @@ class SdkRunner {
     const resume = !!opts.__resume;
     const keepAlive = !!opts.__keepAlive;
     const meta = opts.__meta || null;
+    const timeoutMs = Number.isFinite(opts.__timeoutMs) && opts.__timeoutMs > 0 ? opts.__timeoutMs : this._timeoutMs;
     const explicitAtts = Array.isArray(opts.__attachments) && opts.__attachments.length
       ? opts.__attachments
       : null;
@@ -813,6 +833,7 @@ class SdkRunner {
     delete sessionOpts.__keepAlive;
     delete sessionOpts.__meta;
     delete sessionOpts.__attachments;
+    delete sessionOpts.__timeoutMs;
 
     let session = null;
     let entry = null;
@@ -825,6 +846,16 @@ class SdkRunner {
         entry = this._liveSessions.get(sessionId);
         if (entry.timer) clearTimeout(entry.timer);
         session = entry.session;
+        // A live chat session otherwise keeps the model/effort it was created
+        // with forever. Apply settings changes before the next turn.
+        const requestedModel = opts.model || entry.model;
+        const modelChanged = !!requestedModel && requestedModel !== entry.model;
+        const effortChanged = !!requestedModel && opts.reasoningEffort !== entry.reasoningEffort;
+        if ((modelChanged || effortChanged) && typeof session.setModel === 'function') {
+          await session.setModel(requestedModel, opts.reasoningEffort ? { reasoningEffort: opts.reasoningEffort } : undefined);
+          entry.model = requestedModel;
+          entry.reasoningEffort = opts.reasoningEffort || '';
+        }
       } else {
         session = resume
           ? await client.resumeSession(sessionId, sessionOpts)
@@ -897,7 +928,7 @@ class SdkRunner {
         // explicitly-provided list, else derive from the injected chat-attachment block.
         const atts = explicitAtts || this._imageAttachmentsFromPrompt(prompt);
         const payload = (atts && atts.length) ? { prompt, attachments: atts } : { prompt };
-        await session.sendAndWait(payload, this._timeoutMs);
+        await session.sendAndWait(payload, timeoutMs);
       } catch (e) {
         code = 1;
         error = e && e.message ? e.message : String(e);
@@ -993,6 +1024,8 @@ class SdkRunner {
         if (!entry) entry = {};
         entry.session = session;
         entry.lastUsed = Date.now();
+        entry.model = usedModel || opts.model || entry.model || '';
+        entry.reasoningEffort = opts.reasoningEffort || '';
         this._liveSessions.set(sessionId, entry);
         this._scheduleEvict(sessionId, entry);
       }

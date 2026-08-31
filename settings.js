@@ -26,6 +26,12 @@ const DEFAULTS = {
   chatModel: '',
   executionModel: '',
   systemModel: '',
+  chatReasoningEffort: '',
+  executionReasoningEffort: '',
+  systemReasoningEffort: '',
+  // Code Flow reviews are intentionally configurable separately from the global
+  // SDK timeout because large PRs can need longer while most AI calls should not.
+  codeflowReviewTimeoutMinutes: 30,
   // Reports: equivalent USD cost per premium request (AIC). GitHub's documented
   // overage rate is $0.04/premium request; adjust in Settings to match your plan.
   costPerPremiumRequest: 0.04,
@@ -421,6 +427,12 @@ const CATEGORY_KEY = {
   execution: 'executionModel',
   system: 'systemModel',
 };
+const CATEGORY_EFFORT_KEY = {
+  chat: 'chatReasoningEffort',
+  execution: 'executionReasoningEffort',
+  system: 'systemReasoningEffort',
+};
+const REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 
 /**
  * Resolve the model id to use for a run.
@@ -435,6 +447,14 @@ function resolveModel(category, config) {
   const key = CATEGORY_KEY[category];
   const def = key ? (getSettings()[key] || '').trim() : '';
   return def || undefined;
+}
+
+function resolveReasoningEffort(category, config) {
+  const explicit = config && typeof config.reasoningEffort === 'string' ? config.reasoningEffort.trim().toLowerCase() : '';
+  if (REASONING_EFFORTS.has(explicit)) return explicit;
+  const key = CATEGORY_EFFORT_KEY[category];
+  const def = key ? String(getSettings()[key] || '').trim().toLowerCase() : '';
+  return REASONING_EFFORTS.has(def) ? def : undefined;
 }
 
 // Equivalent USD cost per premium request (AIC) used by the Reports system.
@@ -470,6 +490,7 @@ module.exports = {
   reload,
   updateSettings,
   resolveModel,
+  resolveReasoningEffort,
   getCostPerPremiumRequest,
   isExternalAccessDisabled,
   isExternalAccessLocked,

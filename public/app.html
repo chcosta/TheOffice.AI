@@ -2750,6 +2750,14 @@
     .cf-agent-dot { width:7px; height:7px; border-radius:50%; background:currentColor; flex:0 0 auto; }
     .cf-agent-reports { display:flex; flex-direction:column; gap:6px; margin-top:8px; }
     .cf-agent-reports > .cf-wt-report { align-self:flex-start; }
+    .cf-review-progress { margin-top:10px; padding:10px 12px; border-left:2px solid var(--cp-accent); background:var(--cp-surface-soft); }
+    .cf-review-progress-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+    .cf-review-progress-title { font-size:12.5px; font-weight:700; color:var(--cp-text); }
+    .cf-review-progress-meta { font-size:10.5px; color:var(--cp-text-soft); white-space:nowrap; }
+    .cf-review-progress-detail { margin-top:3px; font-size:11.5px; color:var(--cp-text-muted); }
+    .cf-review-activity { display:flex; flex-direction:column; gap:3px; margin-top:8px; padding-top:7px; border-top:1px solid var(--cp-border); }
+    .cf-review-activity-row { display:grid; grid-template-columns:58px minmax(0,1fr); gap:8px; font-size:10.5px; color:var(--cp-text-muted); }
+    .cf-review-activity-time { color:var(--cp-text-soft); }
     /* Git pane */
     .cf-git-empty { display:flex; align-items:center; gap:12px; font-size:12.5px; }
     .cf-git-state { display:flex; flex-direction:column; gap:5px; margin-bottom:10px; padding:8px 12px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
@@ -25078,6 +25086,21 @@
                         <span class="cf-wt-status" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'" x-text="cfWtStatusText(pr)"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="(cfWt(pr) && cfWt(pr).error) || 'Worktree failed'"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr) && cfWt(pr).reviewError"></span>
+                        <div class="cf-review-progress" x-show="cfReviewing(pr)">
+                          <div class="cf-review-progress-head">
+                            <span class="cf-review-progress-title" x-text="(cfWt(pr) && cfWt(pr).reviewProgress) || 'Starting AI review'"></span>
+                            <span class="cf-review-progress-meta" x-text="cfReviewMeta(pr)"></span>
+                          </div>
+                          <div class="cf-review-progress-detail" x-show="cfWt(pr) && cfWt(pr).reviewProgressDetail" x-text="cfWt(pr) && cfWt(pr).reviewProgressDetail"></div>
+                          <div class="cf-review-activity" x-show="cfReviewActivity(pr).length">
+                            <template x-for="a in cfReviewActivity(pr)" :key="a.at + a.label">
+                              <div class="cf-review-activity-row">
+                                <span class="cf-review-activity-time" x-text="formatRelative(a.at)"></span>
+                                <span><b x-text="a.label"></b><span x-show="a.detail" x-text="' · ' + a.detail"></span></span>
+                              </div>
+                            </template>
+                          </div>
+                        </div>
                         </div>
                         <div class="cf-subsec" x-show="prReadyWt(pr) || prAgentList(pr).length" x-init="recommendPrAgents(pr)">
                         <div class="cf-subhead">🎭 Playbook agents</div>
@@ -25337,6 +25360,13 @@
                           </template>
                           <span class="cf-wt-err" x-show="cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError"
                                 x-text="cfWt(pr).reviewError"></span>
+                          <div class="cf-review-progress" style="flex-basis:100%" x-show="cfReviewing(pr)">
+                            <div class="cf-review-progress-head">
+                              <span class="cf-review-progress-title" x-text="cfWt(pr).reviewProgress || 'Starting AI review'"></span>
+                              <span class="cf-review-progress-meta" x-text="cfReviewMeta(pr)"></span>
+                            </div>
+                            <div class="cf-review-progress-detail" x-show="cfWt(pr).reviewProgressDetail" x-text="cfWt(pr).reviewProgressDetail"></div>
+                          </div>
                         </div>
                         <div class="cf-wt-ready-util">
                           <button class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="refreshCfReview(pr)"
@@ -28947,33 +28977,63 @@
               <div style="display:grid;grid-template-columns:1fr;gap:14px;max-width:520px">
                 <div>
                   <label class="field-label">💬 Chat</label>
-                  <select class="field-input" x-model="modelSettings.chatModel" @change="saveModelSettings()">
+                  <select class="field-input" x-model="modelSettings.chatModel" @change="normalizeModelEffort('chat'); saveModelSettings()">
                     <option value="">Runtime default</option>
                     <template x-for="m in models" :key="m.id">
                       <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
+                    </template>
+                  </select>
+                  <select class="field-input" style="margin-top:7px" x-model="modelSettings.chatReasoningEffort" @change="saveModelSettings()">
+                    <option value="">Reasoning: model default</option>
+                    <template x-for="e in modelEffortOptions('chat')" :key="'chat-'+e.value">
+                      <option :value="e.value" x-text="'Reasoning: ' + e.label"></option>
                     </template>
                   </select>
                   <p class="hint" style="margin-top:6px">Ad-hoc agent &amp; manager conversations (SPA and mobile).</p>
                 </div>
                 <div>
                   <label class="field-label">⚙️ Executions</label>
-                  <select class="field-input" x-model="modelSettings.executionModel" @change="saveModelSettings()">
+                  <select class="field-input" x-model="modelSettings.executionModel" @change="normalizeModelEffort('execution'); saveModelSettings()">
                     <option value="">Runtime default</option>
                     <template x-for="m in models" :key="m.id">
                       <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
+                    </template>
+                  </select>
+                  <select class="field-input" style="margin-top:7px" x-model="modelSettings.executionReasoningEffort" @change="saveModelSettings()">
+                    <option value="">Reasoning: model default</option>
+                    <template x-for="e in modelEffortOptions('execution')" :key="'execution-'+e.value">
+                      <option :value="e.value" x-text="'Reasoning: ' + e.label"></option>
                     </template>
                   </select>
                   <p class="hint" style="margin-top:6px">Scheduled/triggered agent runs, tasks, flow steps and manager sub-agents.</p>
                 </div>
                 <div>
                   <label class="field-label">🤖 System AI</label>
-                  <select class="field-input" x-model="modelSettings.systemModel" @change="saveModelSettings()">
+                  <select class="field-input" x-model="modelSettings.systemModel" @change="normalizeModelEffort('system'); saveModelSettings()">
                     <option value="">Runtime default</option>
                     <template x-for="m in models" :key="m.id">
                       <option :value="m.id" x-text="m.name + (m.multiplier ? '  ·  ' + m.multiplier + '×' : '')"></option>
                     </template>
                   </select>
+                  <select class="field-input" style="margin-top:7px" x-model="modelSettings.systemReasoningEffort" @change="saveModelSettings()">
+                    <option value="">Reasoning: model default</option>
+                    <template x-for="e in modelEffortOptions('system')" :key="'system-'+e.value">
+                      <option :value="e.value" x-text="'Reasoning: ' + e.label"></option>
+                    </template>
+                  </select>
                   <p class="hint" style="margin-top:6px">The manager "brain" and flow AI condition/judge evaluators.</p>
+                </div>
+                <div>
+                  <label class="field-label">Code Flow AI review timeout</label>
+                  <select class="field-input" x-model.number="modelSettings.codeflowReviewTimeoutMinutes" @change="saveModelSettings()">
+                    <option :value="10">10 minutes</option>
+                    <option :value="20">20 minutes</option>
+                    <option :value="30">30 minutes</option>
+                    <option :value="45">45 minutes</option>
+                    <option :value="60">60 minutes</option>
+                    <option :value="90">90 minutes</option>
+                  </select>
+                  <p class="hint" style="margin-top:6px">A review stops cleanly after this limit. Use Fast reasoning before raising the timeout for routine PRs.</p>
                 </div>
               </div>
               <p class="hint" x-show="modelsError" style="margin-top:12px;color:var(--danger,#dc2626)" x-text="modelsError"></p>
@@ -33822,7 +33882,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         chatContinueInfo: null,
         syncStatus: { enabled: false, machineId: '', hostname: '' },
         models: [],
-        modelSettings: { chatModel: '', executionModel: '', systemModel: '' },
+        modelSettings: {
+          chatModel: '', executionModel: '', systemModel: '',
+          chatReasoningEffort: '', executionReasoningEffort: '', systemReasoningEffort: '',
+          codeflowReviewTimeoutMinutes: 30
+        },
         exportSettings: { exportOrg: '', exportProject: '', exportRepo: '', exportBranch: '' },
         exportSettingsSaved: false,
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
@@ -39420,7 +39484,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               this.modelSettings = {
                 chatModel: s.chatModel || '',
                 executionModel: s.executionModel || '',
-                systemModel: s.systemModel || ''
+                systemModel: s.systemModel || '',
+                chatReasoningEffort: s.chatReasoningEffort || '',
+                executionReasoningEffort: s.executionReasoningEffort || '',
+                systemReasoningEffort: s.systemReasoningEffort || '',
+                codeflowReviewTimeoutMinutes: Number(s.codeflowReviewTimeoutMinutes) || 30
               };
               this.exportSettings = {
                 exportOrg: s.exportOrg || '',
@@ -39967,7 +40035,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (next) this.modelSettings = {
               chatModel: next.chatModel || '',
               executionModel: next.executionModel || '',
-              systemModel: next.systemModel || ''
+              systemModel: next.systemModel || '',
+              chatReasoningEffort: next.chatReasoningEffort || '',
+              executionReasoningEffort: next.executionReasoningEffort || '',
+              systemReasoningEffort: next.systemReasoningEffort || '',
+              codeflowReviewTimeoutMinutes: Number(next.codeflowReviewTimeoutMinutes) || 30
             };
             this.modelsError = '';
             this.modelsSaved = true;
@@ -39975,6 +40047,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (err) {
             this.modelsError = 'Could not save: ' + err.message;
           }
+        },
+        modelEffortOptions(category) {
+          const modelId = this.modelSettings[category + 'Model'];
+          if (!modelId) return [];
+          const model = (this.models || []).find(m => m.id === modelId);
+          const labels = {
+            none: 'Fastest (none)', minimal: 'Very fast (minimal)', low: 'Fast',
+            medium: 'Balanced', high: 'Thorough', xhigh: 'Deep', max: 'Maximum'
+          };
+          return ((model && model.reasoningEfforts) || []).map(value => ({
+            value, label: labels[value] || value
+          }));
+        },
+        normalizeModelEffort(category) {
+          const key = category + 'ReasoningEffort';
+          const allowed = this.modelEffortOptions(category).map(e => e.value);
+          if (!allowed.includes(this.modelSettings[key])) this.modelSettings[key] = '';
         },
 
         // --- Cloud Sync methods ---
@@ -56434,13 +56523,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const rec = this.cfWt(pr);
           return this.cfBusy(pr) === 'review' || !!(rec && rec.reviewStatus === 'reviewing');
         },
+        cfReviewActivity(pr) {
+          const rec = this.cfWt(pr);
+          return rec && Array.isArray(rec.reviewActivity) ? rec.reviewActivity.slice(-5).reverse() : [];
+        },
+        cfReviewMeta(pr) {
+          const rec = this.cfWt(pr) || {};
+          const started = Date.parse(rec.reviewStartedAt || '') || 0;
+          const elapsed = started ? Math.max(0, Math.floor((Date.now() - started) / 1000)) : 0;
+          const elapsedText = elapsed >= 60 ? (Math.floor(elapsed / 60) + 'm ' + (elapsed % 60) + 's') : (elapsed + 's');
+          return [rec.reviewModel, rec.reviewReasoningEffort ? rec.reviewReasoningEffort + ' reasoning' : '', elapsedText]
+            .filter(Boolean).join(' · ');
+        },
         // One-click: create the worktree if needed, then run the review agent to
         // produce the report. Surfaces the report on this card when it's ready.
         async reviewWithAi(pr) {
           const key = this.cfPrKey(pr);
           this.codeflow.wtBusy[key] = 'review';
           try {
-            await this.request('/api/codeflow/pr/review', {
+            const started = await this.request('/api/codeflow/pr/review', {
               method: 'POST',
               body: JSON.stringify({ org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider, view: this.cfMode(pr) }),
               timeoutMs: 0
@@ -56448,7 +56549,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Optimistic reviewing record so the card shows progress immediately.
             this.codeflow.worktrees[key] = Object.assign({
               org: pr.org, project: pr.project, repo: pr.repo, prId: pr.id, provider: pr.provider
-            }, this.codeflow.worktrees[key], { reviewStatus: 'reviewing', reviewError: null });
+            }, this.codeflow.worktrees[key], started && started.worktree, {
+              reviewStatus: 'reviewing',
+              reviewError: null,
+              reviewStartedAt: new Date().toISOString(),
+              reviewPhase: 'starting',
+              reviewProgress: 'Starting AI review',
+              reviewProgressDetail: 'The server is loading the PR and preparing the reviewer'
+            });
             this._pollCfReview(key);
           } catch (e) {
             this.showToast('Review with AI', e.message, 'error');
@@ -56463,7 +56571,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const q = '?org=' + encodeURIComponent(rec0.org) + '&project=' + encodeURIComponent(rec0.project || '') +
             '&repo=' + encodeURIComponent(rec0.repo) + '&prId=' + encodeURIComponent(rec0.prId) +
             '&provider=' + encodeURIComponent(rec0.provider || '');
-          for (let i = 0; i < 300; i++) {
+          const maxPolls = Math.ceil((((Number(rec0.reviewTimeoutMinutes) || 30) + 5) * 60) / 3);
+          for (let i = 0; i < maxPolls; i++) {
             await new Promise(r => setTimeout(r, 3000));
             let resp;
             try { resp = await this.request('/api/codeflow/pr/worktree' + q); }

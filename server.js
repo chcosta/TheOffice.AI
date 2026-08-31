@@ -395,7 +395,7 @@ function _saveCodeflowCheckpoint(key, value) {
 // live set is empty so every 'reviewing' is by definition orphaned, and during
 // the process a run that blows a generous hard cap is treated as hung.
 const _cfActiveReviews = new Set();            // wt keys with a run live in THIS process
-const CF_REVIEW_MAX_MS = 60 * 60 * 1000;       // hard cap: 60 min even if flagged active
+const CF_REVIEW_MAX_MS = 60 * 60 * 1000;       // fallback cap for records created before configurable timeouts
 // A plain "Create worktree" (no review) also persists worktreeStatus:'creating'
 // BEFORE its fire-and-forget clone starts, with no reviewStatus alongside it. That
 // clone can't survive a restart either, so track live creates the same way we track
@@ -418,7 +418,10 @@ function _reconcileStaleReviews() {
       let orphaned = true;
       if (_cfActiveReviews.has(k)) {
         const started = Date.parse(r.reviewStartedAt || r.updatedAt || '') || 0;
-        if (started && (now - started) < CF_REVIEW_MAX_MS) orphaned = false;
+        const configuredMs = Number(r.reviewTimeoutMinutes) > 0
+          ? Math.min(120, Math.max(5, Number(r.reviewTimeoutMinutes))) * 60 * 1000 + 5 * 60 * 1000
+          : CF_REVIEW_MAX_MS;
+        if (started && (now - started) < configuredMs) orphaned = false;
       }
       if (orphaned) {
         patch.reviewStatus = 'error';
@@ -4258,6 +4261,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   // remembered view, else default to read-only review.
   const view = String(b.view || (rec && rec.view) || '').toLowerCase() === 'mine' ? 'mine' : 'reviews';
   const steward = view === 'mine';
+  const model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined;
+  const reasoningEffort = (settings.resolveReasoningEffort && settings.resolveReasoningEffort('execution', null)) || undefined;
+  const configuredTimeout = Number(settings.getSettings().codeflowReviewTimeoutMinutes);
+  const reviewTimeoutMinutes = Number.isFinite(configuredTimeout) ? Math.min(120, Math.max(5, configuredTimeout)) : 30;
   const haveWt = !!(rec && rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath));
   rec = _saveCfWt(key, {
     org: o.org, project: o.project, repo: o.repo, prId: pr.id, view, provider: o.provider || 'azdo',
@@ -4265,14 +4272,46 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
     sourceBranch: pr.sourceBranch, targetBranch: pr.targetBranch || '',
     prStatus: String(pr.status || '').toLowerCase(),
     reviewStatus: 'reviewing', reviewError: null, reviewStartedAt: new Date().toISOString(),
+    reviewPhase: haveWt ? 'context' : 'worktree',
+    reviewProgress: haveWt ? 'Reading the pull request and linked context' : 'Creating an isolated review worktree',
+    reviewActivity: [],
+    reviewModel: model || 'Runtime default',
+    reviewReasoningEffort: reasoningEffort || 'model default',
+    reviewTimeoutMinutes,
     ...(haveWt ? {} : { worktreeStatus: 'creating', error: null })
   });
-  res.json({ ok: true, status: 'reviewing', key });
+  res.json({ ok: true, status: 'reviewing', key, worktree: { key, ...rec } });
   _cfActiveReviews.add(key);   // mark live so the stale-review watchdog leaves it alone
   (async () => {
+    let lastProgressAt = 0;
+    let responseStarted = false;
+    const progress = (phase, label, detail, force = false) => {
+      const now = Date.now();
+      if (!force && now - lastProgressAt < 750) return;
+      lastProgressAt = now;
+      const current = _getCfWt(key) || {};
+      const activity = Array.isArray(current.reviewActivity) ? current.reviewActivity.slice(-7) : [];
+      if (!activity.length || activity[activity.length - 1].label !== label || activity[activity.length - 1].detail !== detail) {
+        activity.push({ at: new Date(now).toISOString(), label, detail: detail || '' });
+      }
+      _saveCfWt(key, {
+        reviewPhase: phase,
+        reviewProgress: label,
+        reviewProgressDetail: detail || '',
+        reviewProgressAt: new Date(now).toISOString(),
+        reviewActivity: activity.slice(-8)
+      });
+    };
+    const onStep = (step) => {
+      if (!step) return;
+      if (step.kind === 'tool_start') progress('reviewing', 'Inspecting the pull request', 'Using ' + (step.tool || 'a repository tool'));
+      else if (step.kind === 'tool_complete' && step.success === false) progress('reviewing', 'A review step failed', (step.tool || 'Repository tool') + ' returned an error', true);
+      else if (step.kind === 'agent') progress('reviewing', 'Delegating a focused check', step.name || 'Sub-agent');
+    };
     try {
       // 1. Ensure the worktree (create detached if we don't already have one).
       if (!haveWt) {
+        progress('worktree', 'Creating an isolated review worktree', pr.sourceBranch, true);
         const r = await devitems.createWorktreeAsync({
           org: o.org, project: o.project, repo: o.repo, provider: o.provider,
           baseBranch: pr.targetBranch, branch: pr.sourceBranch, devId, detach: true
@@ -4286,6 +4325,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       if (!wtPath || !fs.existsSync(wtPath)) throw new Error('Worktree is not available.');
       // 2. Write/refresh the agent file (grounded with linked work items; the
       //    steward also gets the actual unresolved reviewer feedback to address).
+      progress('context', 'Loading PR context', 'Linked work items, active feedback, and repository guidance', true);
       let workItems = [];
       try { workItems = await forge(o).getPrWorkItems(o.org, o.project, o.repo, o.prId); } catch {}
       let threads = [];
@@ -4300,12 +4340,21 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       const kickoff = steward
         ? 'Tend your pull request now. Work through every step in order: understand the goals, analyze the diff, ADDRESS EVERY active reviewer comment (fix the code or draft a reply), go above and beyond to harden the change and prevent regressions, then VALIDATE by running the repo\'s existing build/lint/tests until they pass. COMMIT your changes locally (do NOT push). Finally WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When everything is committed and both files are written, reply with the single word DONE.'
         : 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When both files are written and saved, reply with the single word DONE.';
-      const model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined;
       const sid = require('crypto').randomUUID();
       let acc = '';
+      progress('reviewing', steward ? 'Starting the AI steward' : 'Starting the AI reviewer',
+        (model || 'Runtime default') + ' · ' + (reasoningEffort || 'model-default reasoning'), true);
       let run = await sdkRunner.runAgent({
         config: { cwd: wtPath, agent: slug, allowAll: true },
-        prompt: kickoff, sessionId: sid, model, onChunk: (c) => { acc += c; },
+        prompt: kickoff, sessionId: sid, model, reasoningEffort, timeoutMs: reviewTimeoutMinutes * 60 * 1000,
+        onChunk: (c) => {
+          acc += c;
+          if (!responseStarted) {
+            responseStarted = true;
+            progress('reporting', 'Writing the review result', 'The agent has finished its repository work and is responding', true);
+          }
+        },
+        onStep,
         meta: { source: 'system', category: 'pull_requests' }
       });
       if (!run || run.fallback) {
@@ -4315,24 +4364,47 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           : _reviewPersonaBody({ pr: prCtx, workItems, reportName: CODEFLOW_REPORT_NAME });
         acc = '';
         run = await sdkRunner.runPrompt({
-          prompt: body + '\n\n---\n\n' + kickoff,
-          cwd: wtPath, sessionId: require('crypto').randomUUID(), model,
-          onChunk: (c) => { acc += c; },
+          prompt: body + '\n\n---\n\n' + kickoff, cwd: wtPath,
+          sessionId: require('crypto').randomUUID(), model, reasoningEffort,
+          timeoutMs: reviewTimeoutMinutes * 60 * 1000,
+          onChunk: (c) => {
+            acc += c;
+            if (!responseStarted) {
+              responseStarted = true;
+              progress('reporting', 'Writing the review result', 'The fallback reviewer is responding', true);
+            }
+          },
+          onStep,
           meta: { source: 'system', category: 'pull_requests' }
         });
       }
       // 4. Cache whatever report was produced and resolve the review status.
+      progress('reporting', 'Collecting review artifacts', 'Scanning the worktree for the report and findings', true);
       let reports = [];
       try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
       const ok = reports.length > 0;
+      const reviewFailure = !ok && run && run.ok === false && run.error
+        ? run.error
+        : 'The run finished but no report file was produced.';
       _saveCfWt(key, {
         reports,
         reviewStatus: ok ? 'done' : 'error',
-        reviewError: ok ? null : 'The run finished but no report file was produced.',
+        reviewError: ok ? null : reviewFailure,
+        reviewPhase: ok ? 'done' : 'error',
+        reviewProgress: ok ? 'Review complete' : 'Review stopped before producing an artifact',
+        reviewProgressDetail: ok ? (reports.length + ' artifact' + (reports.length === 1 ? '' : 's') + ' ready') : reviewFailure,
         reviewFinishedAt: new Date().toISOString()
       });
     } catch (e) {
-      _saveCfWt(key, { reviewStatus: 'error', reviewError: (e && e.message) || 'Review failed', worktreeStatus: (_getCfWt(key) || {}).worktreeStatus === 'creating' ? 'error' : undefined });
+      _saveCfWt(key, {
+        reviewStatus: 'error',
+        reviewError: (e && e.message) || 'Review failed',
+        reviewPhase: 'error',
+        reviewProgress: 'Review failed',
+        reviewProgressDetail: (e && e.message) || 'Review failed',
+        reviewFinishedAt: new Date().toISOString(),
+        worktreeStatus: (_getCfWt(key) || {}).worktreeStatus === 'creating' ? 'error' : undefined
+      });
     } finally {
       _cfActiveReviews.delete(key);   // run is over — watchdog may now reconcile if needed
     }

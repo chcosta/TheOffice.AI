@@ -251,6 +251,55 @@ await t.test('code flow: PR cards track durable review checkpoints and answer wh
     'checkpoint and detail-loading actions are wired');
 });
 
+await t.test('AI configuration exposes model-aware reasoning and bounded Code Flow reviews', () => {
+  const settings = readFileSync('settings.js', 'utf8');
+  const runner = readFileSync('sdk-runner.js', 'utf8');
+  const server = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/chatReasoningEffort:\s*''/.test(settings) &&
+    /executionReasoningEffort:\s*''/.test(settings) &&
+    /systemReasoningEffort:\s*''/.test(settings) &&
+    /function resolveReasoningEffort\(category, config\)/.test(settings),
+    'reasoning effort is persisted and resolved independently for each AI category');
+  t.ok(/opts\.reasoningEffort = effort/.test(runner) &&
+    /await session\.sendAndWait\(payload, timeoutMs\)/.test(runner),
+    'the SDK receives reasoning effort and a per-run timeout');
+  t.ok(/await session\.setModel\(requestedModel/.test(runner) &&
+    /entry\.reasoningEffort = opts\.reasoningEffort/.test(runner),
+    'kept-alive chats apply model and effort changes before their next turn');
+  t.ok(/reasoningEfforts:\s*Array\.isArray\(m\.supportedReasoningEfforts\)/.test(server) &&
+    /codeflowReviewTimeoutMinutes/.test(server),
+    'the server exposes model capabilities and applies the Code Flow timeout');
+  t.ok(/modelEffortOptions\('execution'\)/.test(html) &&
+    /low:\s*'Fast'/.test(html) &&
+    /Code Flow AI review timeout/.test(html),
+    'Settings presents friendly, model-aware effort levels and a review timeout');
+});
+
+await t.test('Code Flow AI review reports durable live phase and tool activity', () => {
+  const server = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  const route = _win(server, "app.post('/api/codeflow/pr/review'", 14000);
+  t.ok(/reviewPhase: haveWt \? 'context' : 'worktree'/.test(route) &&
+    /reviewProgress: haveWt \? 'Reading the pull request/.test(route) &&
+    /reviewActivity:\s*\[\]/.test(route),
+    'the review records an immediately visible starting phase');
+  t.ok(/onStep = \(step\)/.test(route) &&
+    /step\.kind === 'tool_start'/.test(route) &&
+    /reviewActivity:\s*activity\.slice\(-8\)/.test(route),
+    'safe tool activity is persisted while the reviewer works');
+  t.ok(/run && run\.ok === false && run\.error/.test(route) &&
+    /Review stopped before producing an artifact/.test(route),
+    'timeouts and runtime failures remain visible instead of collapsing into a generic missing-artifact error');
+  t.ok(/class="cf-review-progress"/.test(html) &&
+    /cfReviewMeta\(pr\)/.test(html) &&
+    /cfReviewActivity\(pr\)/.test(html),
+    'PR cards render current work, model, reasoning effort, elapsed time, and recent activity');
+  t.ok(/const maxPolls = Math\.ceil/.test(html) &&
+    /reviewTimeoutMinutes/.test(html),
+    'browser polling follows the configured review window instead of silently stopping after 15 minutes');
+});
+
 // --- System agents + water cooler backing data ---
 await t.test('system agents: GET /api/agents returns an array', async () => {
   await probe('/api/agents', (j) => {
