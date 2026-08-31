@@ -4071,7 +4071,7 @@ app.post('/api/codeflow/pr/worktree/open-dir', async (req, res) => {
   const resolveDir = () => {
     try {
       return devitems.resolveUsableWorktree({
-        org: o.org, project: o.project, repo: o.repo,
+        org: o.org, project: o.project, repo: o.repo, provider: o.provider,
         sourceBranch: rec.sourceBranch, current
       });
     } catch { return { dir: current, branch: (rec && rec.sourceBranch) || '', reused: false, attached: false }; }
@@ -38272,9 +38272,15 @@ app.post('/api/fs/open', (req, res) => {
   const { spawn, spawnSync, exec } = require('child_process');
   try {
     if (target === 'explorer') {
-      // explorer returns exit code 1 even on success; ignore it.
-      spawn('explorer.exe', [dir], { detached: true, stdio: 'ignore' }).unref();
-      return res.json({ ok: true, target });
+      // A bare path is ambiguous to Explorer when it reuses an existing window
+      // and can open Home instead. Use its explicit folder argument syntax.
+      const explorerDir = path.resolve(dir);
+      spawn('explorer.exe', [`/e,"${explorerDir}"`], {
+        detached: true,
+        stdio: 'ignore',
+        windowsVerbatimArguments: true
+      }).unref();
+      return res.json({ ok: true, target, path: explorerDir });
     }
     if (target === 'diff') {
       // Open VS Code's native side-by-side diff editor for the branch's changes. We diff

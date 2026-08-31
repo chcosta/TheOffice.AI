@@ -307,6 +307,20 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     'browser polling follows the configured review window instead of silently stopping after 15 minutes');
 });
 
+await t.test('Code Flow Explorer opens the resolved worktree folder explicitly', () => {
+  const server = readFileSync(SERVER, 'utf8');
+  const openDir = _win(server, "app.post('/api/codeflow/pr/worktree/open-dir'", 4200);
+  const fsOpen = _win(server, "app.post('/api/fs/open'", 1800);
+  t.ok(/provider:\s*o\.provider/.test(openDir),
+    'usable-worktree resolution keeps the forge provider when locating the PR checkout');
+  t.ok(/const explorerDir = path\.resolve\(dir\)/.test(fsOpen) &&
+    fsOpen.includes("spawn('explorer.exe', [`/e,\"${explorerDir}\"`], {") &&
+    /windowsVerbatimArguments:\s*true/.test(fsOpen),
+    'Windows Explorer receives an explicit quoted folder argument instead of an ambiguous bare path');
+  t.ok(/return res\.json\(\{ ok: true, target, path: explorerDir \}\)/.test(fsOpen),
+    'the open response reports the exact folder requested');
+});
+
 // --- System agents + water cooler backing data ---
 await t.test('system agents: GET /api/agents returns an array', async () => {
   await probe('/api/agents', (j) => {
