@@ -291,6 +291,16 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
   t.ok(/run && run\.ok === false && run\.error/.test(route) &&
     /Review stopped before producing an artifact/.test(route),
     'timeouts and runtime failures remain visible instead of collapsing into a generic missing-artifact error');
+  t.ok(/const reportBefore = _cfReportFingerprint\(wtPath\)/.test(route) &&
+    /const freshReport = !!reportAfter/.test(route) &&
+    /const ok = !!\(run && run\.ok\) && freshReport && !!report/.test(route),
+    'each attempt must successfully create or rewrite the canonical report; an old artifact cannot fake success');
+  t.ok(/reviewAttemptOutcome: ok \? 'succeeded' : 'failed'/.test(route) &&
+    /reviewArtifact/.test(route) &&
+    /reportHistory/.test(route),
+    'the attempt stores its outcome, exact new artifact, and refreshed history together');
+  t.ok(/if \(rec\.reviewStatus !== 'reviewing'\)[\s\S]{0,180}findAndCacheReports/.test(server),
+    'status polling does not publish or version a report while the agent may still be writing it');
   t.ok(/class="cf-review-progress"/.test(html) &&
     /cfReviewMeta\(pr\)/.test(html) &&
     /cfReviewActivity\(pr\)/.test(html),
@@ -305,6 +315,11 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
   t.ok(/const maxPolls = Math\.ceil/.test(html) &&
     /reviewTimeoutMinutes/.test(html),
     'browser polling follows the configured review window instead of silently stopping after 15 minutes');
+  t.ok(/Latest review succeeded · new report available/.test(html) &&
+    /Latest review did not produce a new report/.test(html) &&
+    /Open new report/.test(html) &&
+    /View Artifacts/.test(html),
+    'Worktree and Artifacts retain an explicit latest-attempt receipt with a direct report action');
 });
 
 await t.test('Code Flow Explorer opens the resolved worktree folder explicitly', () => {

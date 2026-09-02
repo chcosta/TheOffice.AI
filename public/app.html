@@ -2764,6 +2764,11 @@
     .cf-review-activity { display:flex; flex-direction:column; gap:3px; margin-top:8px; padding-top:7px; border-top:1px solid var(--cp-border); }
     .cf-review-activity-row { display:grid; grid-template-columns:58px minmax(0,1fr); gap:8px; font-size:10.5px; color:var(--cp-text-muted); }
     .cf-review-activity-time { color:var(--cp-text-soft); }
+    .cf-review-receipt { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin:0 0 10px; padding:9px 11px; border-left:2px solid var(--cp-success); background:var(--cp-surface-soft); }
+    .cf-review-receipt.failed { border-left-color:var(--cp-danger); }
+    .cf-review-receipt-body { min-width:0; font-size:11.5px; color:var(--cp-text-muted); }
+    .cf-review-receipt-body b { display:block; margin-bottom:2px; color:var(--cp-text); }
+    .cf-review-receipt-actions { display:flex; align-items:center; gap:12px; flex:0 0 auto; white-space:nowrap; }
     /* Git pane */
     .cf-git-empty { display:flex; align-items:center; gap:12px; font-size:12.5px; }
     .cf-git-state { display:flex; flex-direction:column; gap:5px; margin-bottom:10px; padding:8px 12px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
@@ -25022,6 +25027,16 @@
                       <div class="cf-pane" x-show="cfActivePane(pr) === 'links'">
                         <div class="cf-subsec">
                         <div class="cf-subhead">🔗 Artifacts</div>
+                        <div class="cf-review-receipt" :class="{ failed: cfReviewReceipt(pr).failed }" x-show="cfReviewReceipt(pr).visible">
+                          <div class="cf-review-receipt-body">
+                            <b x-text="cfReviewReceipt(pr).title"></b>
+                            <span x-text="cfReviewReceipt(pr).detail"></span>
+                          </div>
+                          <div class="cf-review-receipt-actions" x-show="cfReviewReceipt(pr).artifact">
+                            <a class="cf-wt-link cf-wt-report" :href="cfReportUrl(pr, cfReviewReceipt(pr).artifact)" target="_blank" rel="noopener">Open new report</a>
+                            <span class="cf-wt-history-ts" x-text="cfReportTs(cfReviewReceipt(pr).artifact)"></span>
+                          </div>
+                        </div>
                         <template x-if="!cfWt(pr) || (!(cfWt(pr).reports || []).length && !(cfWt(pr).reportHistory || []).length)">
                           <span class="cf-wt-history-ts">No report has been generated yet. Run the review agent from the Worktree tab.</span>
                         </template>
@@ -25092,6 +25107,16 @@
                         <span class="cf-wt-status" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'creating'" x-text="cfWtStatusText(pr)"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" x-text="(cfWt(pr) && cfWt(pr).error) || 'Worktree failed'"></span>
                         <span class="cf-wt-err" x-show="cfWt(pr) && cfWt(pr).reviewStatus === 'error' && cfWt(pr).reviewError" x-text="cfWt(pr) && cfWt(pr).reviewError"></span>
+                        <div class="cf-review-receipt" :class="{ failed: cfReviewReceipt(pr).failed }" x-show="!cfReviewing(pr) && cfReviewReceipt(pr).visible">
+                          <div class="cf-review-receipt-body">
+                            <b x-text="cfReviewReceipt(pr).title"></b>
+                            <span x-text="cfReviewReceipt(pr).detail"></span>
+                          </div>
+                          <div class="cf-review-receipt-actions">
+                            <a class="cf-wt-link cf-wt-report" x-show="cfReviewReceipt(pr).artifact" :href="cfReportUrl(pr, cfReviewReceipt(pr).artifact)" target="_blank" rel="noopener">Open new report</a>
+                            <button class="cf-wt-link" x-show="cfReviewReceipt(pr).artifact" @click="cfSetPane(pr, 'links')">View Artifacts</button>
+                          </div>
+                        </div>
                         <div class="cf-review-progress" :class="{ live: cfReviewHealth(pr).live, stalled: cfReviewHealth(pr).stalled }" x-show="cfReviewing(pr)">
                           <div class="cf-review-progress-head">
                             <span class="cf-review-progress-title" x-text="cfReviewTitle(pr)"></span>
@@ -56563,6 +56588,23 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           }
           return { live: false, stalled: false, label: 'Connecting to the AI reviewer…' };
         },
+        cfReviewReceipt(pr) {
+          const rec = this.cfWt(pr) || {};
+          const outcome = rec.reviewAttemptOutcome;
+          if (outcome !== 'succeeded' && outcome !== 'failed') {
+            return { visible: false, failed: false, title: '', detail: '', artifact: null };
+          }
+          const succeeded = outcome === 'succeeded';
+          const finished = rec.reviewFinishedAt ? this.formatRelative(rec.reviewFinishedAt) : '';
+          return {
+            visible: true,
+            failed: !succeeded,
+            title: succeeded ? 'Latest review succeeded · new report available' : 'Latest review did not produce a new report',
+            detail: (rec.reviewAttemptMessage || (succeeded ? 'A new report is available.' : rec.reviewError || 'Review failed.')) +
+              (finished ? ' · ' + finished : ''),
+            artifact: succeeded ? (rec.reviewArtifact || null) : null
+          };
+        },
         // One-click: create the worktree if needed, then run the review agent to
         // produce the report. Surfaces the report on this card when it's ready.
         async reviewWithAi(pr) {
@@ -56608,7 +56650,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (resp && resp.worktree) {
               this.codeflow.worktrees[key] = resp.worktree;
               const st = resp.worktree.reviewStatus;
-              if (st === 'done') { this.showToast('Review with AI', 'Review complete — report ready.', 'success'); return; }
+              if (st === 'done') {
+                this.showToast('Review with AI', resp.worktree.reviewAttemptMessage || 'Review completed successfully — a new report is ready.', 'success');
+                return;
+              }
               if (st === 'error') { this.showToast('Review with AI', resp.worktree.reviewError || 'Review failed', 'error'); return; }
             }
           }

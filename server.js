@@ -3643,6 +3643,17 @@ function _buildStewardAgentMd({ agentName, pr, workItems, threads, reportName, c
 // REVIEWER. `threads` (active reviewer feedback) is only used by the steward.
 const CODEFLOW_REPORT_NAME = 'pr-review-report.html';
 const CODEFLOW_COMMENTS_NAME = 'pr-review-comments.json';
+function _cfReportFingerprint(wtPath) {
+  try {
+    const file = path.join(wtPath, CODEFLOW_REPORT_NAME);
+    const stat = fs.statSync(file);
+    if (!stat.isFile()) return null;
+    const sha = require('crypto').createHash('sha1').update(fs.readFileSync(file)).digest('hex');
+    return { rel: CODEFLOW_REPORT_NAME, name: CODEFLOW_REPORT_NAME, mtime: stat.mtimeMs, size: stat.size, sha };
+  } catch {
+    return null;
+  }
+}
 function _writeCfReviewAgentFile(rec, pr, workItems, opts = {}) {
   const wt = rec.worktreePath;
   if (!wt || !fs.existsSync(wt)) return null;
@@ -3953,8 +3964,13 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
   try { if (branchDir && fs.existsSync(branchDir)) wc = devitems.worktreeChanges(branchDir); } catch {}
   if (rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath)) {
     try {
-      const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
-      const save = { reports: reports || [] };
+      const save = {};
+      // Do not publish a report while the agent may still be writing it. The
+      // review completion path validates and caches the finished artifact once.
+      if (rec.reviewStatus !== 'reviewing') {
+        const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
+        save.reports = reports || [];
+      }
       if (rec.sourceBranch) {
         try {
           const lastFetch = _cfDriftFetchAt.get(key) || 0;
@@ -4269,6 +4285,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   const reasoningEffort = (settings.resolveReasoningEffort && settings.resolveReasoningEffort('execution', null)) || undefined;
   const configuredTimeout = Number(settings.getSettings().codeflowReviewTimeoutMinutes);
   const reviewTimeoutMinutes = Number.isFinite(configuredTimeout) ? Math.min(120, Math.max(5, configuredTimeout)) : 30;
+  const reviewAttemptId = require('crypto').randomUUID();
   const haveWt = !!(rec && rec.worktreeStatus === 'ready' && rec.worktreePath && fs.existsSync(rec.worktreePath));
   rec = _saveCfWt(key, {
     org: o.org, project: o.project, repo: o.repo, prId: pr.id, view, provider: o.provider || 'azdo',
@@ -4279,6 +4296,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
     reviewPhase: haveWt ? 'context' : 'worktree',
     reviewProgress: haveWt ? 'Reading the pull request and linked context' : 'Creating an isolated review worktree',
     reviewActivity: [],
+    reviewAttemptId,
+    reviewAttemptOutcome: 'running',
+    reviewAttemptMessage: 'AI review is running.',
+    reviewArtifact: null,
     reviewModel: model || 'Runtime default',
     reviewReasoningEffort: reasoningEffort || 'model default',
     reviewTimeoutMinutes,
@@ -4327,6 +4348,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       }
       const wtPath = rec.worktreePath;
       if (!wtPath || !fs.existsSync(wtPath)) throw new Error('Worktree is not available.');
+      // Cache the previous report before this attempt. Completion below is based
+      // on whether THIS run rewrote the canonical report, never on an old file.
+      try { devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath); } catch {}
+      const reportBefore = _cfReportFingerprint(wtPath);
       // 2. Write/refresh the agent file (grounded with linked work items; the
       //    steward also gets the actual unresolved reviewer feedback to address).
       progress('context', 'Loading PR context', 'Linked work items, active feedback, and repository guidance', true);
@@ -4386,17 +4411,42 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       progress('reporting', 'Collecting review artifacts', 'Scanning the worktree for the report and findings', true);
       let reports = [];
       try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
-      const ok = reports.length > 0;
+      const reportAfter = _cfReportFingerprint(wtPath);
+      const freshReport = !!reportAfter && (!reportBefore ||
+        reportAfter.sha !== reportBefore.sha ||
+        reportAfter.mtime > reportBefore.mtime + 1);
+      const report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
+      const ok = !!(run && run.ok) && freshReport && !!report;
       const reviewFailure = !ok && run && run.ok === false && run.error
         ? run.error
-        : 'The run finished but no report file was produced.';
+        : (!reportAfter
+          ? 'The review attempt finished without creating pr-review-report.html.'
+          : (!freshReport
+            ? 'The review attempt finished, but pr-review-report.html was not updated. The previous report is still available.'
+            : 'The review attempt produced a report but the runtime did not complete successfully.'));
+      let reportHistory = [];
+      try { reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, devId) || []; } catch {}
+      const reviewArtifact = ok ? {
+        rel: report.rel,
+        name: report.name || report.rel,
+        kind: report.kind,
+        mtime: reportAfter.mtime,
+        size: reportAfter.size,
+        cached: !!report.cached
+      } : null;
       _saveCfWt(key, {
         reports,
+        reportHistory,
         reviewStatus: ok ? 'done' : 'error',
         reviewError: ok ? null : reviewFailure,
+        reviewAttemptOutcome: ok ? 'succeeded' : 'failed',
+        reviewAttemptMessage: ok
+          ? 'Review completed successfully. A new PR review report is available.'
+          : reviewFailure,
+        reviewArtifact,
         reviewPhase: ok ? 'done' : 'error',
         reviewProgress: ok ? 'Review complete' : 'Review stopped before producing an artifact',
-        reviewProgressDetail: ok ? (reports.length + ' artifact' + (reports.length === 1 ? '' : 's') + ' ready') : reviewFailure,
+        reviewProgressDetail: ok ? 'New report generated and cached.' : reviewFailure,
         reviewFinishedAt: new Date().toISOString()
       });
     } catch (e) {
@@ -4406,6 +4456,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         reviewPhase: 'error',
         reviewProgress: 'Review failed',
         reviewProgressDetail: (e && e.message) || 'Review failed',
+        reviewAttemptOutcome: 'failed',
+        reviewAttemptMessage: (e && e.message) || 'Review failed',
+        reviewArtifact: null,
         reviewFinishedAt: new Date().toISOString(),
         worktreeStatus: (_getCfWt(key) || {}).worktreeStatus === 'creating' ? 'error' : undefined
       });
