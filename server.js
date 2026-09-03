@@ -4296,6 +4296,12 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
     reviewPhase: haveWt ? 'context' : 'worktree',
     reviewProgress: haveWt ? 'Reading the pull request and linked context' : 'Creating an isolated review worktree',
     reviewActivity: [],
+    reviewTrace: [{
+      at: new Date().toISOString(),
+      kind: 'phase',
+      label: haveWt ? 'Reading the pull request and linked context' : 'Creating an isolated review worktree',
+      detail: ''
+    }],
     reviewAttemptId,
     reviewAttemptOutcome: 'running',
     reviewAttemptMessage: 'AI review is running.',
@@ -4310,11 +4316,31 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   (async () => {
     let lastProgressAt = 0;
     let responseStarted = false;
+    const trace = (kind, label, detail, status) => {
+      const now = Date.now();
+      const current = _getCfWt(key) || {};
+      const items = Array.isArray(current.reviewTrace) ? current.reviewTrace.slice(-199) : [];
+      const last = items[items.length - 1];
+      if (!last || last.kind !== kind || last.label !== label || last.detail !== (detail || '') || last.status !== (status || '')) {
+        items.push({ at: new Date(now).toISOString(), kind, label, detail: detail || '', status: status || '' });
+        _saveCfWt(key, { reviewTrace: items.slice(-200) });
+      }
+    };
     const progress = (phase, label, detail, force = false) => {
       const now = Date.now();
-      if (!force && now - lastProgressAt < 750) return;
-      lastProgressAt = now;
       const current = _getCfWt(key) || {};
+      const traceItems = Array.isArray(current.reviewTrace) ? current.reviewTrace.slice(-199) : [];
+      const traceLast = traceItems[traceItems.length - 1];
+      let traceChanged = false;
+      if (!traceLast || traceLast.kind !== 'phase' || traceLast.label !== label || traceLast.detail !== (detail || '')) {
+        traceItems.push({ at: new Date(now).toISOString(), kind: 'phase', label, detail: detail || '', status: '' });
+        traceChanged = true;
+      }
+      if (!force && now - lastProgressAt < 750) {
+        if (traceChanged) _saveCfWt(key, { reviewTrace: traceItems.slice(-200) });
+        return;
+      }
+      lastProgressAt = now;
       const activity = Array.isArray(current.reviewActivity) ? current.reviewActivity.slice(-7) : [];
       if (!activity.length || activity[activity.length - 1].label !== label || activity[activity.length - 1].detail !== detail) {
         activity.push({ at: new Date(now).toISOString(), label, detail: detail || '' });
@@ -4324,13 +4350,20 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         reviewProgress: label,
         reviewProgressDetail: detail || '',
         reviewProgressAt: new Date(now).toISOString(),
-        reviewActivity: activity.slice(-8)
+        reviewActivity: activity.slice(-8),
+        reviewTrace: traceItems.slice(-200)
       });
     };
     const onStep = (step) => {
       if (!step) return;
       if (step.kind === 'tool_start') progress('reviewing', 'Inspecting the pull request', 'Using ' + (step.tool || 'a repository tool'));
-      else if (step.kind === 'tool_complete' && step.success === false) progress('reviewing', 'A review step failed', (step.tool || 'Repository tool') + ' returned an error', true);
+      else if (step.kind === 'tool_complete') {
+        trace('tool', (step.tool || 'Repository tool') + ' completed',
+          step.success === false ? 'The tool returned an error.' : 'Completed successfully.',
+          step.success === false ? 'error' : 'success');
+        if (step.success === false) progress('reviewing', 'A review step failed', (step.tool || 'Repository tool') + ' returned an error', true);
+      }
+      else if (step.kind === 'thinking') trace('reasoning', 'Reasoning checkpoint', 'The model evaluated the next review step.');
       else if (step.kind === 'agent') progress('reviewing', 'Delegating a focused check', step.name || 'Sub-agent');
     };
     try {
@@ -4376,6 +4409,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       let run = await sdkRunner.runAgent({
         config: { cwd: wtPath, agent: slug, allowAll: true },
         prompt: kickoff, sessionId: sid, model, reasoningEffort, timeoutMs: reviewTimeoutMinutes * 60 * 1000,
+        completionText: 'DONE',
         onChunk: (c) => {
           acc += c;
           if (!responseStarted) {
@@ -4392,10 +4426,12 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           ? _stewardPersonaBody({ pr: prCtx, workItems, threads, reportName: CODEFLOW_REPORT_NAME })
           : _reviewPersonaBody({ pr: prCtx, workItems, reportName: CODEFLOW_REPORT_NAME });
         acc = '';
+        trace('phase', 'Starting fallback reviewer', 'The named agent could not be resolved; continuing with the same review instructions.');
         run = await sdkRunner.runPrompt({
           prompt: body + '\n\n---\n\n' + kickoff, cwd: wtPath,
           sessionId: require('crypto').randomUUID(), model, reasoningEffort,
           timeoutMs: reviewTimeoutMinutes * 60 * 1000,
+          completionText: 'DONE',
           onChunk: (c) => {
             acc += c;
             if (!responseStarted) {
@@ -4434,6 +4470,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         size: reportAfter.size,
         cached: !!report.cached
       } : null;
+      trace('result', ok ? 'Review completed' : 'Review failed',
+        ok ? 'A new PR review report was generated.' : reviewFailure,
+        ok ? 'success' : 'error');
       _saveCfWt(key, {
         reports,
         reportHistory,
@@ -4444,12 +4483,15 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           ? 'Review completed successfully. A new PR review report is available.'
           : reviewFailure,
         reviewArtifact,
+        reviewResult: String((run && run.output) || acc || '').slice(-20000),
+        reviewCompletionReason: (run && run.completionReason) || '',
         reviewPhase: ok ? 'done' : 'error',
         reviewProgress: ok ? 'Review complete' : 'Review stopped before producing an artifact',
         reviewProgressDetail: ok ? 'New report generated and cached.' : reviewFailure,
         reviewFinishedAt: new Date().toISOString()
       });
     } catch (e) {
+      trace('result', 'Review failed', (e && e.message) || 'Review failed', 'error');
       _saveCfWt(key, {
         reviewStatus: 'error',
         reviewError: (e && e.message) || 'Review failed',
@@ -4459,6 +4501,8 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         reviewAttemptOutcome: 'failed',
         reviewAttemptMessage: (e && e.message) || 'Review failed',
         reviewArtifact: null,
+        reviewResult: '',
+        reviewCompletionReason: '',
         reviewFinishedAt: new Date().toISOString(),
         worktreeStatus: (_getCfWt(key) || {}).worktreeStatus === 'creating' ? 'error' : undefined
       });

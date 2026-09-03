@@ -638,7 +638,7 @@ class SdkRunner {
    * On a resolution failure the result has fallback:true so the caller can
    * record a terminal failure (no CLI fallback remains).
    */
-  async runAgent({ config, prompt, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, meta }) {
+  async runAgent({ config, prompt, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, completionText, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -654,6 +654,7 @@ class SdkRunner {
     const effort = this._reasoningEffort('execution', config, reasoningEffort);
     if (effort) opts.reasoningEffort = effort;
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
+    if (completionText) opts.__completionText = String(completionText);
     opts.__meta = meta || { source: 'agent', category: 'agents_tasks' };
 
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
@@ -690,7 +691,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runPrompt({ prompt, cwd, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, meta }) {
+  async runPrompt({ prompt, cwd, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, completionText, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -704,6 +705,7 @@ class SdkRunner {
     const effort = this._reasoningEffort('system', null, reasoningEffort);
     if (effort) opts.reasoningEffort = effort;
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
+    if (completionText) opts.__completionText = String(completionText);
     opts.__meta = meta || { source: 'system', category: 'system' };
     return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }
@@ -825,6 +827,7 @@ class SdkRunner {
     const keepAlive = !!opts.__keepAlive;
     const meta = opts.__meta || null;
     const timeoutMs = Number.isFinite(opts.__timeoutMs) && opts.__timeoutMs > 0 ? opts.__timeoutMs : this._timeoutMs;
+    const completionText = String(opts.__completionText || '').trim();
     const explicitAtts = Array.isArray(opts.__attachments) && opts.__attachments.length
       ? opts.__attachments
       : null;
@@ -834,6 +837,7 @@ class SdkRunner {
     delete sessionOpts.__meta;
     delete sessionOpts.__attachments;
     delete sessionOpts.__timeoutMs;
+    delete sessionOpts.__completionText;
 
     let session = null;
     let entry = null;
@@ -921,6 +925,7 @@ class SdkRunner {
 
       let code = 0;
       let error = '';
+      let completionReason = '';
       try {
         // Hand image attachments to the model NATIVELY (SDK MessageOptions.attachments)
         // so a vision-capable model actually SEES them, regardless of whether the agent's
@@ -928,7 +933,41 @@ class SdkRunner {
         // explicitly-provided list, else derive from the injected chat-attachment block.
         const atts = explicitAtts || this._imageAttachmentsFromPrompt(prompt);
         const payload = (atts && atts.length) ? { prompt, attachments: atts } : { prompt };
-        await session.sendAndWait(payload, timeoutMs);
+        if (completionText) {
+          // Some agent runs emit their requested terminal response but never emit
+          // session.idle. Trust only an exact terminal response, then abort any
+          // lingering runtime work so a completed one-shot run exits promptly.
+          let timeoutId;
+          let unsubscribe;
+          try {
+            const finished = new Promise((resolve, reject) => {
+              unsubscribe = session.on((event) => {
+                if (event.type === 'assistant.message' && !event.agentId &&
+                    String(event.data?.content || '').trim() === completionText) {
+                  resolve('terminal-message');
+                } else if (event.type === 'session.idle') {
+                  resolve('session-idle');
+                } else if (event.type === 'session.error') {
+                  reject(new Error(event.data?.message || 'session error'));
+                }
+              });
+              timeoutId = setTimeout(() => reject(
+                new Error(`Timeout after ${timeoutMs}ms waiting for ${completionText} or session.idle`)
+              ), timeoutMs);
+            });
+            await session.send(payload);
+            completionReason = await finished;
+            if (completionReason === 'terminal-message' && !keepAlive && typeof session.abort === 'function') {
+              try { await session.abort(); } catch (_) { /* disconnect below is the final cleanup */ }
+            }
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (unsubscribe) unsubscribe();
+          }
+        } else {
+          await session.sendAndWait(payload, timeoutMs);
+          completionReason = 'session-idle';
+        }
       } catch (e) {
         code = 1;
         error = e && e.message ? e.message : String(e);
@@ -1007,7 +1046,7 @@ class SdkRunner {
         output = parts.join(SEP);
         steps = this._buildSteps(events);
         // Surface a session-level error if sendAndWait succeeded but the run failed.
-        if (code === 0) {
+        if (code === 0 && completionReason !== 'terminal-message') {
           const errEv = events.find(e => e.type === 'error' || e.type === 'session.error');
           if (errEv) {
             code = 1;
@@ -1035,7 +1074,7 @@ class SdkRunner {
       // ALL AI usage — including future call sites — show up in Reports for free.
       this._emitUsage(meta, { model: usedModel || opts.model || '', code, usage });
 
-      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '', usage };
+      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '', usage, completionReason };
     } catch (e) {
       // createSession/resumeSession failed - return fallback so the caller can
       // record a terminal failure (no CLI fallback remains).

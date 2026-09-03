@@ -26,6 +26,7 @@ const require = createRequire(import.meta.url);
 
 const SERVER = 'server.js';
 const APP_HTML = 'public/app.html';
+const SDK_RUNNER = 'sdk-runner.js';
 
 const t = createRunner('features.suite');
 
@@ -279,6 +280,7 @@ await t.test('AI configuration exposes model-aware reasoning and bounded Code Fl
 await t.test('Code Flow AI review reports durable live phase and tool activity', () => {
   const server = readFileSync(SERVER, 'utf8');
   const html = readFileSync(APP_HTML, 'utf8');
+  const sdkRunner = readFileSync(SDK_RUNNER, 'utf8');
   const route = _win(server, "app.post('/api/codeflow/pr/review'", 14000);
   t.ok(/reviewPhase: haveWt \? 'context' : 'worktree'/.test(route) &&
     /reviewProgress: haveWt \? 'Reading the pull request/.test(route) &&
@@ -320,6 +322,13 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /Open new report/.test(html) &&
     /View Artifacts/.test(html),
     'Worktree and Artifacts retain an explicit latest-attempt receipt with a direct report action');
+  t.ok(/completionText:\s*'DONE'/.test(route) &&
+    /reviewCompletionReason/.test(route) &&
+    /reviewTrace/.test(route) &&
+    /event\.type === 'assistant\.message' && !event\.agentId/.test(sdkRunner) &&
+    /View full run/.test(html) &&
+    /Private chain-of-thought is not exposed/.test(html),
+    'reviews exit on their exact terminal response and retain a safe full-run viewer');
 });
 
 await t.test('Code Flow Explorer opens the resolved worktree folder explicitly', () => {
