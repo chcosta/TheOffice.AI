@@ -4443,23 +4443,82 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           meta: { source: 'system', category: 'pull_requests' }
         });
       }
-      // 4. Cache whatever report was produced and resolve the review status.
+      // 4. Inspect the artifact contract. If the main run did not produce a new
+      // canonical report, automatically give the agent one focused recovery turn
+      // before surfacing a failure to the user.
       progress('reporting', 'Collecting review artifacts', 'Scanning the worktree for the report and findings', true);
       let reports = [];
       try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
-      const reportAfter = _cfReportFingerprint(wtPath);
-      const freshReport = !!reportAfter && (!reportBefore ||
+      let reportAfter = _cfReportFingerprint(wtPath);
+      let freshReport = !!reportAfter && (!reportBefore ||
         reportAfter.sha !== reportBefore.sha ||
         reportAfter.mtime > reportBefore.mtime + 1);
-      const report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
-      const ok = !!(run && run.ok) && freshReport && !!report;
-      const reviewFailure = !ok && run && run.ok === false && run.error
+      let report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
+      let recoveryRun = null;
+      let recoveryAcc = '';
+      const recoveryNeeded = !freshReport || !report;
+      if (recoveryNeeded) {
+        progress('reporting', 'Recovering the missing review report',
+          'The first pass did not update ' + CODEFLOW_REPORT_NAME + '; explicitly asking the agent to create and verify it now.', true);
+        trace('recovery', 'Automatic report recovery started',
+          'The review work is preserved. This pass is focused only on creating and verifying the required artifacts.');
+        const recoveryPrompt =
+          'ARTIFACT RECOVERY REQUIRED. Your previous review pass did not satisfy its output contract. ' +
+          'Use the review work and repository state already present in this worktree. Do not redo or discard completed work. ' +
+          'CREATE OR OVERWRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` at the ROOT of this worktree, ' +
+          'and CREATE OR OVERWRITE the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` there too. ' +
+          'Before finishing, use repository/file tools to VERIFY both exact paths exist and are saved. ' +
+          'If you cannot create either file, explain the concrete blocker in your final response as `REPORT_FAILED: <reason>`. ' +
+          'Only after both files are verified, reply with the single word DONE.';
+        recoveryRun = await sdkRunner.runAgent({
+          config: { cwd: wtPath, agent: slug, allowAll: true },
+          prompt: recoveryPrompt, sessionId: require('crypto').randomUUID(),
+          model, reasoningEffort, timeoutMs: Math.min(reviewTimeoutMinutes, 15) * 60 * 1000,
+          completionText: 'DONE',
+          onChunk: (c) => { recoveryAcc += c; },
+          onStep,
+          meta: { source: 'system', category: 'pull_requests' }
+        });
+        if (!recoveryRun || recoveryRun.fallback) {
+          recoveryAcc = '';
+          recoveryRun = await sdkRunner.runPrompt({
+            prompt: recoveryPrompt, cwd: wtPath, sessionId: require('crypto').randomUUID(),
+            model, reasoningEffort, timeoutMs: Math.min(reviewTimeoutMinutes, 15) * 60 * 1000,
+            completionText: 'DONE',
+            onChunk: (c) => { recoveryAcc += c; },
+            onStep,
+            meta: { source: 'system', category: 'pull_requests' }
+          });
+        }
+        try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
+        reportAfter = _cfReportFingerprint(wtPath);
+        freshReport = !!reportAfter && (!reportBefore ||
+          reportAfter.sha !== reportBefore.sha ||
+          reportAfter.mtime > reportBefore.mtime + 1);
+        report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
+        const recoverySucceeded = !!(recoveryRun && recoveryRun.ok) && freshReport && !!report;
+        trace('recovery', recoverySucceeded ? 'Automatic report recovery succeeded' : 'Automatic report recovery failed',
+          recoverySucceeded ? 'The required report was created and verified.' :
+            String((recoveryRun && recoveryRun.error) || (recoveryRun && recoveryRun.output) || recoveryAcc || 'The agent did not explain why the report was not created.').slice(-1000),
+          recoverySucceeded ? 'success' : 'error');
+      }
+      const effectiveRun = recoveryNeeded ? recoveryRun : run;
+      const ok = !!(effectiveRun && effectiveRun.ok) && freshReport && !!report;
+      const recoveryResponse = String((recoveryRun && recoveryRun.output) || recoveryAcc || '').trim();
+      const recoveryExplanation = recoveryResponse === 'DONE'
+        ? 'The recovery agent claimed DONE, but filesystem verification found that the required report was still missing or unchanged.'
+        : recoveryResponse.slice(-1000);
+      const reviewFailure = !ok && recoveryRun && recoveryRun.ok === false && recoveryRun.error
+        ? 'Automatic report recovery failed: ' + recoveryRun.error
+        : (!ok && run && run.ok === false && run.error && !recoveryNeeded
         ? run.error
         : (!reportAfter
-          ? 'The review attempt finished without creating pr-review-report.html.'
+          ? 'The review and automatic recovery both finished without creating pr-review-report.html.' +
+            (recoveryExplanation ? ' Agent response: ' + recoveryExplanation : ' The agent did not provide a reason.')
           : (!freshReport
-            ? 'The review attempt finished, but pr-review-report.html was not updated. The previous report is still available.'
-            : 'The review attempt produced a report but the runtime did not complete successfully.'));
+            ? 'The review and automatic recovery finished, but pr-review-report.html was not updated. The previous report is still available.' +
+              (recoveryExplanation ? ' Agent response: ' + recoveryExplanation : ' The agent did not provide a reason.')
+            : 'The review attempt produced a report but the runtime did not complete successfully.')));
       let reportHistory = [];
       try { reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, devId) || []; } catch {}
       const reviewArtifact = ok ? {
@@ -4483,8 +4542,13 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           ? 'Review completed successfully. A new PR review report is available.'
           : reviewFailure,
         reviewArtifact,
-        reviewResult: String((run && run.output) || acc || '').slice(-20000),
-        reviewCompletionReason: (run && run.completionReason) || '',
+        reviewResult: [
+          String((run && run.output) || acc || '').trim(),
+          recoveryNeeded ? '--- Automatic report recovery ---\n' + String((recoveryRun && recoveryRun.output) || recoveryAcc || '').trim() : ''
+        ].filter(Boolean).join('\n\n').slice(-20000),
+        reviewCompletionReason: (effectiveRun && effectiveRun.completionReason) || '',
+        reviewRecoveryAttempted: recoveryNeeded,
+        reviewRecoveryOutcome: recoveryNeeded ? (ok ? 'succeeded' : 'failed') : '',
         reviewPhase: ok ? 'done' : 'error',
         reviewProgress: ok ? 'Review complete' : 'Review stopped before producing an artifact',
         reviewProgressDetail: ok ? 'New report generated and cached.' : reviewFailure,

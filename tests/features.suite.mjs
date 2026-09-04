@@ -281,7 +281,7 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
   const server = readFileSync(SERVER, 'utf8');
   const html = readFileSync(APP_HTML, 'utf8');
   const sdkRunner = readFileSync(SDK_RUNNER, 'utf8');
-  const route = _win(server, "app.post('/api/codeflow/pr/review'", 14000);
+  const route = _win(server, "app.post('/api/codeflow/pr/review'", 22000);
   t.ok(/reviewPhase: haveWt \? 'context' : 'worktree'/.test(route) &&
     /reviewProgress: haveWt \? 'Reading the pull request/.test(route) &&
     /reviewActivity:\s*\[\]/.test(route),
@@ -290,12 +290,13 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /step\.kind === 'tool_start'/.test(route) &&
     /reviewActivity:\s*activity\.slice\(-8\)/.test(route),
     'safe tool activity is persisted while the reviewer works');
-  t.ok(/run && run\.ok === false && run\.error/.test(route) &&
+  t.ok(/recoveryRun && recoveryRun\.ok === false && recoveryRun\.error/.test(route) &&
+    /Automatic report recovery failed/.test(route) &&
     /Review stopped before producing an artifact/.test(route),
     'timeouts and runtime failures remain visible instead of collapsing into a generic missing-artifact error');
   t.ok(/const reportBefore = _cfReportFingerprint\(wtPath\)/.test(route) &&
-    /const freshReport = !!reportAfter/.test(route) &&
-    /const ok = !!\(run && run\.ok\) && freshReport && !!report/.test(route),
+    /let freshReport = !!reportAfter/.test(route) &&
+    /const ok = !!\(effectiveRun && effectiveRun\.ok\) && freshReport && !!report/.test(route),
     'each attempt must successfully create or rewrite the canonical report; an old artifact cannot fake success');
   t.ok(/reviewAttemptOutcome: ok \? 'succeeded' : 'failed'/.test(route) &&
     /reviewArtifact/.test(route) &&
@@ -329,6 +330,15 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /View full run/.test(html) &&
     /Private chain-of-thought is not exposed/.test(html),
     'reviews exit on their exact terminal response and retain a safe full-run viewer');
+  t.ok(/ARTIFACT RECOVERY REQUIRED/.test(route) &&
+    /Automatic report recovery started/.test(route) &&
+    /reviewRecoveryAttempted:\s*recoveryNeeded/.test(route) &&
+    /The agent did not provide a reason/.test(route),
+    'a missing or unchanged report triggers a focused automatic recovery pass with a durable diagnosis');
+  t.ok(/class="cf-wt-link cf-run-view-btn"/.test(html) &&
+    /openCfReviewRun\(pr\)/.test(html) &&
+    html.indexOf('openCfReviewRun(pr) {') > html.indexOf('cfReviewReceipt(pr) {'),
+    'the highlighted full-run action is implemented on the main Alpine component');
 });
 
 await t.test('Code Flow Explorer opens the resolved worktree folder explicitly', () => {

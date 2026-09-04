@@ -2769,6 +2769,8 @@
     .cf-review-receipt-body { min-width:0; font-size:11.5px; color:var(--cp-text-muted); }
     .cf-review-receipt-body b { display:block; margin-bottom:2px; color:var(--cp-text); }
     .cf-review-receipt-actions { display:flex; align-items:center; gap:12px; flex:0 0 auto; white-space:nowrap; }
+    .cf-run-view-btn { padding:4px 10px; border:1px solid var(--cp-accent); border-radius:8px; background:var(--cp-accent-soft); color:var(--cp-accent); font-weight:700; }
+    .cf-run-view-btn:hover { background:var(--cp-accent); color:var(--cp-accent-contrast,#fff); }
     .cf-run-log { display:flex; flex-direction:column; gap:0; }
     .cf-run-log-row { display:grid; grid-template-columns:72px 20px minmax(0,1fr); gap:8px; padding:9px 0; border-bottom:1px solid var(--cp-border); font-size:12px; }
     .cf-run-log-time { color:var(--cp-text-soft); font-size:10.5px; }
@@ -25134,7 +25136,7 @@
                                   :title="cfIsSteward(pr) ? 'Just create a git worktree on this PR\'s branch with the AI steward agent (no auto-run)' : 'Just create a git worktree on this PR\'s branch with a read-only AI review agent (no auto-run)'">
                             <span x-text="cfCreateLabel(pr)"></span>
                           </button>
-                          <button x-show="cfWt(pr) && (cfWt(pr).reviewStartedAt || (cfWt(pr).reviewTrace || []).length)" class="cf-wt-link" @click="openCfReviewRun(pr)">View full run</button>
+                          <button type="button" x-show="cfWt(pr) && (cfWt(pr).reviewStartedAt || (cfWt(pr).reviewTrace || []).length)" class="cf-wt-link cf-run-view-btn" @click.stop="openCfReviewRun(pr)">View full run</button>
                           <button x-show="cfWt(pr) && cfWt(pr).worktreeStatus === 'error'" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="createCfWorktree(pr)"
                                   x-text="cfBusy(pr) === 'create' ? 'Retrying…' : 'Retry'"></button>
                           <template x-if="cfWt(pr) && cfWt(pr).worktreeStatus === 'ready' && cfWt(pr).agentPresent === false">
@@ -32612,34 +32614,6 @@
         toggleNav(key) {
           this.sidebarCollapsed[key] = !this.sidebarCollapsed[key];
           try { localStorage.setItem('sidebar-collapsed', JSON.stringify(this.sidebarCollapsed)); } catch {}
-        },
-        openCfReviewRun(pr) {
-          this.cfReviewRun = { open: true, pr, key: this.cfPrKey(pr) };
-        },
-        cfReviewRunRecord() {
-          return (this.cfReviewRun.key && this.codeflow.worktrees[this.cfReviewRun.key]) || {};
-        },
-        cfReviewRunTrace() {
-          const trace = this.cfReviewRunRecord().reviewTrace;
-          return Array.isArray(trace) ? trace : [];
-        },
-        cfReviewRunReportUrl() {
-          const rec = this.cfReviewRunRecord();
-          return this.cfReviewRun.pr && rec.reviewArtifact
-            ? this.cfReportUrl(this.cfReviewRun.pr, rec.reviewArtifact)
-            : '#';
-        },
-        cfReviewRunMeta() {
-          const rec = this.cfReviewRunRecord();
-          const fields = [
-            rec.reviewModel,
-            rec.reviewReasoningEffort ? rec.reviewReasoningEffort + ' reasoning' : '',
-            rec.reviewCompletionReason === 'terminal-message' ? 'Exited on terminal DONE response' :
-              rec.reviewCompletionReason === 'session-idle' ? 'Exited on session idle' : '',
-            rec.reviewFinishedAt ? 'Finished ' + this.formatRelative(rec.reviewFinishedAt) :
-              rec.reviewStartedAt ? 'Started ' + this.formatRelative(rec.reviewStartedAt) : ''
-          ];
-          return fields.filter(Boolean).join(' · ');
         },
         commandPaletteOpen: false
       });
@@ -56674,6 +56648,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               (finished ? ' · ' + finished : ''),
             artifact: succeeded ? (rec.reviewArtifact || null) : null
           };
+        },
+        openCfReviewRun(pr) {
+          this.cfReviewRun = { open: true, pr, key: this.cfPrKey(pr) };
+        },
+        cfReviewRunRecord() {
+          return (this.cfReviewRun.key && this.codeflow.worktrees[this.cfReviewRun.key]) || {};
+        },
+        cfReviewRunTrace() {
+          const trace = this.cfReviewRunRecord().reviewTrace;
+          return Array.isArray(trace) ? trace : [];
+        },
+        cfReviewRunReportUrl() {
+          const rec = this.cfReviewRunRecord();
+          return this.cfReviewRun.pr && rec.reviewArtifact
+            ? this.cfReportUrl(this.cfReviewRun.pr, rec.reviewArtifact)
+            : '#';
+        },
+        cfReviewRunMeta() {
+          const rec = this.cfReviewRunRecord();
+          const fields = [
+            rec.reviewModel,
+            rec.reviewReasoningEffort ? rec.reviewReasoningEffort + ' reasoning' : '',
+            rec.reviewRecoveryAttempted ? 'Automatic report recovery attempted' : '',
+            rec.reviewCompletionReason === 'terminal-message' ? 'Exited on terminal DONE response' :
+              rec.reviewCompletionReason === 'session-idle' ? 'Exited on session idle' : '',
+            rec.reviewFinishedAt ? 'Finished ' + this.formatRelative(rec.reviewFinishedAt) :
+              rec.reviewStartedAt ? 'Started ' + this.formatRelative(rec.reviewStartedAt) : ''
+          ];
+          return fields.filter(Boolean).join(' · ');
         },
         // One-click: create the worktree if needed, then run the review agent to
         // produce the report. Surfaces the report on this card when it's ready.
