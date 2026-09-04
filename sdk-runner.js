@@ -892,7 +892,7 @@ class SdkRunner {
         });
         add('tool.execution_complete', (ev) => {
           const d = (ev && ev.data) || {};
-          emit({ kind: 'tool_complete', toolCallId: d.toolCallId, tool: d.toolName, success: d.success !== false && !d.error, result: String(d.result?.content || '').slice(0, 2000) });
+          emit({ kind: 'tool_complete', toolCallId: d.toolCallId, tool: d.toolName, success: d.success !== false && !d.error, result: String(d.result?.content || d.error?.message || '').slice(0, 6000) });
         });
         add('assistant.reasoning', (ev) => {
           const d = (ev && ev.data) || {};

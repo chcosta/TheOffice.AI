@@ -281,7 +281,7 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
   const server = readFileSync(SERVER, 'utf8');
   const html = readFileSync(APP_HTML, 'utf8');
   const sdkRunner = readFileSync(SDK_RUNNER, 'utf8');
-  const route = _win(server, "app.post('/api/codeflow/pr/review'", 22000);
+  const route = _win(server, "app.post('/api/codeflow/pr/review'", 32000);
   t.ok(/reviewPhase: haveWt \? 'context' : 'worktree'/.test(route) &&
     /reviewProgress: haveWt \? 'Reading the pull request/.test(route) &&
     /reviewActivity:\s*\[\]/.test(route),
@@ -292,13 +292,13 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     'safe tool activity is persisted while the reviewer works');
   t.ok(/recoveryRun && recoveryRun\.ok === false && recoveryRun\.error/.test(route) &&
     /Automatic report recovery failed/.test(route) &&
-    /Review stopped before producing an artifact/.test(route),
+    /reviewProgress: ok \? 'Review complete' : \(blocked \? 'Review blocked · diagnostic report ready' : 'Review failed'\)/.test(route),
     'timeouts and runtime failures remain visible instead of collapsing into a generic missing-artifact error');
   t.ok(/const reportBefore = _cfReportFingerprint\(wtPath\)/.test(route) &&
     /let freshReport = !!reportAfter/.test(route) &&
-    /const ok = !!\(effectiveRun && effectiveRun\.ok\) && freshReport && !!report/.test(route),
+    /const ok = !blocked && !!\(effectiveRun && effectiveRun\.ok\) && freshReport && !!report/.test(route),
     'each attempt must successfully create or rewrite the canonical report; an old artifact cannot fake success');
-  t.ok(/reviewAttemptOutcome: ok \? 'succeeded' : 'failed'/.test(route) &&
+  t.ok(/reviewAttemptOutcome: ok \? 'succeeded' : \(blocked \? 'blocked' : 'failed'\)/.test(route) &&
     /reviewArtifact/.test(route) &&
     /reportHistory/.test(route),
     'the attempt stores its outcome, exact new artifact, and refreshed history together');
@@ -335,10 +335,25 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /reviewRecoveryAttempted:\s*recoveryNeeded/.test(route) &&
     /The agent did not provide a reason/.test(route),
     'a missing or unchanged report triggers a focused automatic recovery pass with a durable diagnosis');
+  t.ok(/pr\.sourceHead/.test(route) &&
+    /const preparationBlocked = !prep\.ok/.test(route) &&
+    /if \(preparationBlocked\)/.test(route) &&
+    /prepareReviewWorktree\(wtPath/.test(route) &&
+    /_cfWriteBlockedReviewReport/.test(route) &&
+    /reviewAttemptOutcome: ok \? 'succeeded' : \(blocked \? 'blocked'/.test(route),
+    'stale review checkouts are refreshed safely and unrecoverable states still produce a blocked diagnostic report');
+  t.ok(/outcome !== 'blocked'/.test(html) &&
+    /Latest review blocked · diagnostic report available/.test(html),
+    'blocked attempts expose their diagnostic report instead of disappearing from the receipt UI');
   t.ok(/class="cf-wt-link cf-run-view-btn"/.test(html) &&
     /openCfReviewRun\(pr\)/.test(html) &&
     html.indexOf('openCfReviewRun(pr) {') > html.indexOf('cfReviewReceipt(pr) {'),
     'the highlighted full-run action is implemented on the main Alpine component');
+  t.ok(/entry\.details && \(expanded=!expanded\)/.test(html) &&
+    /cfReviewResultKind\(\)==='html'/.test(html) &&
+    /renderMarkdown\(cfReviewRunRecord\(\)\.reviewResult\)/.test(html) &&
+    /const safeUrl =/.test(html),
+    'full-run steps expand for details and final output renders Markdown or sandboxed HTML');
 });
 
 await t.test('Code Flow Explorer opens the resolved worktree folder explicitly', () => {

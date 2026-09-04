@@ -3411,7 +3411,7 @@ function _cfHeadFactsBlock(pr) {
   } else {
     L.push('   - Azure DevOps: read the PR\'s `sourceRefName` and its last source commit id from the PR API (`az repos pr show --id ' + pr.id + '`), and note whether the fork repo differs from the target repo.');
   }
-  L.push('2. **Prove the checkout matches the PR — by SHA, not by name.** This worktree should already sit at the head commit; verify it: `git rev-parse HEAD` must equal the resolved head OID' + (headSha ? ' (`' + headSha + '`)' : '') + '. If they diverge, **STOP and warn** — do not analyze, edit, build, or commit against a mismatched checkout.');
+  L.push('2. **Prove the checkout matches the PR — by SHA, not by name.** This worktree should already sit at the head commit; verify it: `git rev-parse HEAD` must equal the resolved head OID' + (headSha ? ' (`' + headSha + '`)' : '') + '. If they diverge, do not edit, build, or commit against a mismatched checkout. **You must still write the required HTML + JSON artifacts**, clearly marking the review blocked and documenting both SHAs and the concrete reconciliation needed.');
   L.push('3. **Never assume `origin/<branch>` is the PR head.** `origin` may point only at the **base** repo. For a fork PR, add the fork as an explicit remote and work against it:');
   if (isGh && headOwner && headRepoName) {
     L.push('   ```');
@@ -3653,6 +3653,26 @@ function _cfReportFingerprint(wtPath) {
   } catch {
     return null;
   }
+}
+
+function _cfWriteBlockedReviewReport(wtPath, pr, reason) {
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const why = String(reason || 'The review could not safely analyze the current PR revision.');
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>Blocked PR review</title>' +
+    '<style>body{font:14px/1.55 system-ui,sans-serif;max-width:980px;margin:32px auto;padding:0 24px}' +
+    '.verdict{border-left:4px solid #d29922;padding:14px 16px;background:#d2992218}code,pre{font-family:ui-monospace,monospace}' +
+    'pre{white-space:pre-wrap;border:1px solid #8885;padding:12px;border-radius:8px}</style></head><body>' +
+    '<div class="verdict blocked"><h1>Review blocked</h1><p>This diagnostic report was generated because the AI review could not safely complete.</p></div>' +
+    '<h2>Pull request</h2><p><strong>#' + esc(pr.id) + '</strong> ' + esc(pr.title || '') + '</p>' +
+    (pr.url ? '<p><a href="' + esc(pr.url) + '">Open pull request</a></p>' : '') +
+    '<h2>Why it stopped</h2><pre>' + esc(why) + '</pre>' +
+    '<h2>Next action</h2><p>Reconcile the review worktree with the current PR head while preserving any local work, then run the review again.</p>' +
+    '<p class="meta">Generated ' + esc(new Date().toISOString()) + '</p></body></html>';
+  fs.writeFileSync(path.join(wtPath, CODEFLOW_REPORT_NAME), html, 'utf8');
+  fs.writeFileSync(path.join(wtPath, CODEFLOW_COMMENTS_NAME), JSON.stringify({
+    summary: 'Review blocked: ' + why.slice(0, 500), comments: []
+  }, null, 2), 'utf8');
 }
 function _writeCfReviewAgentFile(rec, pr, workItems, opts = {}) {
   const wt = rec.worktreePath;
@@ -4316,13 +4336,13 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
   (async () => {
     let lastProgressAt = 0;
     let responseStarted = false;
-    const trace = (kind, label, detail, status) => {
+    const trace = (kind, label, detail, status, details) => {
       const now = Date.now();
       const current = _getCfWt(key) || {};
       const items = Array.isArray(current.reviewTrace) ? current.reviewTrace.slice(-199) : [];
       const last = items[items.length - 1];
       if (!last || last.kind !== kind || last.label !== label || last.detail !== (detail || '') || last.status !== (status || '')) {
-        items.push({ at: new Date(now).toISOString(), kind, label, detail: detail || '', status: status || '' });
+        items.push({ at: new Date(now).toISOString(), kind, label, detail: detail || '', status: status || '', details: details || '' });
         _saveCfWt(key, { reviewTrace: items.slice(-200) });
       }
     };
@@ -4354,13 +4374,27 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         reviewTrace: traceItems.slice(-200)
       });
     };
+    const toolInputs = new Map();
+    const tracePayload = (value, cap = 6000) => {
+      if (value == null || value === '') return '';
+      try {
+        const text = typeof value === 'string' ? value : JSON.stringify(value, null, 2);
+        return text.length > cap ? text.slice(0, cap) + '\n… (truncated)' : text;
+      } catch { return String(value).slice(0, cap); }
+    };
     const onStep = (step) => {
       if (!step) return;
-      if (step.kind === 'tool_start') progress('reviewing', 'Inspecting the pull request', 'Using ' + (step.tool || 'a repository tool'));
+      if (step.kind === 'tool_start') {
+        if (step.toolCallId) toolInputs.set(step.toolCallId, tracePayload(step.args));
+        trace('tool_start', 'Using ' + (step.tool || 'a repository tool'), 'Tool started.', '', tracePayload(step.args));
+        progress('reviewing', 'Inspecting the pull request', 'Using ' + (step.tool || 'a repository tool'));
+      }
       else if (step.kind === 'tool_complete') {
         trace('tool', (step.tool || 'Repository tool') + ' completed',
           step.success === false ? 'The tool returned an error.' : 'Completed successfully.',
-          step.success === false ? 'error' : 'success');
+          step.success === false ? 'error' : 'success',
+          [toolInputs.get(step.toolCallId), tracePayload(step.result)].filter(Boolean).join('\n\n--- Result ---\n'));
+        if (step.toolCallId) toolInputs.delete(step.toolCallId);
         if (step.success === false) progress('reviewing', 'A review step failed', (step.tool || 'Repository tool') + ' returned an error', true);
       }
       else if (step.kind === 'thinking') trace('reasoning', 'Reasoning checkpoint', 'The model evaluated the next review step.');
@@ -4381,6 +4415,15 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       }
       const wtPath = rec.worktreePath;
       if (!wtPath || !fs.existsSync(wtPath)) throw new Error('Worktree is not available.');
+      const expectedHead = pr.headSha || pr.headRefOid || pr.sourceHead || pr.lastSourceCommitId || '';
+      const prep = devitems.prepareReviewWorktree(wtPath, {
+        sourceBranch: pr.sourceBranch, expectedHead,
+        desc: { provider: o.provider || 'azdo', org: o.org, project: o.project, repo: o.repo }
+      });
+      trace('phase', prep.ok ? 'Review checkout verified' : 'Review checkout needs reconciliation',
+        prep.message + (prep.localHead && prep.remoteHead ? ' Local: ' + prep.localHead + ' · PR: ' + prep.remoteHead : ''),
+        prep.ok ? 'success' : 'warning', tracePayload(prep));
+      const preparationBlocked = !prep.ok;
       // Cache the previous report before this attempt. Completion below is based
       // on whether THIS run rewrote the canonical report, never on an old file.
       try { devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath); } catch {}
@@ -4404,9 +4447,15 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         : 'Perform your COMPLETE code review of this pull request now. Work through every review step in order, then WRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` AND the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` at the ROOT of this worktree (overwrite them if they exist). When both files are written and saved, reply with the single word DONE.';
       const sid = require('crypto').randomUUID();
       let acc = '';
-      progress('reviewing', steward ? 'Starting the AI steward' : 'Starting the AI reviewer',
-        (model || 'Runtime default') + ' · ' + (reasoningEffort || 'model-default reasoning'), true);
-      let run = await sdkRunner.runAgent({
+      let run = null;
+      if (preparationBlocked) {
+        acc = prep.message;
+        run = { ok: false, error: prep.message, output: prep.message, completionReason: 'worktree-preparation-blocked' };
+        progress('reporting', 'Creating a diagnostic report', 'The review checkout could not be safely reconciled, so no AI tools will run.', true);
+      } else {
+        progress('reviewing', steward ? 'Starting the AI steward' : 'Starting the AI reviewer',
+          (model || 'Runtime default') + ' · ' + (reasoningEffort || 'model-default reasoning'), true);
+        run = await sdkRunner.runAgent({
         config: { cwd: wtPath, agent: slug, allowAll: true },
         prompt: kickoff, sessionId: sid, model, reasoningEffort, timeoutMs: reviewTimeoutMinutes * 60 * 1000,
         completionText: 'DONE',
@@ -4419,8 +4468,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         },
         onStep,
         meta: { source: 'system', category: 'pull_requests' }
-      });
-      if (!run || run.fallback) {
+        });
+      }
+      if (!preparationBlocked && (!run || run.fallback)) {
         // Agent didn't resolve — run the persona body directly with full tools.
         const body = steward
           ? _stewardPersonaBody({ pr: prCtx, workItems, threads, reportName: CODEFLOW_REPORT_NAME })
@@ -4456,7 +4506,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       let report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
       let recoveryRun = null;
       let recoveryAcc = '';
-      const recoveryNeeded = !freshReport || !report;
+      const recoveryNeeded = !preparationBlocked && (!freshReport || !report);
       if (recoveryNeeded) {
         progress('reporting', 'Recovering the missing review report',
           'The first pass did not update ' + CODEFLOW_REPORT_NAME + '; explicitly asking the agent to create and verify it now.', true);
@@ -4468,6 +4518,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           'CREATE OR OVERWRITE the self-contained HTML report `' + CODEFLOW_REPORT_NAME + '` at the ROOT of this worktree, ' +
           'and CREATE OR OVERWRITE the machine-readable findings file `' + CODEFLOW_COMMENTS_NAME + '` there too. ' +
           'Before finishing, use repository/file tools to VERIFY both exact paths exist and are saved. ' +
+          'A checkout/PR-head mismatch is not permission to skip the artifacts: write a blocked diagnostic report that documents the mismatch and remediation. ' +
           'If you cannot create either file, explain the concrete blocker in your final response as `REPORT_FAILED: <reason>`. ' +
           'Only after both files are verified, reply with the single word DONE.';
         recoveryRun = await sdkRunner.runAgent({
@@ -4502,8 +4553,28 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
             String((recoveryRun && recoveryRun.error) || (recoveryRun && recoveryRun.output) || recoveryAcc || 'The agent did not explain why the report was not created.').slice(-1000),
           recoverySucceeded ? 'success' : 'error');
       }
+      let generatedDiagnostic = false;
+      if (!freshReport || !report) {
+        const diagnosticReason = String(
+          (recoveryRun && (recoveryRun.error || recoveryRun.output)) ||
+          recoveryAcc || (run && (run.error || run.output)) || acc ||
+          'The agent stopped without creating the required report.'
+        ).trim().slice(-4000);
+        _cfWriteBlockedReviewReport(wtPath, pr, diagnosticReason);
+        generatedDiagnostic = true;
+        trace('recovery', 'Generated blocked diagnostic report',
+          'The AI could not complete the review artifact contract, so the system created an honest diagnostic report.', 'warning', diagnosticReason);
+        try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
+        reportAfter = _cfReportFingerprint(wtPath);
+        freshReport = !!reportAfter && (!reportBefore ||
+          reportAfter.sha !== reportBefore.sha ||
+          reportAfter.mtime > reportBefore.mtime + 1);
+        report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
+      }
       const effectiveRun = recoveryNeeded ? recoveryRun : run;
-      const ok = !!(effectiveRun && effectiveRun.ok) && freshReport && !!report;
+      const blocked = preparationBlocked || generatedDiagnostic;
+      const ok = !blocked && !!(effectiveRun && effectiveRun.ok) && freshReport && !!report;
+      const artifactAvailable = freshReport && !!report;
       const recoveryResponse = String((recoveryRun && recoveryRun.output) || recoveryAcc || '').trim();
       const recoveryExplanation = recoveryResponse === 'DONE'
         ? 'The recovery agent claimed DONE, but filesystem verification found that the required report was still missing or unchanged.'
@@ -4521,7 +4592,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
             : 'The review attempt produced a report but the runtime did not complete successfully.')));
       let reportHistory = [];
       try { reportHistory = devitems.listReportHistory(CODEFLOW_REPORT_BOARD, devId) || []; } catch {}
-      const reviewArtifact = ok ? {
+      const reviewArtifact = artifactAvailable ? {
         rel: report.rel,
         name: report.name || report.rel,
         kind: report.kind,
@@ -4529,18 +4600,18 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         size: reportAfter.size,
         cached: !!report.cached
       } : null;
-      trace('result', ok ? 'Review completed' : 'Review failed',
-        ok ? 'A new PR review report was generated.' : reviewFailure,
-        ok ? 'success' : 'error');
+      trace('result', ok ? 'Review completed' : (blocked ? 'Review blocked' : 'Review failed'),
+        ok ? 'A new PR review report was generated.' : (blocked ? 'A diagnostic report was generated for the blocker.' : reviewFailure),
+        ok ? 'success' : (blocked ? 'warning' : 'error'));
       _saveCfWt(key, {
         reports,
         reportHistory,
-        reviewStatus: ok ? 'done' : 'error',
+        reviewStatus: ok || blocked ? 'done' : 'error',
         reviewError: ok ? null : reviewFailure,
-        reviewAttemptOutcome: ok ? 'succeeded' : 'failed',
+        reviewAttemptOutcome: ok ? 'succeeded' : (blocked ? 'blocked' : 'failed'),
         reviewAttemptMessage: ok
           ? 'Review completed successfully. A new PR review report is available.'
-          : reviewFailure,
+          : (blocked ? 'The review was blocked, but a diagnostic report explains why and what to do next.' : reviewFailure),
         reviewArtifact,
         reviewResult: [
           String((run && run.output) || acc || '').trim(),
@@ -4549,9 +4620,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         reviewCompletionReason: (effectiveRun && effectiveRun.completionReason) || '',
         reviewRecoveryAttempted: recoveryNeeded,
         reviewRecoveryOutcome: recoveryNeeded ? (ok ? 'succeeded' : 'failed') : '',
-        reviewPhase: ok ? 'done' : 'error',
-        reviewProgress: ok ? 'Review complete' : 'Review stopped before producing an artifact',
-        reviewProgressDetail: ok ? 'New report generated and cached.' : reviewFailure,
+        reviewPhase: ok || blocked ? 'done' : 'error',
+        reviewProgress: ok ? 'Review complete' : (blocked ? 'Review blocked · diagnostic report ready' : 'Review failed'),
+        reviewProgressDetail: ok ? 'New report generated and cached.' : (blocked ? 'Open the diagnostic report for the blocker and remediation.' : reviewFailure),
         reviewFinishedAt: new Date().toISOString()
       });
     } catch (e) {

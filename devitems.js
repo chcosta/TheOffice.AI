@@ -663,6 +663,7 @@ function syncWorktree(wt, { baseBranch = 'main', desc = null } = {}) {
     // No upstream: fast-forward onto the base branch instead.
     res = _gitTry(['merge', '--ff-only', 'origin/' + (baseBranch || 'main')], wt);
   }
+
   const status = worktreeStatus(wt, { fetch: false, baseBranch, desc });
   if (!res.ok) {
     const diverged = /non-fast-forward|not possible to fast-forward|diverging|diverge/i.test(res.err);
@@ -675,6 +676,42 @@ function syncWorktree(wt, { baseBranch = 'main', desc = null } = {}) {
     };
   }
   return { ok: true, message: 'Up to date with origin.', status };
+}
+
+// Prepare a detached PR-review checkout for an AI run. Clean snapshots are
+// advanced to the forge-reported PR head; worktrees with real local changes are
+// never reset. In that case the caller can still produce a blocked diagnostic
+// report rather than reviewing or modifying the wrong revision.
+function prepareReviewWorktree(wt, { sourceBranch = '', expectedHead = '', desc = null } = {}) {
+  if (!wt || !_isRepo(wt)) return { ok: false, state: 'missing', message: 'Review worktree is unavailable.' };
+  const src = String(sourceBranch || '').replace(/^refs\/heads\//, '').trim();
+  const expected = String(expectedHead || '').trim().toLowerCase();
+  if (src) _gitTry(['fetch', '--prune', 'origin', src], wt, { auth: desc || true });
+  if (expected && !_gitTry(['cat-file', '-e', expected + '^{commit}'], wt).ok) {
+    _gitTry(['fetch', 'origin', expected], wt, { auth: desc || true });
+  }
+  const remoteHead = expected ||
+    (_gitTry(['rev-parse', '--verify', '--quiet', 'origin/' + src], wt).out || '').trim().toLowerCase();
+  const localHead = (_gitTry(['rev-parse', 'HEAD'], wt).out || '').trim().toLowerCase();
+  if (!remoteHead) return { ok: false, state: 'head-unavailable', localHead, message: 'Could not resolve the current PR head.' };
+  if (localHead === remoteHead) return { ok: true, state: 'current', localHead, remoteHead, message: 'Review checkout matches the current PR head.' };
+
+  const changes = classifyPorcelain(_gitTry(['status', '--porcelain', '-uall'], wt).out || '');
+  if (changes.dirty) {
+    return {
+      ok: false, state: 'local-changes', localHead, remoteHead, changed: changes.changed.slice(0, 20),
+      message: 'Review checkout differs from the current PR head and contains local changes; it was preserved.'
+    };
+  }
+  const moved = _gitTry(['checkout', '--detach', '--force', remoteHead], wt);
+  const after = (_gitTry(['rev-parse', 'HEAD'], wt).out || '').trim().toLowerCase();
+  if (!moved.ok || after !== remoteHead) {
+    return {
+      ok: false, state: 'refresh-failed', localHead, remoteHead,
+      message: (moved.err || 'Could not advance the review checkout to the current PR head.').split('\n').slice(-2).join(' ').slice(0, 400)
+    };
+  }
+  return { ok: true, state: 'refreshed', localHead: after, previousHead: localHead, remoteHead, message: 'Review checkout refreshed to the current PR head.' };
 }
 
 // Truncate a patch to a character budget on a line boundary, with a marker.
@@ -2062,6 +2099,7 @@ module.exports = {
   worktreeChanges,
   discardWorktreeChanges,
   syncWorktree,
+  prepareReviewWorktree,
   commitAll,
   prDrift,
   worktreeReadiness,

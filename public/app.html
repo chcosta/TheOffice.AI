@@ -2773,11 +2773,19 @@
     .cf-run-view-btn:hover { background:var(--cp-accent); color:var(--cp-accent-contrast,#fff); }
     .cf-run-log { display:flex; flex-direction:column; gap:0; }
     .cf-run-log-row { display:grid; grid-template-columns:72px 20px minmax(0,1fr); gap:8px; padding:9px 0; border-bottom:1px solid var(--cp-border); font-size:12px; }
+    button.cf-run-log-row { width:100%; border-width:0 0 1px; border-radius:0; background:transparent; color:inherit; text-align:left; cursor:pointer; }
+    button.cf-run-log-row:hover { background:var(--cp-surface-soft); }
     .cf-run-log-time { color:var(--cp-text-soft); font-size:10.5px; }
     .cf-run-log-mark { color:var(--cp-text-muted); text-align:center; }
     .cf-run-log-body b { display:block; color:var(--cp-text); }
     .cf-run-log-detail { margin-top:2px; color:var(--cp-text-muted); white-space:pre-wrap; word-break:break-word; }
+    .cf-run-log-more { grid-column:3; margin:2px 0 8px; padding:10px; border-left:2px solid var(--cp-border-strong); background:var(--cp-surface-soft); color:var(--cp-text-muted); white-space:pre-wrap; word-break:break-word; font-family:Consolas,"Courier New",monospace; font-size:11px; }
     .cf-run-result { margin-top:14px; padding:12px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); white-space:pre-wrap; word-break:break-word; font-family:Consolas,"Courier New",monospace; font-size:11.5px; color:var(--cp-text); }
+    .cf-run-result.rendered { white-space:normal; font-family:inherit; }
+    .cf-run-result-frame { width:100%; min-height:520px; border:1px solid var(--cp-border); border-radius:8px; background:#fff; }
+    .cf-run-format { display:flex; gap:10px; margin-top:14px; font-size:11.5px; }
+    .cf-run-format button { border:0; border-bottom:2px solid transparent; background:transparent; color:var(--cp-text-muted); cursor:pointer; padding:3px 0; }
+    .cf-run-format button.on { border-bottom-color:var(--cp-accent); color:var(--cp-text); font-weight:700; }
     /* Git pane */
     .cf-git-empty { display:flex; align-items:center; gap:12px; font-size:12.5px; }
     .cf-git-state { display:flex; flex-direction:column; gap:5px; margin-bottom:10px; padding:8px 12px; background:var(--cp-surface-soft); border:1px solid var(--cp-border); border-radius:calc(var(--cp-radius-scale, 1) * 8px); }
@@ -11843,17 +11851,27 @@
                   <div class="cf-review-progress-meta" x-text="cfReviewRunMeta()"></div>
                   <div class="cf-run-log" x-show="cfReviewRunTrace().length">
                     <template x-for="(entry, idx) in cfReviewRunTrace()" :key="entry.at + entry.label + idx">
-                      <div class="cf-run-log-row">
-                        <span class="cf-run-log-time" x-text="formatRelative(entry.at)"></span>
-                        <span class="cf-run-log-mark" x-text="entry.kind === 'tool' ? '⌘' : entry.kind === 'reasoning' ? '◇' : entry.kind === 'result' ? '✓' : '·'"></span>
-                        <span class="cf-run-log-body"><b x-text="entry.label"></b><span class="cf-run-log-detail" x-show="entry.detail" x-text="entry.detail"></span></span>
+                      <div x-data="{ expanded:false }">
+                        <button type="button" class="cf-run-log-row" @click="entry.details && (expanded=!expanded)">
+                          <span class="cf-run-log-time" x-text="formatRelative(entry.at)"></span>
+                          <span class="cf-run-log-mark" x-text="entry.details ? (expanded ? '−' : '+') : (entry.kind === 'tool' ? '⌘' : entry.kind === 'reasoning' ? '◇' : entry.kind === 'result' ? '✓' : '·')"></span>
+                          <span class="cf-run-log-body"><b x-text="entry.label"></b><span class="cf-run-log-detail" x-show="entry.detail" x-text="entry.detail"></span></span>
+                        </button>
+                        <div class="cf-run-log-more" x-show="expanded && entry.details" x-text="entry.details"></div>
                       </div>
                     </template>
                   </div>
                   <div x-show="!cfReviewRunTrace().length" class="hint">No detailed activity was captured for this run.</div>
                   <div x-show="cfReviewRunRecord().reviewResult">
                     <div class="cf-subhead" style="margin-top:16px">Final response</div>
-                    <div class="cf-run-result" x-text="cfReviewRunRecord().reviewResult"></div>
+                    <div class="cf-run-format">
+                      <button type="button" :class="{on:!cfReviewRun.raw}" @click="cfReviewRun.raw=false">Rendered</button>
+                      <button type="button" :class="{on:cfReviewRun.raw}" @click="cfReviewRun.raw=true">Raw</button>
+                      <span class="hint" style="margin:3px 0 0" x-text="cfReviewResultKind()==='html' ? 'HTML' : 'Markdown'"></span>
+                    </div>
+                    <div class="cf-run-result" x-show="cfReviewRun.raw" x-text="cfReviewRunRecord().reviewResult"></div>
+                    <iframe class="cf-run-result-frame" x-show="!cfReviewRun.raw && cfReviewResultKind()==='html'" :srcdoc="cfReviewResultHtml()" sandbox referrerpolicy="no-referrer"></iframe>
+                    <div class="cf-run-result rendered md-output" x-show="!cfReviewRun.raw && cfReviewResultKind()==='markdown'" x-html="renderMarkdown(cfReviewRunRecord().reviewResult)"></div>
                   </div>
                 </div>
               </div>
@@ -33724,7 +33742,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // (with code context) and choose which ones to post. pr is the card it
         // was opened from; sel is a Set of selected indices.
         cfComments: { open: false, pr: null, key: '', loading: false, posting: false, error: '', summary: '', items: [], sel: {} },
-        cfReviewRun: { open: false, pr: null, key: '' },
+        cfReviewRun: { open: false, pr: null, key: '', raw: false },
         // Board assistant ("Ask board") — a slide-over transformer drawer. Lives
         // OUTSIDE the auto-fit board grid so its unbounded/streaming height can
         // never trigger the panel oscillation. messages: {role, content, actions?}.
@@ -56635,22 +56653,25 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfReviewReceipt(pr) {
           const rec = this.cfWt(pr) || {};
           const outcome = rec.reviewAttemptOutcome;
-          if (outcome !== 'succeeded' && outcome !== 'failed') {
+          if (outcome !== 'succeeded' && outcome !== 'blocked' && outcome !== 'failed') {
             return { visible: false, failed: false, title: '', detail: '', artifact: null };
           }
           const succeeded = outcome === 'succeeded';
+          const blocked = outcome === 'blocked';
           const finished = rec.reviewFinishedAt ? this.formatRelative(rec.reviewFinishedAt) : '';
           return {
             visible: true,
             failed: !succeeded,
-            title: succeeded ? 'Latest review succeeded · new report available' : 'Latest review did not produce a new report',
+            title: succeeded
+              ? 'Latest review succeeded · new report available'
+              : (blocked ? 'Latest review blocked · diagnostic report available' : 'Latest review did not produce a new report'),
             detail: (rec.reviewAttemptMessage || (succeeded ? 'A new report is available.' : rec.reviewError || 'Review failed.')) +
               (finished ? ' · ' + finished : ''),
-            artifact: succeeded ? (rec.reviewArtifact || null) : null
+            artifact: succeeded || blocked ? (rec.reviewArtifact || null) : null
           };
         },
         openCfReviewRun(pr) {
-          this.cfReviewRun = { open: true, pr, key: this.cfPrKey(pr) };
+          this.cfReviewRun = { open: true, pr, key: this.cfPrKey(pr), raw: false };
         },
         cfReviewRunRecord() {
           return (this.cfReviewRun.key && this.codeflow.worktrees[this.cfReviewRun.key]) || {};
@@ -56664,6 +56685,16 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return this.cfReviewRun.pr && rec.reviewArtifact
             ? this.cfReportUrl(this.cfReviewRun.pr, rec.reviewArtifact)
             : '#';
+        },
+        cfReviewResultHtml() {
+          const text = String(this.cfReviewRunRecord().reviewResult || '');
+          const fenced = text.match(/```html\s*([\s\S]*?)```/i);
+          if (fenced) return fenced[1];
+          const start = text.search(/<!doctype\s+html|<html[\s>]/i);
+          return start >= 0 ? text.slice(start) : '';
+        },
+        cfReviewResultKind() {
+          return this.cfReviewResultHtml() ? 'html' : 'markdown';
         },
         cfReviewRunMeta() {
           const rec = this.cfReviewRunRecord();
@@ -69392,22 +69423,31 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
 
         inlineMarkdown(text) {
           let s = String(text == null ? '' : text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          const attr = (v) => String(v == null ? '' : v).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+          const safeUrl = (v, image = false) => {
+            const url = String(v == null ? '' : v).trim();
+            if (/^https?:\/\//i.test(url)) return url;
+            if (!image && /^mailto:/i.test(url)) return url;
+            if (image && /^data:image\/(?:png|gif|jpe?g|webp);base64,/i.test(url)) return url;
+            if (/^(?:#|\/(?!\/)|\.{1,2}\/|\?)/.test(url) || !/:/.test(url)) return url;
+            return '#';
+          };
           // Stash explicit markdown links first so their URLs aren't double-linkified.
           const stash = [];
           // Images: ![alt](url) — stash as <img> before links are processed.
           s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g, (m, alt, url, title) => {
-            const t = title ? ` title="${title}"` : '';
-            const i = stash.push(`<img src="${url}" alt="${alt}"${t} class="md-img" loading="lazy">`) - 1;
+            const t = title ? ` title="${attr(title)}"` : '';
+            const i = stash.push(`<img src="${attr(safeUrl(url, true))}" alt="${attr(alt)}"${t} class="md-img" loading="lazy">`) - 1;
             return `\u0000L${i}\u0000`;
           });
           s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, label, url) => {
-            const i = stash.push(`<a href="${url}" target="_blank" rel="noopener" class="md-link">${label}</a>`) - 1;
+            const i = stash.push(`<a href="${attr(safeUrl(url))}" target="_blank" rel="noopener" class="md-link">${label}</a>`) - 1;
             return `\u0000L${i}\u0000`;
           });
           // Auto-linkify bare URLs (http(s):// or www.) that weren't already markdown links.
           s = s.replace(/(^|[\s(])((?:https?:\/\/|www\.)[^\s<]+[^\s<.,;:!?)])/g, (m, pre, url) => {
             const href = url.startsWith('www.') ? 'https://' + url : url;
-            const i = stash.push(`<a href="${href}" target="_blank" rel="noopener" class="md-link">${url}</a>`) - 1;
+            const i = stash.push(`<a href="${attr(safeUrl(href))}" target="_blank" rel="noopener" class="md-link">${url}</a>`) - 1;
             return `${pre}\u0000L${i}\u0000`;
           });
           // Bold
