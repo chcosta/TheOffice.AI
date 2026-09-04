@@ -25215,7 +25215,7 @@
                                 <span class="dcrec-conf" :class="rec.confidence==='high'?'high':''" x-text="prRecoConfLabel(rec)"></span>
                               </span>
                               <span class="dcrec-acts">
-                                <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="prAgentBusy[cfPrKey(pr)+':'+rec.persona]" @click="addRecoPrAgent(pr, rec)" x-text="prAgentBusy[cfPrKey(pr)+':'+rec.persona] ? '…' : '＋ Add'"></button>
+                                <button class="btn pri" type="button" style="font-size:11px;padding:3px 9px" :disabled="prAgentIsBusy(pr,rec.persona)" @click="addRecoPrAgent(pr, rec)" x-text="prAgentIsBusy(pr,rec.persona) ? '…' : '＋ Add'"></button>
                                 <button class="btn ghost" type="button" style="font-size:11px;padding:3px 9px" @click="dismissPrReco(pr, rec)">Dismiss</button>
                               </span>
                             </div>
@@ -25241,7 +25241,7 @@
                                 <span class="dagr-st" :class="prReadyWt(pr) ? 'ready' : 'needrepo'"><span class="sdot"></span><span x-text="prReadyWt(pr) ? 'ready' : 'no worktree'"></span></span>
                                 <span class="dagr-acts">
                                   <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px" x-show="prReadyWt(pr)" @click="launchPrAgent(pr, ag)" title="Open the CLI with this agent selected">🤖 Launch</button>
-                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="prAgentBusy[cfPrKey(pr)+':'+ag.persona]" @click="removePrAgent(pr, ag)" x-text="prAgentBusy[cfPrKey(pr)+':'+ag.persona] ? '…' : 'Remove'"></button>
+                                  <button class="btn ghost" type="button" style="font-size:11px;padding:2px 8px;color:var(--cp-danger)" :disabled="prAgentIsBusy(pr,ag.persona)" @click="removePrAgent(pr, ag)" x-text="prAgentIsBusy(pr,ag.persona) ? '…' : 'Remove'"></button>
                                 </span>
                               </div>
                             </template>
@@ -25255,13 +25255,13 @@
                           </div>
                           <div class="dagr-grid">
                             <template x-for="p in prPersonas" :key="p.id">
-                              <button class="dagr-persona" type="button" :disabled="prAgentHas(pr,p.id) || prAgentBusy[cfPrKey(pr)+':'+p.id]" @click="createPrAgent(pr, p.id)">
+                              <button class="dagr-persona" type="button" :disabled="prAgentHas(pr,p.id) || prAgentIsBusy(pr,p.id)" @click="createPrAgent(pr, p.id)">
                                 <span class="ph"><span class="dagr-dot sm" :style="prAgentDotStyle(p)" x-text="p.emoji||'🤖'"></span><span class="pn" x-text="p.label"></span><span class="have" x-show="prAgentHas(pr,p.id)">✓ added</span></span>
                                 <span class="pd" x-text="p.tagline"></span>
                               </button>
                             </template>
                             <template x-for="pb in prCustomPlaybooks" :key="pb.id">
-                              <button class="dagr-persona custom" type="button" :disabled="prAgentHas(pr,'pb-'+pb.id) || prAgentBusy[cfPrKey(pr)+':pb-'+pb.id]" @click="createPrAgent(pr, 'custom', pb.id)">
+                              <button class="dagr-persona custom" type="button" :disabled="prAgentHas(pr,'pb-'+pb.id) || prAgentIsBusy(pr,'pb-'+pb.id)" @click="createPrAgent(pr, 'custom', pb.id)">
                                 <span class="ph"><span class="dagr-dot sm" :style="prAgentDotStyle(pb)" x-text="pb.emoji||'✨'"></span><span class="pn" x-text="pb.label"></span><span class="have" x-show="prAgentHas(pr,'pb-'+pb.id)">✓ added</span></span>
                                 <span class="pd" x-text="pb.tagline||'Custom playbook from your library'"></span>
                               </button>
@@ -67336,6 +67336,13 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // Roster lives on the worktree record (prAgents), like the reviewer/steward.
         prAgentList(pr) { const w = this.cfWt(pr); return (w && Array.isArray(w.prAgents)) ? w.prAgents : []; },
         prAgentHas(pr, personaId) { return this.prAgentList(pr).some(a => a && a.persona === personaId); },
+        prAgentIsBusy(pr, personaId) { return !!this.prAgentBusy[this.cfPrKey(pr) + ':' + personaId]; },
+        setPrAgentBusy(key, busy) {
+          const next = { ...(this.prAgentBusy || {}) };
+          if (busy) next[key] = true;
+          else delete next[key];
+          this.prAgentBusy = next;
+        },
         // Is there a ready worktree to write the agent file into?
         prReadyWt(pr) { const w = this.cfWt(pr); return !!(w && w.worktreeStatus === 'ready' && w.worktreePath); },
         // Toggle the inline persona picker for a PR; lazily load the catalog.
@@ -67348,9 +67355,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             // Clear any stale busy flags for this PR so a prior timed-out add
             // can't leave picker buttons permanently disabled (silent wedge).
             try {
-              Object.keys(this.prAgentBusy || {}).forEach(k => {
-                if (k.indexOf(key + ':') === 0) delete this.prAgentBusy[k];
+              const next = {};
+              Object.entries(this.prAgentBusy || {}).forEach(([k, value]) => {
+                if (k.indexOf(key + ':') !== 0) next[k] = value;
               });
+              this.prAgentBusy = next;
             } catch (_) {}
             this.loadPrPersonas();
           }
@@ -67374,29 +67383,32 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const busyKey = key + ':' + (personaId === 'custom' ? 'pb-' + (playbookId || '') : personaId);
           if (this.prAgentBusy[busyKey]) { this.showToast('Pull request', 'Still adding that agent — one moment.', 'info'); return; }
           if (!this.prReadyWt(pr)) { this.showToast('Pull request', 'Create a worktree first — the agent is written into it.', 'error'); return; }
-          this.prAgentBusy[busyKey] = true;
+          this.setPrAgentBusy(busyKey, true);
           try {
-            const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: playbookId || '' })), timeoutMs: 20000 });
+            const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: playbookId || '' })), timeoutMs: 30000 });
             if (r && r.worktree) {
               this.codeflow.worktrees[key] = r.worktree;
               const label = (this.prAgentList(pr).find(a => a.persona === personaId) || {}).label || 'Agent';
               this.showToast('Pull request', '🤖 ' + label + ' ready — auto-selected in the CLI.', 'success');
+              return true;
             } else {
               this.showToast('Pull request', 'Agent returned no result — try again.', 'error');
+              return false;
             }
           } catch (e) {
             const msg = (e && e.timeout)
               ? 'The server didn’t respond — it may be busy or restarting. The agent was not added; try again in a moment.'
               : (e && e.message) || 'Create agent failed';
             this.showToast('Pull request', msg, 'error');
+            return false;
           } finally {
-            delete this.prAgentBusy[busyKey];
+            this.setPrAgentBusy(busyKey, false);
           }
         },
         // createPrAgent without the worktree-first toast (used by auto-add, already gated).
         async createPrAgentQuiet(pr, personaId) {
           const key = this.cfPrKey(pr);
-          const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: '' })), timeoutMs: 20000 });
+          const r = await this.request('/api/codeflow/pr/playbook-agent', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: personaId, playbookId: '' })), timeoutMs: 30000 });
           if (r && r.worktree) this.codeflow.worktrees[key] = r.worktree;
           return r;
         },
@@ -67405,7 +67417,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const key = this.cfPrKey(pr);
           const busyKey = key + ':' + ag.persona;
           if (this.prAgentBusy[busyKey]) return;
-          this.prAgentBusy[busyKey] = true;
+          this.setPrAgentBusy(busyKey, true);
           try {
             const r = await this.request('/api/codeflow/pr/playbook-agent/remove', { method: 'POST', body: JSON.stringify(this._prReqBody(pr, { persona: ag.persona, playbookId: ag.playbookId || '' })) });
             if (r && r.worktree) {
@@ -67415,7 +67427,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.showToast('Pull request', (e && e.message) || 'Remove agent failed', 'error');
           } finally {
-            delete this.prAgentBusy[busyKey];
+            this.setPrAgentBusy(busyKey, false);
           }
         },
         // Open the CLI in the PR worktree with a specific roster persona selected.
@@ -67478,7 +67490,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         },
         async addRecoPrAgent(pr, rec) {
           if (!pr || !rec) return;
-          await this.createPrAgent(pr, rec.persona, rec.playbookId);
+          const added = await this.createPrAgent(pr, rec.persona, rec.playbookId);
+          if (!added) return;
           const key = this.cfPrKey(pr);
           const st = this.prRecos[key];
           if (st) { st.suggest = (st.suggest || []).filter(x => x.persona !== rec.persona); this.prRecos[key] = { ...st }; }

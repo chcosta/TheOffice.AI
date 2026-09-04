@@ -448,6 +448,16 @@ await t.test('Code Flow Explorer opens the resolved worktree folder explicitly',
     'the open response reports the exact folder requested');
 });
 
+await t.test('Code Flow PR playbook agent adds recover from stale UI state', () => {
+  const html = readFileSync(APP_HTML, 'utf8');
+  t.ok(/setPrAgentBusy\(key, busy\)[\s\S]{0,220}this\.prAgentBusy = next/.test(html),
+    'busy state is replaced reactively instead of leaving stale disabled picker buttons');
+  t.ok(/timeoutMs:\s*30000/.test(_win(html, 'async createPrAgent(pr, personaId, playbookId)', 1800)),
+    'the browser timeout exceeds the server context-fetch budget');
+  t.ok(/const added = await this\.createPrAgent\(pr, rec\.persona, rec\.playbookId\);\s*if \(!added\) return;/.test(html),
+    'failed recommendation adds remain actionable instead of disappearing');
+});
+
 // --- System agents + water cooler backing data ---
 await t.test('system agents: GET /api/agents returns an array', async () => {
   await probe('/api/agents', (j) => {
