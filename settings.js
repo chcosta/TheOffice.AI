@@ -26,6 +26,11 @@ const DEFAULTS = {
   chatModel: '',
   executionModel: '',
   systemModel: '',
+  // When enabled, category selections are authoritative: per-agent/system-agent
+  // model pins are ignored and every SDK entry point must receive one of the
+  // three configured category models. This prevents silent runtime-default or
+  // provider fallback.
+  strictModelSelection: false,
   chatReasoningEffort: '',
   executionReasoningEffort: '',
   systemReasoningEffort: '',
@@ -438,14 +443,19 @@ const REASONING_EFFORTS = new Set(['none', 'minimal', 'low', 'medium', 'high', '
  * Resolve the model id to use for a run.
  * @param {'chat'|'execution'|'system'} category
  * @param {object|null} config  the agent/manager config (may carry a per-agent
- *   `model` override that wins over the category default).
+ *   `model` override unless strict selection makes the category authoritative).
  * @returns {string|undefined} a model id, or undefined to let the runtime default apply.
  */
 function resolveModel(category, config) {
+  const current = getSettings();
   const explicit = config && typeof config.model === 'string' ? config.model.trim() : '';
-  if (explicit) return explicit;
   const key = CATEGORY_KEY[category];
-  const def = key ? (getSettings()[key] || '').trim() : '';
+  const def = key ? (current[key] || '').trim() : '';
+  if (current.strictModelSelection) {
+    if (!def) throw new Error(`Strict model selection requires a configured ${category} model.`);
+    return def;
+  }
+  if (explicit) return explicit;
   return def || undefined;
 }
 

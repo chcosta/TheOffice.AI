@@ -255,6 +255,7 @@ await t.test('code flow: PR cards track durable review checkpoints and answer wh
 await t.test('AI configuration exposes model-aware reasoning and bounded Code Flow reviews', () => {
   const settings = readFileSync('settings.js', 'utf8');
   const runner = readFileSync('sdk-runner.js', 'utf8');
+  const supervisor = readFileSync('supervisor.js', 'utf8');
   const server = readFileSync(SERVER, 'utf8');
   const html = readFileSync(APP_HTML, 'utf8');
   t.ok(/chatReasoningEffort:\s*''/.test(settings) &&
@@ -262,12 +263,45 @@ await t.test('AI configuration exposes model-aware reasoning and bounded Code Fl
     /systemReasoningEffort:\s*''/.test(settings) &&
     /function resolveReasoningEffort\(category, config\)/.test(settings),
     'reasoning effort is persisted and resolved independently for each AI category');
+  t.ok(/strictModelSelection:\s*false/.test(settings) &&
+    /if \(current\.strictModelSelection\)/.test(settings) &&
+    /Strict model selection requires a configured/.test(settings),
+    'strict selection makes category models authoritative and fails closed without an explicit model');
   t.ok(/opts\.reasoningEffort = effort/.test(runner) &&
     /await session\.sendAndWait\(payload, timeoutMs\)/.test(runner),
     'the SDK receives reasoning effort and a per-run timeout');
+  t.ok(/const selectedModel = this\._model\(category, config, model\)/.test(runner) &&
+    /const selectedModel = this\._model\(category, null, model\)/.test(runner) &&
+    /meta && meta\.source === 'system'/.test(runner),
+    'every SDK entry point centrally resolves a category model, including previously-unpinned one-shot calls');
+  t.ok(/_modelSafePluginDir\(pluginDir, model\)/.test(runner) &&
+    /frontmatter\.model = model/.test(runner) &&
+    /this\._pluginAgentDirs\(dir\)/.test(runner) &&
+    /Plugin agent path escapes its plugin directory/.test(runner) &&
+    /this\._modelSafePluginDir\(config\.pluginDir, selectedModel\)/.test(runner) &&
+    /if \(fs\.existsSync\(target\)\) \{\s*enforceModel\(target\)/.test(runner),
+    'strict selection overrides model pins in manifest-directed plugin agents and rejects redirected paths');
+  t.ok(/usageAcc\.byModel\.set\(model, bucket\)/.test(runner) &&
+    /for \(const \[model, bucket\] of usageAcc\.byModel\)/.test(runner) &&
+    /models: reportedModels/.test(runner) &&
+    /observationOnly: true/.test(runner) &&
+    /observe: false/.test(runner) &&
+    /reportedModels\.length > 1 \? '\(multiple models\)'/.test(runner) &&
+    /CREATE TABLE IF NOT EXISTS model_observations/.test(supervisor) &&
+    /if \(ev\.observationOnly\) return/.test(supervisor),
+    'runtime usage audits every reported model while retaining one aggregate Reports row per logical run');
+  t.ok(/resume && !strictModelSelection/.test(runner) &&
+    /strictModelSelection \? `strict:\$\{selectedModel \|\| ''\}` : 'standard'/.test(runner) &&
+    /entry\.modelPolicyKey !== modelPolicyKey/.test(runner) &&
+    /await entry\.session\.disconnect\(\)/.test(runner),
+    'changing strict mode in either direction reconnects kept-alive sessions with the correct agent definitions');
   t.ok(/await session\.setModel\(requestedModel/.test(runner) &&
     /entry\.reasoningEffort = opts\.reasoningEffort/.test(runner),
     'kept-alive chats apply model and effort changes before their next turn');
+  t.ok(/Strict model selection cannot safely resume this session/.test(server) &&
+    /event\.type === 'session\.start'[\s\S]{0,120}context\?\.agentName/.test(server) &&
+    /const config = agentEntry[\s\S]{0,180}\.\.\.agentEntry\.config/.test(server),
+    'strict historical resumes reconstruct installed agent definitions and fail closed when that is impossible');
   t.ok(/reasoningEfforts:\s*Array\.isArray\(m\.supportedReasoningEfforts\)/.test(server) &&
     /codeflowReviewTimeoutMinutes/.test(server),
     'the server exposes model capabilities and applies the Code Flow timeout');
@@ -275,6 +309,35 @@ await t.test('AI configuration exposes model-aware reasoning and bounded Code Fl
     /low:\s*'Fast'/.test(html) &&
     /Code Flow AI review timeout/.test(html),
     'Settings presents friendly, model-aware effort levels and a review timeout');
+  t.ok(/api\/model-audit/.test(server) &&
+    /Strict model selection/.test(html) &&
+    /Actual models reported in the last 30 days/.test(html) &&
+    /Saved tasks and flows inherit the model/.test(server),
+    'Settings audits category defaults, saved overrides, automations, and actual observed models');
+  t.ok(/const tasksById = new Map\(tasks\.map\(task => \[task\.id, task\]\)\)/.test(server) &&
+    /step && step\.taskId \? tasksById\.get\(step\.taskId\)/.test(server) &&
+    /\(task && task\.agentId\)/.test(server) &&
+    /sdkRunner\.getSelectedAgentModel\(config\)/.test(server),
+    'scheduled tasks and flows audit selected plugin frontmatter models outside strict mode');
+  t.ok(/const evaluatorId = edge\.condition\.agentId/.test(server) &&
+    /resolveAgent\('system', evaluator && evaluator\.config\)/.test(server),
+    'scheduled flows audit custom AI condition evaluator overrides');
+  t.ok(/sdkRunner\.getConfiguredAgentModels\(cfg\)/.test(server) &&
+    /kind: 'Plugin agent'/.test(server),
+    'the audit surfaces model pins declared in plugin agent frontmatter');
+  const meAiHelpers = [
+    '_meAiTriageAiNudge', '_meAiGroupInbox', '_meAiEodNarrative',
+    '_meAiNormalizeUrgency', '_meAiLlmRefine', '_meAiClassifyTodo',
+  ];
+  t.ok(meAiHelpers.every(name => /modelCategory:\s*'system'/.test(_win(server, `async function ${name}`, 10000))),
+    'Me.AI background planning and classification helpers use the System AI selection');
+  t.ok(/modelCategory:\s*'execution'/.test(_win(server, 'async function _connectRunAgent', 2500)) &&
+    /modelCategory:\s*'execution'/.test(_win(server, 'async function _runMeetingSlice', 4000)) &&
+    /modelCategory:\s*'system'/.test(_win(server, 'async function runConnectSearch', 5000)) &&
+    /modelCategory:\s*'system'/.test(_win(server, 'async function extractConnectMemories', 5000)),
+    'Connect generation and internal classifiers use their semantic model categories');
+  t.ok(/catch \(err\) \{\s*await this\.loadModelSettings\(\);\s*this\.modelsError = 'Could not save: '/.test(html),
+    'a rejected strict-mode save reloads the authoritative model settings');
 });
 
 await t.test('Code Flow AI review reports durable live phase and tool activity', () => {
@@ -295,15 +358,26 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /reviewProgress: ok \? 'Review complete' : \(blocked \? 'Review blocked · diagnostic report ready' : 'Review failed'\)/.test(route),
     'timeouts and runtime failures remain visible instead of collapsing into a generic missing-artifact error');
   t.ok(/const reportBefore = _cfReportFingerprint\(wtPath\)/.test(route) &&
-    /let freshReport = !!reportAfter/.test(route) &&
-    /const ok = !blocked && !!\(effectiveRun && effectiveRun\.ok\) && freshReport && !!report/.test(route),
-    'each attempt must successfully create or rewrite the canonical report; an old artifact cannot fake success');
+    /let freshReport = isFreshReport\(reportAfter\)/.test(route) &&
+    /const ok = !blocked && artifactAvailable/.test(route),
+    'a new verified report is authoritative even if the agent runtime does not exit cleanly');
+  t.ok(/before\s*\?\s*fingerprint\.sha !== before\.sha/.test(route) &&
+    /commentsStable \|\| Date\.now\(\) >= reviewDeadlineMs - 15000/.test(route),
+    'artifact completion cannot reuse or abort on an interim report and still recovers report-only runs near timeout');
   t.ok(/reviewAttemptOutcome: ok \? 'succeeded' : \(blocked \? 'blocked' : 'failed'\)/.test(route) &&
     /reviewArtifact/.test(route) &&
     /reportHistory/.test(route),
     'the attempt stores its outcome, exact new artifact, and refreshed history together');
   t.ok(/if \(rec\.reviewStatus !== 'reviewing'\)[\s\S]{0,180}findAndCacheReports/.test(server),
     'status polling does not publish or version a report while the agent may still be writing it');
+  t.ok(/reviewCompletionReason: 'artifact-reconciled'/.test(server) &&
+    /reviewReportBaseline/.test(server) &&
+    /fingerprint\.sha !== baseline\.sha/.test(server),
+    'status polling repairs historical false timeouts when that attempt actually wrote a new report');
+  t.ok(/reviewCommentsArtifact/.test(route) &&
+    /commentsAfter\.mtime >= reportAfter\.mtime/.test(route) &&
+    /_readCurrentCfReviewComments\(rec\)/.test(server),
+    'a new report never republishes stale machine-readable findings from a previous attempt');
   t.ok(/class="cf-review-progress"/.test(html) &&
     /cfReviewMeta\(pr\)/.test(html) &&
     /cfReviewActivity\(pr\)/.test(html),
@@ -324,12 +398,14 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /View Artifacts/.test(html),
     'Worktree and Artifacts retain an explicit latest-attempt receipt with a direct report action');
   t.ok(/completionText:\s*'DONE'/.test(route) &&
+    /completionCheck:\s*reportWritten/.test(route) &&
+    /completionReason === 'completion-check'/.test(sdkRunner) &&
     /reviewCompletionReason/.test(route) &&
     /reviewTrace/.test(route) &&
     /event\.type === 'assistant\.message' && !event\.agentId/.test(sdkRunner) &&
     /View full run/.test(html) &&
     /Private chain-of-thought is not exposed/.test(html),
-    'reviews exit on their exact terminal response and retain a safe full-run viewer');
+    'reviews exit on their exact terminal response or a stable new report and retain a safe full-run viewer');
   t.ok(/ARTIFACT RECOVERY REQUIRED/.test(route) &&
     /Automatic report recovery started/.test(route) &&
     /reviewRecoveryAttempted:\s*recoveryNeeded/.test(route) &&
@@ -349,11 +425,13 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /openCfReviewRun\(pr\)/.test(html) &&
     html.indexOf('openCfReviewRun(pr) {') > html.indexOf('cfReviewReceipt(pr) {'),
     'the highlighted full-run action is implemented on the main Alpine component');
-  t.ok(/entry\.details && \(expanded=!expanded\)/.test(html) &&
+  t.ok(/@click="expanded=!expanded"/.test(html) &&
+    /cfReviewRunEntryDetails\(entry\)/.test(html) &&
+    /class="modal-card cf-run-modal"/.test(html) &&
     /cfReviewResultKind\(\)==='html'/.test(html) &&
     /renderMarkdown\(cfReviewRunRecord\(\)\.reviewResult\)/.test(html) &&
     /const safeUrl =/.test(html),
-    'full-run steps expand for details and final output renders Markdown or sandboxed HTML');
+    'every full-run step expands, the modal uses the viewport, and final output renders Markdown or sandboxed HTML');
 });
 
 await t.test('Code Flow Explorer opens the resolved worktree folder explicitly', () => {
@@ -948,7 +1026,8 @@ await t.test('app.html: dev-card Artifacts pane surfaces a Files section with a 
 // separate reads.
 await t.test('codeflow: worktree drift.dirty and changeCount come from one read (consistent)', () => {
   const serverJs = readFileSync('server.js', 'utf8');
-  const route = serverJs.slice(serverJs.indexOf("app.get('/api/codeflow/pr/worktree'"), serverJs.indexOf("app.get('/api/codeflow/pr/worktree'") + 4200);
+  const routeStart = serverJs.indexOf("app.get('/api/codeflow/pr/worktree'");
+  const route = serverJs.slice(routeStart, serverJs.indexOf("app.post('/api/codeflow/pr/worktree/checkpoint'", routeStart));
   // branchDir resolved once, up front; a single worktreeChanges read feeds both.
   t.ok(/const branchDir = _cfUsableDir\(rec\) \|\| rec\.worktreePath;[\s\S]{0,400}wc = devitems\.worktreeChanges\(branchDir\)/.test(route), 'branchDir + single worktreeChanges read up front');
   // The persisted/recomputed drift's dirty is reconciled to that single read.
@@ -2695,7 +2774,7 @@ await t.test('connect: storage-folder change migrates diary data', () => {
   t.ok(/fs\.existsSync\(d\)/.test(mig) && /res\.skipped\.push/.test(mig), 'never clobbers a file already at the destination');
   t.ok(/resolveStorageDir,\s*\n\s*migrateStorageDir,/.test(csrc), 'both helpers exported');
   const ssrc = readFileSync('server.js', 'utf8');
-  const route = _win(ssrc, "app.put('/api/settings'", 1400);
+  const route = _win(ssrc, "app.put('/api/settings'", 2600);
   t.ok(/_connectDirBefore/.test(route), 'settings route captures the previous connect dir before the update');
   t.ok(/'connectStorageDir' in body/.test(route) && /connect\.migrateStorageDir\(_connectDirBefore/.test(route), 'settings route migrates on a connectStorageDir change');
 });

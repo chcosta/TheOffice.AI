@@ -112,6 +112,19 @@ class Supervisor extends EventEmitter {
       }
     } catch {}
     try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_usage_events_category ON usage_events(category)'); } catch {}
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS model_observations (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL,
+        source TEXT NOT NULL,
+        category TEXT,
+        ref_id TEXT,
+        label TEXT,
+        model TEXT,
+        status TEXT
+      );
+    `);
+    try { this.db.exec('CREATE INDEX IF NOT EXISTS idx_model_observations_ts ON model_observations(ts)'); } catch {}
   }
 
   /**
@@ -125,6 +138,15 @@ class Supervisor extends EventEmitter {
    */
   recordUsage(ev) {
     try {
+      if (ev && ev.modelObservation) {
+        this.db.prepare(
+          'INSERT INTO model_observations (ts, source, category, ref_id, label, model, status) VALUES (?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+          ev.ts || new Date().toISOString(), ev.source, ev.category || null, ev.refId || null,
+          ev.label || null, ev.model || null, ev.status || null
+        );
+        if (ev.observationOnly) return;
+      }
       const u = (ev && ev.usage) || {};
       this.db.prepare(
         'INSERT INTO usage_events (ts, source, category, ref_id, label, model, status, premium_requests, api_duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, deliverable) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'

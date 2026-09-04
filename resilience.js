@@ -210,7 +210,8 @@ class ResilienceManager {
     let acc = '';
     const result = await this.sdkRunner.runChat({
       config: null, prompt, sessionId: crypto.randomUUID(),
-      resume: false, cwd: this.cwd, availableTools: [], onChunk: (c) => { acc += c; }
+      resume: false, cwd: this.cwd, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system', meta: { source: 'system', category: 'resilience' }
     });
     let raw = (acc.trim() || (result && result.output) || '').trim();
     raw = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();

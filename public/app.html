@@ -2780,6 +2780,8 @@
     .cf-run-log-body b { display:block; color:var(--cp-text); }
     .cf-run-log-detail { margin-top:2px; color:var(--cp-text-muted); white-space:pre-wrap; word-break:break-word; }
     .cf-run-log-more { grid-column:3; margin:2px 0 8px; padding:10px; border-left:2px solid var(--cp-border-strong); background:var(--cp-surface-soft); color:var(--cp-text-muted); white-space:pre-wrap; word-break:break-word; font-family:Consolas,"Courier New",monospace; font-size:11px; }
+    .cf-run-modal { width:min(1600px,96vw); max-width:none; height:92vh; display:flex; flex-direction:column; }
+    .cf-run-modal-body { flex:1 1 auto; min-height:0; padding:16px 20px 24px; overflow:auto; }
     .cf-run-result { margin-top:14px; padding:12px; border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface-soft); white-space:pre-wrap; word-break:break-word; font-family:Consolas,"Courier New",monospace; font-size:11.5px; color:var(--cp-text); }
     .cf-run-result.rendered { white-space:normal; font-family:inherit; }
     .cf-run-result-frame { width:100%; min-height:520px; border:1px solid var(--cp-border); border-radius:8px; background:#fff; }
@@ -11838,7 +11840,7 @@
             <!-- Observable AI review run: phases, tool outcomes, and final response. -->
             <template x-teleport="body">
             <div class="modal-backdrop modal-overlay" x-show="cfReviewRun.open" x-transition.opacity.duration.150ms @click.self="cfReviewRun.open=false" x-cloak style="z-index:9999">
-              <div class="modal-card" style="max-width:920px;width:92vw">
+              <div class="modal-card cf-run-modal">
                 <div class="modal-header">
                   <h2 class="modal-title">AI review run<span x-show="cfReviewRun.pr" style="color:var(--cp-text-muted);font-weight:500"> · PR !<span x-text="cfReviewRun.pr && cfReviewRun.pr.id"></span></span></h2>
                   <div style="display:flex;align-items:center;gap:8px">
@@ -11846,18 +11848,18 @@
                     <button class="icon-button" type="button" @click="cfReviewRun.open=false">✕</button>
                   </div>
                 </div>
-                <div style="padding:16px 18px;max-height:78vh;overflow:auto">
+                <div class="cf-run-modal-body">
                   <p class="hint" style="margin:0 0 12px">This shows the observable agent process, tool outcomes, and final response. Private chain-of-thought is not exposed.</p>
                   <div class="cf-review-progress-meta" x-text="cfReviewRunMeta()"></div>
                   <div class="cf-run-log" x-show="cfReviewRunTrace().length">
                     <template x-for="(entry, idx) in cfReviewRunTrace()" :key="entry.at + entry.label + idx">
                       <div x-data="{ expanded:false }">
-                        <button type="button" class="cf-run-log-row" @click="entry.details && (expanded=!expanded)">
+                        <button type="button" class="cf-run-log-row" @click="expanded=!expanded" :aria-expanded="expanded">
                           <span class="cf-run-log-time" x-text="formatRelative(entry.at)"></span>
-                          <span class="cf-run-log-mark" x-text="entry.details ? (expanded ? '−' : '+') : (entry.kind === 'tool' ? '⌘' : entry.kind === 'reasoning' ? '◇' : entry.kind === 'result' ? '✓' : '·')"></span>
+                          <span class="cf-run-log-mark" x-text="expanded ? '−' : '+'"></span>
                           <span class="cf-run-log-body"><b x-text="entry.label"></b><span class="cf-run-log-detail" x-show="entry.detail" x-text="entry.detail"></span></span>
                         </button>
-                        <div class="cf-run-log-more" x-show="expanded && entry.details" x-text="entry.details"></div>
+                        <div class="cf-run-log-more" x-show="expanded" x-text="cfReviewRunEntryDetails(entry)"></div>
                       </div>
                     </template>
                   </div>
@@ -29115,7 +29117,7 @@
                       <option :value="e.value" x-text="'Reasoning: ' + e.label"></option>
                     </template>
                   </select>
-                  <p class="hint" style="margin-top:6px">The manager "brain" and flow AI condition/judge evaluators.</p>
+                  <p class="hint" style="margin-top:6px">Internal orchestration, planning, classifiers, judges and retry decisions.</p>
                 </div>
                 <div>
                   <label class="field-label">Code Flow AI review timeout</label>
@@ -29128,6 +29130,63 @@
                     <option :value="90">90 minutes</option>
                   </select>
                   <p class="hint" style="margin-top:6px">A review stops cleanly after this limit. Use Fast reasoning before raising the timeout for routine PRs.</p>
+                </div>
+              </div>
+              <div style="margin-top:18px;padding-top:16px;border-top:1px solid var(--cp-border)">
+                <label style="display:flex;align-items:flex-start;gap:9px;cursor:pointer">
+                  <input type="checkbox" x-model="modelSettings.strictModelSelection" @change="saveModelSettings()" style="margin-top:3px">
+                  <span>
+                    <strong>Strict model selection</strong>
+                    <span class="hint" style="display:block;margin-top:3px">Make these three category selections authoritative. Per-agent pins are ignored and runtime-default fallback is blocked.</span>
+                  </span>
+                </label>
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px">
+                  <div>
+                    <strong>Model audit</strong>
+                    <div class="hint" x-text="modelAudit.automationPolicy || 'Checks saved overrides, automations, and actual runtime usage.'"></div>
+                  </div>
+                  <button type="button" class="btn-secondary" @click="loadModelAudit()" :disabled="modelAudit.loading" x-text="modelAudit.loading ? 'Checking…' : 'Refresh audit'"></button>
+                </div>
+                <div x-show="modelAudit.error" class="hint" style="margin-top:10px;color:var(--danger,#dc2626)" x-text="modelAudit.error"></div>
+                <div x-show="!modelAudit.loading && !modelAudit.error" style="margin-top:12px">
+                  <div class="hint" :style="modelAudit.anthropicConfigured || modelAudit.anthropicObserved ? 'color:var(--danger,#dc2626)' : ''"
+                       x-text="modelAuditSummary()"></div>
+                  <div style="margin-top:12px">
+                    <template x-for="c in (modelAudit.categories || [])" :key="c.id">
+                      <div style="display:grid;grid-template-columns:110px minmax(0,1fr);gap:10px;padding:6px 0;border-bottom:1px solid var(--cp-border)">
+                        <span class="hint" x-text="c.label"></span>
+                        <span x-text="c.model || 'Runtime default'"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div x-show="(modelAudit.overrides || []).length" style="margin-top:14px">
+                    <strong style="font-size:12px">Saved model overrides</strong>
+                    <template x-for="o in (modelAudit.overrides || [])" :key="o.kind + ':' + o.id">
+                      <div style="padding:6px 0;border-bottom:1px solid var(--cp-border);font-size:12px">
+                        <span x-text="o.name"></span>
+                        <span class="hint" x-text="' · ' + o.configuredModel + (o.ignored ? ' · ignored by strict selection' : '')"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div x-show="(modelAudit.scheduled || []).length" style="margin-top:14px">
+                    <strong style="font-size:12px">Saved schedules</strong>
+                    <template x-for="s in (modelAudit.scheduled || [])" :key="s.id">
+                      <div style="padding:6px 0;border-bottom:1px solid var(--cp-border);font-size:12px">
+                        <span x-text="s.name"></span>
+                        <span class="hint" x-text="' · ' + s.schedule + ' · inherits ' + (s.effectiveModel || 'runtime default')"></span>
+                      </div>
+                    </template>
+                  </div>
+                  <div x-show="(modelAudit.recent || []).length" style="margin-top:14px">
+                    <strong style="font-size:12px">Actual models reported in the last 30 days</strong>
+                    <template x-for="r in (modelAudit.recent || []).slice(0, 20)" :key="r.model + ':' + r.source + ':' + r.category">
+                      <div style="display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;padding:6px 0;border-bottom:1px solid var(--cp-border);font-size:12px"
+                           :style="r.family === 'anthropic' ? 'color:var(--danger,#dc2626)' : ''">
+                        <span><span x-text="r.model"></span><span class="hint" x-text="' · ' + (r.source || 'unknown') + ' / ' + (r.category || 'uncategorized')"></span></span>
+                        <span class="hint" x-text="r.runs + ' observation' + (Number(r.runs) === 1 ? '' : 's') + ' · ' + formatRelative(r.lastUsed)"></span>
+                      </div>
+                    </template>
+                  </div>
                 </div>
               </div>
               <p class="hint" x-show="modelsError" style="margin-top:12px;color:var(--danger,#dc2626)" x-text="modelsError"></p>
@@ -33980,8 +34039,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         modelSettings: {
           chatModel: '', executionModel: '', systemModel: '',
           chatReasoningEffort: '', executionReasoningEffort: '', systemReasoningEffort: '',
-          codeflowReviewTimeoutMinutes: 30
+          codeflowReviewTimeoutMinutes: 30, strictModelSelection: false
         },
+        modelAudit: { loading: false, error: '', categories: [], overrides: [], scheduled: [], recent: [], automationPolicy: '', anthropicConfigured: false, anthropicObserved: false },
         exportSettings: { exportOrg: '', exportProject: '', exportRepo: '', exportBranch: '' },
         exportSettingsSaved: false,
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
@@ -39583,8 +39643,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
                 chatReasoningEffort: s.chatReasoningEffort || '',
                 executionReasoningEffort: s.executionReasoningEffort || '',
                 systemReasoningEffort: s.systemReasoningEffort || '',
-                codeflowReviewTimeoutMinutes: Number(s.codeflowReviewTimeoutMinutes) || 30
+                codeflowReviewTimeoutMinutes: Number(s.codeflowReviewTimeoutMinutes) || 30,
+                strictModelSelection: s.strictModelSelection === true
               };
+              this.loadModelAudit();
               this.exportSettings = {
                 exportOrg: s.exportOrg || '',
                 exportProject: s.exportProject || '',
@@ -40134,14 +40196,35 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               chatReasoningEffort: next.chatReasoningEffort || '',
               executionReasoningEffort: next.executionReasoningEffort || '',
               systemReasoningEffort: next.systemReasoningEffort || '',
-              codeflowReviewTimeoutMinutes: Number(next.codeflowReviewTimeoutMinutes) || 30
+              codeflowReviewTimeoutMinutes: Number(next.codeflowReviewTimeoutMinutes) || 30,
+              strictModelSelection: next.strictModelSelection === true
             };
+            await this.loadModelAudit();
             this.modelsError = '';
             this.modelsSaved = true;
             setTimeout(() => { this.modelsSaved = false; }, 2500);
           } catch (err) {
+            await this.loadModelSettings();
             this.modelsError = 'Could not save: ' + err.message;
           }
+        },
+        async loadModelAudit() {
+         this.modelAudit.loading = true;
+         this.modelAudit.error = '';
+         try {
+           const audit = await this.request('/api/model-audit');
+           this.modelAudit = { ...this.modelAudit, ...(audit || {}), loading: false, error: '' };
+         } catch (err) {
+           this.modelAudit.loading = false;
+           this.modelAudit.error = err.message || 'Could not audit model usage';
+         }
+        },
+        modelAuditSummary() {
+         const a = this.modelAudit || {};
+         if (a.anthropicConfigured) return 'Anthropic is still present in saved model configuration.';
+         if (a.anthropicObserved) return 'No Anthropic model is configured now, but Anthropic usage exists in recent history.';
+         if (a.runtimeDefaultPossible) return 'A category can still fall back to Copilot’s runtime default.';
+         return a.strict ? 'Strict selection is active; every AI entry point is pinned to its category model.' : 'No Anthropic configuration or recent usage was found.';
         },
         modelEffortOptions(category) {
           const modelId = this.modelSettings[category + 'Model'];
@@ -56679,6 +56762,11 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         cfReviewRunTrace() {
           const trace = this.cfReviewRunRecord().reviewTrace;
           return Array.isArray(trace) ? trace : [];
+        },
+        cfReviewRunEntryDetails(entry) {
+          if (entry && entry.details) return entry.details;
+          if (entry && entry.detail) return entry.detail;
+          return 'No additional details were reported for this step.';
         },
         cfReviewRunReportUrl() {
           const rec = this.cfReviewRunRecord();

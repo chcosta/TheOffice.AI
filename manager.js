@@ -581,7 +581,7 @@ ${loadResponseFormat()}`;
       // deltas, so accumulate before forwarding.
       let acc = '';
       const wrap = onChunk ? (d) => { acc += d; try { onChunk(acc); } catch {} } : null;
-      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('system', cfg), meta: { record: false } });
+      const res = await sdkRunner.runAgent({ config: cfg, prompt, sessionId: randomUUID(), onChunk: wrap, model: settings.resolveModel('system', cfg), modelCategory: 'system', meta: { record: false } });
       if (!res || res.fallback) return null;
       if (res.code !== 0 || !(res.output && res.output.trim())) return null;
       if (res.model) this._lastBrainModel = res.model;

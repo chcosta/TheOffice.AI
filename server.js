@@ -990,8 +990,8 @@ const sdkRunner = require('./sdk-runner');
 // Wire the canonical usage sink once: EVERY AI run that flows through the
 // sdk-runner (runAgent/runChat/runPrompt) — present or future — auto-appends a
 // row to the usage ledger, so all AI usage shows up in Reports with no per-call
-// bookkeeping. The few paths that keep their own aggregated ledger write opt out
-// via meta:{record:false}.
+// bookkeeping. Paths that write their own aggregate use meta:{record:false}, which
+// retains per-model audit observations without double-counting Reports usage.
 sdkRunner.setUsageSink((ev) => { try { supervisor.recordUsage(ev); } catch (_) { /* non-fatal */ } });
 const settings = require('./settings');
 // ---- System agents: per-agent behavior overrides -------------------------
@@ -1069,14 +1069,14 @@ const SYSTEM_AGENTS = [
     id: 'codeflow-reviewer', name: 'Code Flow reviewer', modelCategory: 'execution', canModel: false,
     role: 'A meticulous senior code reviewer for a pull request. Analyzes and reports only — never changes the PR. Produces an HTML review report + machine-readable findings.',
     usedIn: 'Code Flow → "Review with AI" on a PR that needs your review.',
-    tools: 'Full shell + git + gh/az in a read-only review worktree. (Runs as a generated .agent.md — model is the runtime default and can\'t be pinned here.)',
+    tools: 'Full shell + git + gh/az in a read-only review worktree. Uses the Executions model selected in AI & Behavior.',
     contract: 'Writes an HTML report + a JSON findings file; ends with a verdict.',
   },
   {
     id: 'codeflow-author', name: 'Code Flow steward', modelCategory: 'execution', canModel: false,
     role: 'Tends YOUR OWN pull request — addresses reviewer feedback, hardens the change, adds validation, and commits fixes locally (you push).',
     usedIn: 'Code Flow → "Tend with AI" on your own PR.',
-    tools: 'Full shell + git + build/test in your PR\'s worktree. (Runs as a generated .agent.md — model is the runtime default and can\'t be pinned here.)',
+    tools: 'Full shell + git + build/test in your PR\'s worktree. Uses the Executions model selected in AI & Behavior.',
     contract: 'Writes an HTML steward report + a JSON findings file after committing.',
   },
 ];
@@ -3643,16 +3643,19 @@ function _buildStewardAgentMd({ agentName, pr, workItems, threads, reportName, c
 // REVIEWER. `threads` (active reviewer feedback) is only used by the steward.
 const CODEFLOW_REPORT_NAME = 'pr-review-report.html';
 const CODEFLOW_COMMENTS_NAME = 'pr-review-comments.json';
-function _cfReportFingerprint(wtPath) {
+function _cfArtifactFingerprint(wtPath, name) {
   try {
-    const file = path.join(wtPath, CODEFLOW_REPORT_NAME);
+    const file = path.join(wtPath, name);
     const stat = fs.statSync(file);
     if (!stat.isFile()) return null;
     const sha = require('crypto').createHash('sha1').update(fs.readFileSync(file)).digest('hex');
-    return { rel: CODEFLOW_REPORT_NAME, name: CODEFLOW_REPORT_NAME, mtime: stat.mtimeMs, size: stat.size, sha };
+    return { rel: name, name, mtime: stat.mtimeMs, size: stat.size, sha };
   } catch {
     return null;
   }
+}
+function _cfReportFingerprint(wtPath) {
+  return _cfArtifactFingerprint(wtPath, CODEFLOW_REPORT_NAME);
 }
 
 function _cfWriteBlockedReviewReport(wtPath, pr, reason) {
@@ -3746,6 +3749,17 @@ function _readCfReviewComments(wtPath) {
     const comments = Array.isArray(parsed && parsed.comments) ? parsed.comments : [];
     return { summary: (parsed && parsed.summary) || '', comments };
   } catch { return null; }
+}
+
+function _readCurrentCfReviewComments(rec) {
+  if (!rec) return null;
+  if (Object.prototype.hasOwnProperty.call(rec, 'reviewCommentsArtifact') && !rec.reviewCommentsArtifact) return null;
+  const artifact = rec.reviewCommentsArtifact;
+  if (artifact) {
+    const current = _cfArtifactFingerprint(rec.worktreePath, CODEFLOW_COMMENTS_NAME);
+    if (!current || (artifact.sha && current.sha !== artifact.sha)) return null;
+  }
+  return _readCfReviewComments(rec.worktreePath);
 }
 
 // Stable content fingerprint for a single review finding. The findings file has
@@ -3990,6 +4004,49 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
       if (rec.reviewStatus !== 'reviewing') {
         const reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, _cfWtDevId(o), rec.worktreePath);
         save.reports = reports || [];
+        const fingerprint = _cfReportFingerprint(rec.worktreePath);
+        const startedMs = Date.parse(rec.reviewStartedAt || '');
+        const report = (reports || []).find(item => item && item.rel === CODEFLOW_REPORT_NAME);
+        const baselineKnown = Object.prototype.hasOwnProperty.call(rec, 'reviewReportBaseline');
+        const baseline = rec.reviewReportBaseline;
+        const fresh = !!fingerprint && (baselineKnown
+          ? (!baseline || fingerprint.sha !== baseline.sha || fingerprint.mtime > baseline.mtime + 1)
+          : fingerprint.mtime >= startedMs);
+        if (rec.reviewStatus === 'error' && fingerprint && report && Number.isFinite(startedMs) && fresh) {
+          const comments = _cfArtifactFingerprint(rec.worktreePath, CODEFLOW_COMMENTS_NAME);
+          const freshComments = comments && comments.mtime >= startedMs &&
+            comments.mtime >= fingerprint.mtime ? comments : null;
+          const trace = Array.isArray(rec.reviewTrace) ? rec.reviewTrace.slice(-199) : [];
+          trace.push({
+            at: new Date().toISOString(),
+            kind: 'result',
+            label: 'Report completion reconciled',
+            detail: 'The runtime timed out, but the report written by this attempt was found and verified.',
+            status: 'success',
+            details: rec.reviewError || 'The runtime did not exit cleanly after writing the report.'
+          });
+          Object.assign(save, {
+            reviewStatus: 'done',
+            reviewError: null,
+            reviewAttemptOutcome: 'succeeded',
+            reviewAttemptMessage: 'A new PR review report was verified after the runtime timed out.',
+            reviewArtifact: {
+              rel: report.rel,
+              name: report.name || report.rel,
+              kind: report.kind,
+              mtime: fingerprint.mtime,
+              size: fingerprint.size,
+              cached: !!report.cached
+            },
+            reviewCommentsArtifact: freshComments,
+            reviewCompletionReason: 'artifact-reconciled',
+            reviewRuntimeWarning: rec.reviewError || 'The runtime did not exit cleanly after writing the report.',
+            reviewPhase: 'done',
+            reviewProgress: 'Review complete',
+            reviewProgressDetail: 'New report generated and cached; runtime timeout ignored.',
+            reviewTrace: trace
+          });
+        }
       }
       if (rec.sourceBranch) {
         try {
@@ -4008,7 +4065,7 @@ app.get('/api/codeflow/pr/worktree', (req, res) => {
           }
         } catch {}
       }
-      const rc = _readCfReviewComments(rec.worktreePath);
+      const rc = _readCurrentCfReviewComments(rec);
       if (rc) {
         const posted = _cfPostedSet(rec);
         const dismissed = _cfDismissedSet(rec);
@@ -4320,12 +4377,14 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       at: new Date().toISOString(),
       kind: 'phase',
       label: haveWt ? 'Reading the pull request and linked context' : 'Creating an isolated review worktree',
-      detail: ''
+      detail: '',
+      details: haveWt ? 'Using the existing isolated worktree for this PR.' : 'Preparing a new isolated worktree for this PR.'
     }],
     reviewAttemptId,
     reviewAttemptOutcome: 'running',
     reviewAttemptMessage: 'AI review is running.',
     reviewArtifact: null,
+    reviewCommentsArtifact: null,
     reviewModel: model || 'Runtime default',
     reviewReasoningEffort: reasoningEffort || 'model default',
     reviewTimeoutMinutes,
@@ -4342,7 +4401,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       const items = Array.isArray(current.reviewTrace) ? current.reviewTrace.slice(-199) : [];
       const last = items[items.length - 1];
       if (!last || last.kind !== kind || last.label !== label || last.detail !== (detail || '') || last.status !== (status || '')) {
-        items.push({ at: new Date(now).toISOString(), kind, label, detail: detail || '', status: status || '', details: details || '' });
+        items.push({
+          at: new Date(now).toISOString(), kind, label, detail: detail || '', status: status || '',
+          details: details || detail || 'No additional details were reported for this step.'
+        });
         _saveCfWt(key, { reviewTrace: items.slice(-200) });
       }
     };
@@ -4353,7 +4415,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       const traceLast = traceItems[traceItems.length - 1];
       let traceChanged = false;
       if (!traceLast || traceLast.kind !== 'phase' || traceLast.label !== label || traceLast.detail !== (detail || '')) {
-        traceItems.push({ at: new Date(now).toISOString(), kind: 'phase', label, detail: detail || '', status: '' });
+        traceItems.push({
+          at: new Date(now).toISOString(), kind: 'phase', label, detail: detail || '', status: '',
+          details: detail || 'No additional details were reported for this phase.'
+        });
         traceChanged = true;
       }
       if (!force && now - lastProgressAt < 750) {
@@ -4385,15 +4450,18 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
     const onStep = (step) => {
       if (!step) return;
       if (step.kind === 'tool_start') {
-        if (step.toolCallId) toolInputs.set(step.toolCallId, tracePayload(step.args));
-        trace('tool_start', 'Using ' + (step.tool || 'a repository tool'), 'Tool started.', '', tracePayload(step.args));
+        if (step.toolCallId) toolInputs.set(step.toolCallId, { tool: step.tool || '', args: tracePayload(step.args) });
+        trace('tool_start', 'Using ' + (step.tool || 'a repository tool'), 'Tool started.', '',
+          tracePayload(step.args) || 'The runtime did not provide tool input details.');
         progress('reviewing', 'Inspecting the pull request', 'Using ' + (step.tool || 'a repository tool'));
       }
       else if (step.kind === 'tool_complete') {
-        trace('tool', (step.tool || 'Repository tool') + ' completed',
+        const started = (step.toolCallId && toolInputs.get(step.toolCallId)) || {};
+        trace('tool', (step.tool || started.tool || 'Repository tool') + ' completed',
           step.success === false ? 'The tool returned an error.' : 'Completed successfully.',
           step.success === false ? 'error' : 'success',
-          [toolInputs.get(step.toolCallId), tracePayload(step.result)].filter(Boolean).join('\n\n--- Result ---\n'));
+          [started.args, tracePayload(step.result)].filter(Boolean).join('\n\n--- Result ---\n') ||
+            'The runtime did not provide detailed tool output.');
         if (step.toolCallId) toolInputs.delete(step.toolCallId);
         if (step.success === false) progress('reviewing', 'A review step failed', (step.tool || 'Repository tool') + ' returned an error', true);
       }
@@ -4428,6 +4496,43 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       // on whether THIS run rewrote the canonical report, never on an old file.
       try { devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath); } catch {}
       const reportBefore = _cfReportFingerprint(wtPath);
+      const commentsBefore = _cfArtifactFingerprint(wtPath, CODEFLOW_COMMENTS_NAME);
+      _saveCfWt(key, { reviewReportBaseline: reportBefore || null });
+      const reviewStartedMs = Date.parse((_getCfWt(key) || {}).reviewStartedAt || '') || Date.now();
+      const reviewDeadlineMs = reviewStartedMs + reviewTimeoutMinutes * 60 * 1000;
+      const isFreshArtifact = (fingerprint, before) => !!fingerprint && (
+        before
+          ? fingerprint.sha !== before.sha || fingerprint.mtime > before.mtime + 1
+          : fingerprint.mtime >= reviewStartedMs - 1000
+      );
+      const isFreshReport = (fingerprint) => isFreshArtifact(fingerprint, reportBefore);
+      let reportCompletionCandidate = '';
+      let commentsCompletionCandidate = '';
+      const reportWritten = () => {
+        const reportFingerprint = _cfReportFingerprint(wtPath);
+        if (!isFreshReport(reportFingerprint)) return false;
+        const reportCandidate = `${reportFingerprint.sha}:${reportFingerprint.size}:${reportFingerprint.mtime}`;
+        const reportStable = reportCompletionCandidate === reportCandidate &&
+          Date.now() - reportFingerprint.mtime >= 500;
+        reportCompletionCandidate = reportCandidate;
+        if (!reportStable) return false;
+
+        // Give the requested machine-readable findings time to finish too, while
+        // keeping the HTML report authoritative for agents that cannot emit JSON.
+        const commentsFingerprint = _cfArtifactFingerprint(wtPath, CODEFLOW_COMMENTS_NAME);
+        const commentsCandidate = commentsFingerprint
+          ? `${commentsFingerprint.sha}:${commentsFingerprint.size}:${commentsFingerprint.mtime}`
+          : '';
+        const commentsStable = isFreshArtifact(commentsFingerprint, commentsBefore) &&
+          commentsCompletionCandidate === commentsCandidate &&
+          commentsFingerprint.mtime >= reportFingerprint.mtime &&
+          Date.now() - commentsFingerprint.mtime >= 500;
+        commentsCompletionCandidate = commentsCandidate;
+        // A complete report+findings pair can finish immediately. Report-only
+        // completion is accepted only near the configured deadline, preventing an
+        // interim report refresh from aborting a reviewer that is still working.
+        return commentsStable || Date.now() >= reviewDeadlineMs - 15000;
+      };
       // 2. Write/refresh the agent file (grounded with linked work items; the
       //    steward also gets the actual unresolved reviewer feedback to address).
       progress('context', 'Loading PR context', 'Linked work items, active feedback, and repository guidance', true);
@@ -4459,6 +4564,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         config: { cwd: wtPath, agent: slug, allowAll: true },
         prompt: kickoff, sessionId: sid, model, reasoningEffort, timeoutMs: reviewTimeoutMinutes * 60 * 1000,
         completionText: 'DONE',
+        completionCheck: reportWritten,
         onChunk: (c) => {
           acc += c;
           if (!responseStarted) {
@@ -4480,8 +4586,10 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         run = await sdkRunner.runPrompt({
           prompt: body + '\n\n---\n\n' + kickoff, cwd: wtPath,
           sessionId: require('crypto').randomUUID(), model, reasoningEffort,
+          modelCategory: 'execution',
           timeoutMs: reviewTimeoutMinutes * 60 * 1000,
           completionText: 'DONE',
+          completionCheck: reportWritten,
           onChunk: (c) => {
             acc += c;
             if (!responseStarted) {
@@ -4500,9 +4608,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
       let reports = [];
       try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
       let reportAfter = _cfReportFingerprint(wtPath);
-      let freshReport = !!reportAfter && (!reportBefore ||
-        reportAfter.sha !== reportBefore.sha ||
-        reportAfter.mtime > reportBefore.mtime + 1);
+      let freshReport = isFreshReport(reportAfter);
       let report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
       let recoveryRun = null;
       let recoveryAcc = '';
@@ -4526,6 +4632,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           prompt: recoveryPrompt, sessionId: require('crypto').randomUUID(),
           model, reasoningEffort, timeoutMs: Math.min(reviewTimeoutMinutes, 15) * 60 * 1000,
           completionText: 'DONE',
+          completionCheck: reportWritten,
           onChunk: (c) => { recoveryAcc += c; },
           onStep,
           meta: { source: 'system', category: 'pull_requests' }
@@ -4535,7 +4642,9 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           recoveryRun = await sdkRunner.runPrompt({
             prompt: recoveryPrompt, cwd: wtPath, sessionId: require('crypto').randomUUID(),
             model, reasoningEffort, timeoutMs: Math.min(reviewTimeoutMinutes, 15) * 60 * 1000,
+            modelCategory: 'execution',
             completionText: 'DONE',
+            completionCheck: reportWritten,
             onChunk: (c) => { recoveryAcc += c; },
             onStep,
             meta: { source: 'system', category: 'pull_requests' }
@@ -4543,9 +4652,7 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         }
         try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
         reportAfter = _cfReportFingerprint(wtPath);
-        freshReport = !!reportAfter && (!reportBefore ||
-          reportAfter.sha !== reportBefore.sha ||
-          reportAfter.mtime > reportBefore.mtime + 1);
+        freshReport = isFreshReport(reportAfter);
         report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
         const recoverySucceeded = !!(recoveryRun && recoveryRun.ok) && freshReport && !!report;
         trace('recovery', recoverySucceeded ? 'Automatic report recovery succeeded' : 'Automatic report recovery failed',
@@ -4566,15 +4673,16 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
           'The AI could not complete the review artifact contract, so the system created an honest diagnostic report.', 'warning', diagnosticReason);
         try { reports = devitems.findAndCacheReports(CODEFLOW_REPORT_BOARD, devId, wtPath) || []; } catch {}
         reportAfter = _cfReportFingerprint(wtPath);
-        freshReport = !!reportAfter && (!reportBefore ||
-          reportAfter.sha !== reportBefore.sha ||
-          reportAfter.mtime > reportBefore.mtime + 1);
+        freshReport = isFreshReport(reportAfter);
         report = reports.find(r => r && r.rel === CODEFLOW_REPORT_NAME) || null;
       }
       const effectiveRun = recoveryNeeded ? recoveryRun : run;
       const blocked = preparationBlocked || generatedDiagnostic;
-      const ok = !blocked && !!(effectiveRun && effectiveRun.ok) && freshReport && !!report;
       const artifactAvailable = freshReport && !!report;
+      const ok = !blocked && artifactAvailable;
+      const runtimeWarning = ok && effectiveRun && effectiveRun.ok === false
+        ? String(effectiveRun.error || 'The runtime did not exit cleanly after producing the report.')
+        : '';
       const recoveryResponse = String((recoveryRun && recoveryRun.output) || recoveryAcc || '').trim();
       const recoveryExplanation = recoveryResponse === 'DONE'
         ? 'The recovery agent claimed DONE, but filesystem verification found that the required report was still missing or unchanged.'
@@ -4600,9 +4708,13 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         size: reportAfter.size,
         cached: !!report.cached
       } : null;
+      const commentsAfter = _cfArtifactFingerprint(wtPath, CODEFLOW_COMMENTS_NAME);
+      const reviewCommentsArtifact = isFreshArtifact(commentsAfter, commentsBefore) &&
+        commentsAfter.mtime >= reportAfter.mtime ? commentsAfter : null;
       trace('result', ok ? 'Review completed' : (blocked ? 'Review blocked' : 'Review failed'),
-        ok ? 'A new PR review report was generated.' : (blocked ? 'A diagnostic report was generated for the blocker.' : reviewFailure),
-        ok ? 'success' : (blocked ? 'warning' : 'error'));
+        ok ? ('A new PR review report was generated.' + (runtimeWarning ? ' Runtime note: ' + runtimeWarning : '')) :
+          (blocked ? 'A diagnostic report was generated for the blocker.' : reviewFailure),
+        ok ? 'success' : (blocked ? 'warning' : 'error'), runtimeWarning);
       _saveCfWt(key, {
         reports,
         reportHistory,
@@ -4610,14 +4722,17 @@ app.post('/api/codeflow/pr/review', async (req, res) => {
         reviewError: ok ? null : reviewFailure,
         reviewAttemptOutcome: ok ? 'succeeded' : (blocked ? 'blocked' : 'failed'),
         reviewAttemptMessage: ok
-          ? 'Review completed successfully. A new PR review report is available.'
+          ? 'Review completed successfully. A new PR review report is available.' +
+            (runtimeWarning ? ' The runtime did not exit cleanly, but the report was verified.' : '')
           : (blocked ? 'The review was blocked, but a diagnostic report explains why and what to do next.' : reviewFailure),
         reviewArtifact,
+        reviewCommentsArtifact,
         reviewResult: [
           String((run && run.output) || acc || '').trim(),
           recoveryNeeded ? '--- Automatic report recovery ---\n' + String((recoveryRun && recoveryRun.output) || recoveryAcc || '').trim() : ''
         ].filter(Boolean).join('\n\n').slice(-20000),
         reviewCompletionReason: (effectiveRun && effectiveRun.completionReason) || '',
+        reviewRuntimeWarning: runtimeWarning,
         reviewRecoveryAttempted: recoveryNeeded,
         reviewRecoveryOutcome: recoveryNeeded ? (ok ? 'succeeded' : 'failed') : '',
         reviewPhase: ok || blocked ? 'done' : 'error',
@@ -4739,6 +4854,7 @@ async function _cfAiResolveUpdateConflicts(workDir, { strategy, targetBranch }) 
         cwd: workDir,
         sessionId: require('crypto').randomUUID(),
         model,
+        modelCategory: 'execution',
         meta: { source: 'system', category: 'pull_requests' }
       });
       if (!run || !run.ok || run.fallback) {
@@ -5003,6 +5119,7 @@ async function _cfGenerateCommitMessage(wt) {
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       cwd: wt, availableTools: [], onChunk: (c) => { acc += c; },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      modelCategory: 'execution',
       meta: { source: 'system', category: 'pull_requests' }
     });
     let msg = String(acc || '').trim()
@@ -5068,7 +5185,7 @@ app.get('/api/codeflow/pr/comments', async (req, res) => {
   const key = _cfWtKey(o);
   let rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
-  const rc = _readCfReviewComments(rec.worktreePath);
+  const rc = _readCurrentCfReviewComments(rec);
   if (!rc) return res.json({ summary: '', comments: [] });
   // Recognize findings already posted to the PR (including before we tracked them).
   rec = await _cfReconcilePosted(o, key, rec, rc.comments);
@@ -5113,7 +5230,7 @@ app.post('/api/codeflow/pr/comments/post', async (req, res) => {
   const key = _cfWtKey(o);
   const rec = _getCfWt(key);
   if (!rec || !rec.worktreePath || !fs.existsSync(rec.worktreePath)) return res.status(400).json({ error: 'No review worktree found.' });
-  const rc = _readCfReviewComments(rec.worktreePath);
+  const rc = _readCurrentCfReviewComments(rec);
   if (!rc || !rc.comments.length) return res.status(400).json({ error: 'No review findings to post. Run "Review with AI" first.' });
   const sevTag = (s) => {
     const v = String(s || '').toLowerCase();
@@ -5180,7 +5297,7 @@ app.post('/api/codeflow/pr/comments/dismiss', (req, res) => {
   // Recompute the remaining postable count so the caller can refresh the card label.
   let remaining = null;
   try {
-    const rc = _readCfReviewComments(rec.worktreePath);
+    const rc = _readCurrentCfReviewComments(rec);
     if (rc) { const posted = _cfPostedSet(saved); remaining = rc.comments.filter(c => { const fp = _cfCommentFp(c); return !posted.has(fp) && !have.has(fp); }).length; }
   } catch {}
   res.json({ ok: true, dismissed: Array.from(have), remaining });
@@ -5852,6 +5969,7 @@ app.post('/api/codeflow/epics/ai', async (req, res) => {
       config: personaCfg, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
       availableTools: [], onChunk: (c) => { acc += c; },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      modelCategory: 'execution',
       meta: { source: 'system', category: 'chat' },
     });
     if (result && result.fallback) return res.json({ ok: false, reason: 'runtime-unavailable', persona, cockpit: entry.cockpit });
@@ -5921,6 +6039,7 @@ app.post('/api/codeflow/epics/assistant', async (req, res) => {
         else if (s.kind === 'agent') _emit({ kind: 'agent', name: s.name });
       },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      modelCategory: 'execution',
       meta: { source: 'system', category: 'chat' },
     });
     if (result && result.fallback) { _emit({ kind: 'done' }); return res.json({ ok: false, persona, reply: 'The assistant runtime is not available right now.' }); }
@@ -9617,12 +9736,43 @@ app.post('/api/sessions/:id/chat', (req, res) => {
   if (!fs.existsSync(sessionDir)) return res.status(404).json({ error: 'Session not found' });
 
   const meta = readSessionMeta(sessionDir);
-  // Resume the existing SDK session by id. The agent/tools are already baked
-  // into the persisted session, so only the working directory is supplied.
+  let persistedAgent = String(meta.agentId || meta.agentName || '').trim();
+  if (!persistedAgent) {
+    const eventsPath = path.join(sessionDir, 'events.jsonl');
+    if (fs.existsSync(eventsPath)) {
+      for (const line of fs.readFileSync(eventsPath, 'utf8').split('\n').filter(Boolean)) {
+        try {
+          const event = JSON.parse(line);
+          if (event.type === 'session.start') {
+            persistedAgent = String(event.data?.context?.agentName || '').trim();
+            if (persistedAgent) break;
+          }
+        } catch {}
+      }
+    }
+  }
+  let agentEntry = persistedAgent ? supervisor.agents.get(persistedAgent) : null;
+  if (!agentEntry && persistedAgent) {
+    const wanted = persistedAgent.toLowerCase();
+    agentEntry = Array.from(supervisor.agents.values()).find(entry => {
+      const cfg = (entry && entry.config) || {};
+      return [cfg.id, cfg.name, cfg.agent].some(value => String(value || '').toLowerCase() === wanted);
+    }) || null;
+  }
+  if (settings.getSettings().strictModelSelection && persistedAgent && !agentEntry) {
+    return res.status(409).json({
+      error: `Strict model selection cannot safely resume this session because agent "${persistedAgent}" is no longer installed. Start a new session.`
+    });
+  }
+  // Strict mode reconstructs installed agent definitions so frontmatter model
+  // pins can be rewritten before resume; default-agent sessions only need cwd.
+  const config = agentEntry
+    ? { ...agentEntry.config, cwd: meta.cwd || agentEntry.config.cwd || undefined }
+    : { cwd: meta.cwd || undefined };
   runChatTurn({
     sessionId: req.params.id,
     message,
-    config: { cwd: meta.cwd || undefined },
+    config,
     resume: true,
   });
   // Return immediately — client polls /poll for live updates.
@@ -10830,6 +10980,139 @@ app.get('/api/models', async (req, res) => {
   }
 });
 
+function _modelAuditFamily(model) {
+  const id = String(model || '').toLowerCase();
+  if (!id) return 'unreported';
+  if (/claude|anthropic|sonnet|opus|haiku/.test(id)) return 'anthropic';
+  if (/^(gpt-|o[134](?:-|$))|openai|codex/.test(id)) return 'openai';
+  return 'other';
+}
+
+// Explain both configuration precedence and what the runtime actually reported.
+// Saved tasks/flows only reference agents; schedules only store cadence, so model
+// inheritance is resolved from the current task, agent, and category settings.
+app.get('/api/model-audit', (req, res) => {
+  try {
+    const current = settings.getSettings();
+    const categories = [
+      { id: 'chat', label: 'Chat', model: current.chatModel || '', reasoningEffort: current.chatReasoningEffort || '' },
+      { id: 'execution', label: 'Executions', model: current.executionModel || '', reasoningEffort: current.executionReasoningEffort || '' },
+      { id: 'system', label: 'System AI', model: current.systemModel || '', reasoningEffort: current.systemReasoningEffort || '' },
+    ].map(x => ({ ...x, family: _modelAuditFamily(x.model) }));
+    const resolve = (category, config) => {
+      try { return settings.resolveModel(category, config) || ''; } catch (e) { return ''; }
+    };
+    const resolveAgent = (category, config) => {
+      if (!current.strictModelSelection) {
+        const pluginModel = sdkRunner.getSelectedAgentModel(config);
+        if (pluginModel) return pluginModel;
+      }
+      return resolve(category, config);
+    };
+    const overrides = [];
+    for (const [id, entry] of supervisor.agents.entries()) {
+      const cfg = (entry && entry.config) || {};
+      const pinned = String(cfg.model || '').trim();
+      if (!pinned) continue;
+      overrides.push({
+        kind: 'Installed agent', id, name: cfg.name || id, category: 'execution',
+        configuredModel: pinned, effectiveModel: resolve('execution', cfg),
+        ignored: !!current.strictModelSelection,
+      });
+    }
+    for (const [id, entry] of supervisor.agents.entries()) {
+      const cfg = (entry && entry.config) || {};
+      for (const pin of sdkRunner.getConfiguredAgentModels(cfg)) {
+        overrides.push({
+          kind: 'Plugin agent', id: `${id}:${pin.agent}`, name: pin.agent, category: 'execution',
+          configuredModel: pin.model, effectiveModel: resolve('execution', { model: pin.model }),
+          ignored: !!current.strictModelSelection,
+        });
+      }
+    }
+    const systemOverrides = current.systemAgentOverrides || {};
+    for (const agent of SYSTEM_AGENTS) {
+      const pinned = String((systemOverrides[agent.id] && systemOverrides[agent.id].model) || '').trim();
+      if (!pinned) continue;
+      overrides.push({
+        kind: 'System agent', id: agent.id, name: agent.name, category: agent.modelCategory,
+        configuredModel: pinned, effectiveModel: resolve(agent.modelCategory, { model: pinned }),
+        ignored: !!current.strictModelSelection,
+      });
+    }
+    const scheduled = [];
+    const tasks = loadTasks();
+    const tasksById = new Map(tasks.map(task => [task.id, task]));
+    const isScheduled = (value) => {
+      const schedule = String(value || '').trim();
+      return !!schedule && schedule.toLowerCase() !== 'never';
+    };
+    for (const task of tasks) {
+      if (!isScheduled(task.schedule)) continue;
+      const entry = supervisor.agents.get(task.agentId);
+      const cfg = (entry && entry.config) || {};
+      scheduled.push({
+        type: 'Task', id: task.id, name: task.name || task.id, schedule: task.schedule,
+        enabled: task.enabled !== false,
+        effectiveModel: resolveAgent('execution', cfg),
+      });
+    }
+    for (const chain of chainEngine.load()) {
+      if (!isScheduled(chain.schedule)) continue;
+      const models = new Set();
+      for (const step of (Array.isArray(chain.steps) ? chain.steps : [])) {
+        const task = step && step.taskId ? tasksById.get(step.taskId) : null;
+        const agentId = (step && step.agentId) || (task && task.agentId) || '';
+        const entry = agentId ? supervisor.agents.get(agentId) : null;
+        const model = resolveAgent('execution', entry && entry.config);
+        if (model) models.add(model);
+      }
+      for (const edge of (chain.edges || []).filter(edge => edge && edge.condition && edge.condition.type === 'ai')) {
+        const evaluatorId = edge.condition.agentId || '';
+        const evaluator = evaluatorId ? supervisor.agents.get(evaluatorId) : null;
+        const model = resolveAgent('system', evaluator && evaluator.config);
+        if (model) models.add(model);
+      }
+      scheduled.push({
+        type: 'Flow', id: chain.id, name: chain.name || chain.id, schedule: chain.schedule,
+        enabled: chain.enabled !== false,
+        effectiveModel: Array.from(models).join(', '),
+      });
+    }
+    const recent = db.prepare(`
+      WITH first_observation AS (
+        SELECT MIN(ts) AS ts FROM model_observations
+      ), observed AS (
+        SELECT ts, source, category, model, status
+        FROM model_observations
+        WHERE substr(ts,1,10) >= date('now','-30 days')
+        UNION ALL
+        SELECT ts, source, category, model, status
+        FROM usage_events
+        WHERE substr(ts,1,10) >= date('now','-30 days')
+          AND COALESCE(deliverable,0) = 0
+          AND ts < COALESCE((SELECT ts FROM first_observation), '9999-12-31')
+      )
+      SELECT COALESCE(NULLIF(model,''), '(unreported)') AS model,
+             source, category, COUNT(*) AS runs, MAX(ts) AS lastUsed
+      FROM observed
+      GROUP BY COALESCE(NULLIF(model,''), '(unreported)'), source, category
+      ORDER BY lastUsed DESC
+      LIMIT 100`).all().map(row => ({ ...row, family: _modelAuditFamily(row.model) }));
+    res.json({
+      strict: !!current.strictModelSelection,
+      categories, overrides, scheduled, recent,
+      automationPolicy: 'Saved tasks and flows inherit the model when they run. Schedules store cadence only and do not cache a model.',
+      runtimeDefaultPossible: !current.strictModelSelection && categories.some(x => !x.model),
+      anthropicConfigured: overrides.some(x => _modelAuditFamily(x.configuredModel) === 'anthropic') ||
+        categories.some(x => x.family === 'anthropic'),
+      anthropicObserved: recent.some(x => x.family === 'anthropic'),
+    });
+  } catch (e) {
+    res.status(500).json({ error: (e && e.message) || 'Could not audit model usage' });
+  }
+});
+
 // Read the global settings (model selections).
 app.get('/api/settings', (req, res) => {
   // Reflect the authoritative external-access state (may be hard-locked off by the
@@ -10848,6 +11131,20 @@ app.put('/api/settings', (req, res) => {
     // External access is hard-locked off by the build — never let a settings write
     // turn it on (or off); the kill-switch is authoritative via isExternalAccessDisabled().
     if (settings.isExternalAccessLocked()) delete body.externalAccessDisabled;
+    const currentSettings = settings.getSettings();
+    const strictRequested = Object.prototype.hasOwnProperty.call(body, 'strictModelSelection')
+      ? (body.strictModelSelection === true || body.strictModelSelection === 'true' || body.strictModelSelection === 1)
+      : !!currentSettings.strictModelSelection;
+    if (strictRequested) {
+      const missing = [
+        ['Chat', body.chatModel ?? currentSettings.chatModel],
+        ['Executions', body.executionModel ?? currentSettings.executionModel],
+        ['System AI', body.systemModel ?? currentSettings.systemModel],
+      ].filter(([, model]) => !String(model || '').trim()).map(([label]) => label);
+      if (missing.length) {
+        return res.status(400).json({ error: 'Strict model selection requires explicit models for: ' + missing.join(', ') });
+      }
+    }
     const before = settings.isExternalAccessDisabled();
     const _grpKeys = ['codeflowMyGroups', 'codeflowMyGroupsGithub', 'codeflowMyGroupsAzdo'];
     const beforeGroups = JSON.stringify(_grpKeys.map(k => (settings.getSettings()[k]) || []));
@@ -11654,6 +11951,7 @@ app.post('/api/monitoring/epic-dashboard', async (req, res) => {
         config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname,
         availableTools: [], onChunk: (c) => { acc += c; },
         model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+        modelCategory: 'execution',
         meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
       });
       if (!(result && result.fallback)) {
@@ -11813,6 +12111,7 @@ app.post('/api/monitoring/epic-dashboard/:key/assist', async (req, res) => {
         else if (s.kind === 'agent') _emit({ kind: 'agent', name: s.name });
       },
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      modelCategory: 'execution',
       meta: { source: 'monitoring-ai', category: 'monitoring-ai' },
     });
     if (result && result.fallback) { _emit({ kind: 'done' }); return res.json({ ok: false, reply: 'The assistant runtime is not available right now.' }); }
@@ -11988,6 +12287,7 @@ async function _connectRunAgent(agentName, prompt) {
     prompt,
     sessionId: require('crypto').randomUUID(),
     resume: false,
+    modelCategory: 'execution',
     cwd: __dirname,
     meta: { source: 'connect', category: cat },
     onChunk: (c) => { acc += c; },
@@ -12249,6 +12549,7 @@ async function _runMeetingSlice(win, nowIso, skipIds, { hardCapMs, stallMs }) {
       prompt,
       sessionId: require('crypto').randomUUID(),
       resume: false,
+      modelCategory: 'execution',
       cwd: __dirname,
       meta: { source: 'connect', category: 'diary' },
       onChunk: (c) => { acc += c; bump(); },
@@ -12384,6 +12685,7 @@ async function runConnectSearch(query) {
   const result = await sdkRunner.runChat({
     config: null, prompt, sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    modelCategory: 'system',
     meta: { source: 'connect', category: 'diary' },
   });
   let raw = (acc.trim() || (result && result.output) || '').trim();
@@ -12779,6 +13081,7 @@ async function extractConnectMemories({ history, message } = {}) {
     result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'connect', category: 'diary' },
     });
   } catch (e) { console.warn('[connect] memory extraction failed:', e.message); return []; }
@@ -12924,6 +13227,7 @@ async function runConnectAssistant({ message, history, extraContext, allowSearch
   const result = await sdkRunner.runChat({
     config: _systemAgentCfg('connect', null), prompt: sys + _systemAgentInstr('connect'), sessionId: require('crypto').randomUUID(),
     resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+    modelCategory: 'chat',
     meta: { source: 'connect', category: 'diary' },
   });
   let raw = (acc.trim() || (result && result.output) || '').trim();
@@ -13563,6 +13867,7 @@ async function _newsletterRunAgent(agentName, prompt, onStep) {
     prompt: prompt + _systemAgentInstr(_saId),
     sessionId: require('crypto').randomUUID(),
     resume: false,
+    modelCategory: 'execution',
     cwd: __dirname,
     meta: { source: 'newsletter', category: 'newsletter' },
     onChunk: (c) => { acc += c; },
@@ -14489,6 +14794,7 @@ async function _composeRunAgent(agentName, prompt, onStep, onActivity) {
     prompt: prompt + _systemAgentInstr(_saId),
     sessionId: require('crypto').randomUUID(),
     resume: false,
+    modelCategory: 'execution',
     cwd: __dirname,
     meta: { source: 'compose', category: 'compose' },
     onChunk: (c) => { acc += c; if (beat) { try { beat(); } catch (_) { /* ignore */ } } },
@@ -17616,6 +17922,7 @@ async function _meAiTriageAiNudge(it, base) {
     const run = sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     const result = await Promise.race([run, new Promise(r => setTimeout(() => r({ fallback: true }), 8000))]);
@@ -17764,6 +18071,7 @@ async function _meAiGroupInbox(items, opts = {}) {
     const run = sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     const result = await Promise.race([run, new Promise(r => setTimeout(() => r({ fallback: true }), 12000))]);
@@ -18888,6 +19196,7 @@ async function _meAiEodNarrative(date, data, opts) {
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     if (result && result.fallback) { narrative = _meAiEodFallbackNarrative(data); }
@@ -20644,6 +20953,7 @@ Return ONLY a fenced \`\`\`json code block with an array of {"i":<index>,"urgenc
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     if (result && result.fallback) return signals;
@@ -20710,6 +21020,7 @@ async function _meAiLlmRefine(cfg, pre, signals, date) {
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     if (result && result.fallback) return null;
@@ -20837,6 +21148,7 @@ async function _meAiClassifyTodo(title) {
     const result = await sdkRunner.runChat({
       config: null, prompt, sessionId: require('crypto').randomUUID(),
       resume: false, cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; },
+      modelCategory: 'system',
       meta: { source: 'me-ai', category: 'me-ai' },
     });
     if (result && result.fallback) return heur;
@@ -26720,6 +27032,7 @@ async function _meAiRunTurn(t, prompt, { resume, workiq }) {
         sessionId,
         resume: !!resume,
         cwd,
+        modelCategory: 'execution',
         meta: { source: 'me-ai', category: 'me-ai' },
         // ENFORCED auth gate: every ordinary Me-agent turn (dispatch + legs) runs
         // through the write/external classifier so it physically cannot post/send/
@@ -28141,7 +28454,7 @@ async function _meAiTreeSynthesizeReport(t, corpus, meta) {
   let model; try { model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined; } catch (_) {}
   let output = '';
   try {
-    const res = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, meta: { record: false, source: 'pursuit-compendium', pursuit: t.id } });
+    const res = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, modelCategory: 'execution', meta: { record: false, source: 'pursuit-compendium', pursuit: t.id } });
     if (res && res.ok !== false) output = String(res.output || '');
     else return null;
   } catch (_) { return null; }
@@ -29493,7 +29806,7 @@ async function _meAiDirectorReason(id, opts) {
   let model; try { model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined; } catch (_) {}
   let out;
   try {
-    out = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, meta: { record: false, source: 'pursuit-director', pursuit: id } });
+    out = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, modelCategory: 'execution', meta: { record: false, source: 'pursuit-director', pursuit: id } });
   } catch (e) { return { ok: false, error: 'sdk: ' + String(e && e.message || e) }; }
   if (!out || out.ok === false) return { ok: false, error: (out && out.error) || 'sdk-failed' };
   const parsed = _meAiDirExtractJson(out.output);
@@ -29667,7 +29980,7 @@ async function _meAiDirectorNarrate(t, opts) {
     const prompt = _meAiDirectorNarratePrompt(brief, trig);
     let model; try { model = (settings.resolveModel && settings.resolveModel('execution', null)) || undefined; } catch (_) {}
     try {
-      const out = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, meta: { record: false, source: 'pursuit-director-narrate', pursuit: id } });
+      const out = await sdkRunner.runPrompt({ prompt, cwd: __dirname, sessionId: require('crypto').randomUUID(), model, modelCategory: 'execution', meta: { record: false, source: 'pursuit-director-narrate', pursuit: id } });
       if (out && out.ok !== false) text = _meAiDirClip(String(out.output || '').trim().replace(/^["'\s]+|["'\s]+$/g, ''), 900);
     } catch (_) { /* fall through to degrade */ }
   }
@@ -39510,7 +39823,7 @@ app.post('/api/boards/:id/where-was-i', async (req, res) => {
 
   try {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt, sessionId: require('crypto').randomUUID(), cwd: __dirname, availableTools: [], onChunk: (c) => { acc += c; }, modelCategory: 'system', meta: { source: 'system', category: 'boards' } });
     const text = (acc.trim() || (result && result.output) || '').trim() || digest;
     const saved = persist(text);
     res.json({ ok: true, generatedAt: saved.generatedAt, summary: saved.text, items: out, deltas, cached: false });
@@ -44150,7 +44463,7 @@ app.post('/api/boards/:id/ai-layout', async (req, res) => {
   // Shared: run the model on a prompt and parse the single JSON object it returns.
   const runJson = async (sys) => {
     let acc = '';
-    const result = await sdkRunner.runChat({ config: null, prompt: sys, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; } });
+    const result = await sdkRunner.runChat({ config: null, prompt: sys, sessionId: require('crypto').randomUUID(), cwd: __dirname, onChunk: (c) => { acc += c; }, modelCategory: 'system', meta: { source: 'system', category: 'boards' } });
     const rawText = (acc.trim() || (result && result.output) || '').trim();
     let parsed = null;
     try {

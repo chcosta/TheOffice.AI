@@ -101,8 +101,8 @@ class SdkRunner {
     // runChat / runPrompt flows through _execute, wiring the sink here means any
     // AI call — present or future — is tracked automatically with no per-call
     // bookkeeping. Callers may pass meta:{source,category,label,refId} to tag the
-    // row, or meta:{record:false} to opt out (used by the few paths that keep
-    // their own curated/aggregated ledger write to avoid double-counting).
+    // row. meta:{record:false} keeps only a model observation for callers that
+    // write their own curated aggregate ledger row.
     this._usageSink = null;
   }
 
@@ -125,15 +125,25 @@ class SdkRunner {
     }
   }
 
+  _model(category, config, explicit) {
+    try {
+      const settings = require('./settings');
+      const candidate = explicit ? { ...(config || {}), model: explicit } : config;
+      return settings.resolveModel(category, candidate);
+    } catch (e) {
+      if (e && /Strict model selection/.test(e.message || '')) throw e;
+      return explicit || undefined;
+    }
+  }
+
   /**
    * Emit one usage ledger row for a completed run. Never throws. Skips when no
    * sink is registered or the caller opted out via meta.record === false.
    * `meta` is the optional tag object threaded through opts.__meta.
    */
-  _emitUsage(meta, { model, code, usage }) {
+  _emitUsage(meta, { model, code, usage, observe = true, observationOnly }) {
     try {
       if (!this._usageSink) return;
-      if (meta && meta.record === false) return;
       const m = meta || {};
       this._usageSink({
         ts: new Date().toISOString(),
@@ -141,9 +151,11 @@ class SdkRunner {
         category: m.category || 'system',
         refId: m.refId || null,
         label: m.label || null,
-        model: model || m.model || '',
+        model: model || '',
         status: code === 0 ? 'success' : 'error',
         usage: usage || null,
+        modelObservation: observe,
+        observationOnly: observationOnly === undefined ? m.record === false : observationOnly,
       });
     } catch (e) {
       try { console.error('[sdk-runner] usage sink failed:', e.message); } catch (_) { /* ignore */ }
@@ -220,17 +232,178 @@ class SdkRunner {
    * it (pluginDirectories + namespaced agent id). Returns true on success; on
    * any failure returns false so the caller falls back to the customAgents path.
    */
-  _applyPackage(opts, config) {
+  _applyPackage(opts, config, model) {
     try {
       const pkg = agentPackage.buildAgentPackage(config);
       if (!pkg) return false;
-      opts.pluginDirectories = [pkg.pluginDir];
+      opts.pluginDirectories = [this._modelSafePluginDir(pkg.pluginDir, model)];
       opts.agent = pkg.agentId;
       return true;
     } catch (e) {
       console.error('[sdk-runner] generated package build failed:', e.message);
       return false;
     }
+  }
+
+  _strictModelSelection() {
+    try {
+      return require('./settings').getSettings().strictModelSelection === true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /** Resolve and validate every agent directory declared by a plugin manifest. */
+  _pluginAgentDirs(pluginDir) {
+    const root = fs.realpathSync(pluginDir);
+    const manifestPath = path.join(root, 'plugin.json');
+    let configured = [];
+    if (fs.existsSync(manifestPath)) {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      if (typeof manifest.agents === 'string') configured = [manifest.agents];
+      else if (Array.isArray(manifest.agents)) configured = manifest.agents.filter(value => typeof value === 'string');
+    }
+    const candidates = configured.length ? configured : ['agents'];
+    const dirs = [];
+    for (const relative of candidates) {
+      const resolved = path.resolve(root, relative);
+      const relation = path.relative(root, resolved);
+      if (relation.startsWith('..') || path.isAbsolute(relation)) {
+        throw new Error(`Plugin agent path escapes its plugin directory: ${relative}`);
+      }
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isDirectory()) continue;
+      const real = fs.realpathSync(resolved);
+      const realRelation = path.relative(root, real);
+      if (realRelation.startsWith('..') || path.isAbsolute(realRelation)) {
+        throw new Error(`Plugin agent directory resolves outside its plugin directory: ${relative}`);
+      }
+      dirs.push(real);
+    }
+    return Array.from(new Set(dirs));
+  }
+
+  /**
+   * Custom-agent frontmatter has precedence over a session model. In strict mode,
+   * run plugins from a content-addressed temporary copy whose agent definitions
+   * all use the authoritative category model, including selectable sub-agents.
+   */
+  _modelSafePluginDir(pluginDir, model) {
+    if (!this._strictModelSelection()) return pluginDir;
+    if (!model) throw new Error('Strict model selection requires an authoritative model.');
+    if (!yaml) throw new Error('Strict model selection cannot inspect plugin agent definitions without js-yaml.');
+
+    const inventory = [];
+    const walk = (dir, rel = '') => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const childRel = path.join(rel, entry.name);
+        const child = path.join(dir, entry.name);
+        if (entry.isDirectory()) walk(child, childRel);
+        else {
+          const stat = fs.statSync(child);
+          inventory.push(`${childRel}:${stat.size}:${stat.mtimeMs}`);
+        }
+      }
+    };
+    walk(pluginDir);
+    const hash = crypto.createHash('sha256')
+      .update(path.resolve(pluginDir) + '\0' + model + '\0' + inventory.sort().join('\n'))
+      .digest('hex').slice(0, 24);
+    const root = path.join(os.tmpdir(), 'theoffice-model-plugins');
+    const target = path.join(root, hash);
+    const enforceModel = (dir) => {
+      for (const agentsDir of this._pluginAgentDirs(dir)) {
+        const pending = [agentsDir];
+        while (pending.length) {
+          const current = pending.pop();
+          for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+            const agentPath = path.join(current, entry.name);
+            if (entry.isDirectory()) {
+              pending.push(agentPath);
+              continue;
+            }
+            if (!entry.name.endsWith('.md')) continue;
+            const raw = fs.readFileSync(agentPath, 'utf8');
+            const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---(\r?\n?[\s\S]*)$/);
+            if (!match) continue;
+            const frontmatter = yaml.load(match[1]) || {};
+            frontmatter.model = model;
+            fs.writeFileSync(agentPath, `---\n${yaml.dump(frontmatter).trimEnd()}\n---${match[2]}`, 'utf8');
+          }
+        }
+      }
+    };
+    if (fs.existsSync(target)) {
+      enforceModel(target);
+      return target;
+    }
+
+    fs.mkdirSync(root, { recursive: true });
+    const staging = target + '-' + crypto.randomUUID();
+    try {
+      fs.cpSync(pluginDir, staging, { recursive: true });
+      enforceModel(staging);
+      try {
+        fs.renameSync(staging, target);
+      } catch (e) {
+        if (!fs.existsSync(target)) throw e;
+        fs.rmSync(staging, { recursive: true, force: true });
+      }
+      enforceModel(target);
+      return target;
+    } catch (e) {
+      try { fs.rmSync(staging, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+      throw e;
+    }
+  }
+
+  /** Return model pins declared by runnable plugin agent definitions. */
+  getConfiguredAgentModels(config) {
+    const out = [];
+    if (!config || !yaml) return out;
+    let agentsDir = '';
+    let files = [];
+    try {
+      if (config.pluginDir) {
+        const dirs = this._pluginAgentDirs(config.pluginDir);
+        for (const dir of dirs) {
+          for (const name of fs.readdirSync(dir).filter(file => file.endsWith('.md'))) {
+            const raw = fs.readFileSync(path.join(dir, name), 'utf8');
+            const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+            if (!match) continue;
+            const frontmatter = yaml.load(match[1]) || {};
+            const model = typeof frontmatter.model === 'string' ? frontmatter.model.trim() : '';
+            if (model) out.push({ agent: frontmatter.name || name.replace(/\.agent\.md$/i, ''), model, file: name });
+          }
+        }
+        return out;
+      } else if (config.cwd) {
+        agentsDir = path.join(config.cwd, '.github', 'agents');
+        const all = fs.readdirSync(agentsDir).filter(name => name.endsWith('.md'));
+        const sourceName = config.source && config.source.path
+          ? path.basename(String(config.source.path)).toLowerCase()
+          : '';
+        files = sourceName ? all.filter(name => name.toLowerCase() === sourceName) : all;
+      }
+      for (const file of files) {
+        const raw = fs.readFileSync(path.join(agentsDir, file), 'utf8');
+        const match = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+        if (!match) continue;
+        const frontmatter = yaml.load(match[1]) || {};
+        const model = typeof frontmatter.model === 'string' ? frontmatter.model.trim() : '';
+        if (model) out.push({ agent: frontmatter.name || file.replace(/\.agent\.md$/i, ''), model, file });
+      }
+    } catch (_) { /* absent or unreadable plugin definitions */ }
+    return out;
+  }
+
+  /** Return the selected plugin agent's frontmatter model, if it declares one. */
+  getSelectedAgentModel(config) {
+    if (!config || !config.pluginDir) return '';
+    const selected = this._resolvePluginAgentName(config);
+    const slug = String(selected || '').split(':').pop().toLowerCase();
+    const pin = this.getConfiguredAgentModels(config).find(item =>
+      String(item.file || '').replace(/\.agent\.md$/i, '').toLowerCase() === slug);
+    return (pin && pin.model) || '';
   }
 
   /**
@@ -449,7 +622,10 @@ class SdkRunner {
     } catch (e) { /* ignore */ }
     let files;
     try {
-      files = fs.readdirSync(path.join(config.pluginDir, 'agents')).filter(f => f.endsWith('.agent.md'));
+      files = this._pluginAgentDirs(config.pluginDir)
+        .flatMap(dir => fs.readdirSync(dir)
+          .filter(f => f.endsWith('.agent.md'))
+          .map(file => ({ dir, file })));
     } catch (e) {
       // No agents/ directory: this plugin is a skills/MCP-only bundle and ships
       // no custom agent. Run under the default copilot agent (capabilities still
@@ -461,9 +637,9 @@ class SdkRunner {
     // ref): nothing to bind to -> default agent.
     if (!files.length) return '';
     if (!pluginName) return want;
-    const entries = files.map(f => {
-      const slug = f.replace(/\.agent\.md$/, '');
-      const cfg = this._parseAgentMd(path.join(config.pluginDir, 'agents', f));
+    const entries = files.map(({ dir, file }) => {
+      const slug = file.replace(/\.agent\.md$/, '');
+      const cfg = this._parseAgentMd(path.join(dir, file));
       return { slug, name: (cfg && cfg.name) || slug, id: `${pluginName}:${slug}` };
     });
     const wantLc = want.toLowerCase();
@@ -638,7 +814,7 @@ class SdkRunner {
    * On a resolution failure the result has fallback:true so the caller can
    * record a terminal failure (no CLI fallback remains).
    */
-  async runAgent({ config, prompt, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, completionText, meta }) {
+  async runAgent({ config, prompt, sessionId, onChunk, onStep, model, modelCategory, reasoningEffort, timeoutMs, completionText, completionCheck, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -650,18 +826,27 @@ class SdkRunner {
       streaming: true,
       onPermissionRequest: config.allowAll !== false ? approveAll : deny,
     };
-    if (model) opts.model = model;
-    const effort = this._reasoningEffort('execution', config, reasoningEffort);
+    const category = modelCategory || 'execution';
+    const selectedModel = this._model(category, config, model);
+    if (selectedModel) opts.model = selectedModel;
+    const effort = this._reasoningEffort(category, config, reasoningEffort);
     if (effort) opts.reasoningEffort = effort;
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
     if (completionText) opts.__completionText = String(completionText);
+    if (typeof completionCheck === 'function') opts.__completionCheck = completionCheck;
     opts.__meta = meta || { source: 'agent', category: 'agents_tasks' };
 
     if (config.pluginDir && fs.existsSync(config.pluginDir)) {
-      opts.pluginDirectories = [config.pluginDir];
-      opts.agent = this._resolvePluginAgentName(config);
+      let pluginDir;
+      try {
+        pluginDir = this._modelSafePluginDir(config.pluginDir, selectedModel);
+      } catch (e) {
+        return { ok: false, fallback: true, code: -1, output: '', error: `sdk-runner: ${e.message}`, sessionId };
+      }
+      opts.pluginDirectories = [pluginDir];
+      opts.agent = this._resolvePluginAgentName({ ...config, pluginDir });
       this._applyOverlayCaps(opts, config);
-    } else if (this._usePackage(config) && this._applyPackage(opts, config)) {
+    } else if (this._usePackage(config) && this._applyPackage(opts, config, selectedModel)) {
       // Generated-package path: skills + MCP load from the wrapper plugin dir.
     } else {
       const agentCfg = this._resolveProjectAgent(config);
@@ -691,7 +876,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runPrompt({ prompt, cwd, sessionId, onChunk, onStep, model, reasoningEffort, timeoutMs, completionText, meta }) {
+  async runPrompt({ prompt, cwd, sessionId, onChunk, onStep, model, modelCategory, reasoningEffort, timeoutMs, completionText, completionCheck, meta }) {
     if (this.mode === 'off') {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner-off', sessionId };
     }
@@ -701,11 +886,14 @@ class SdkRunner {
       streaming: true,
       onPermissionRequest: approveAll,
     };
-    if (model) opts.model = model;
-    const effort = this._reasoningEffort('system', null, reasoningEffort);
+    const category = modelCategory || 'system';
+    const selectedModel = this._model(category, null, model);
+    if (selectedModel) opts.model = selectedModel;
+    const effort = this._reasoningEffort(category, null, reasoningEffort);
     if (effort) opts.reasoningEffort = effort;
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
     if (completionText) opts.__completionText = String(completionText);
+    if (typeof completionCheck === 'function') opts.__completionCheck = completionCheck;
     opts.__meta = meta || { source: 'system', category: 'system' };
     return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }
@@ -721,7 +909,7 @@ class SdkRunner {
    * @returns {Promise<{ok:boolean, fallback?:boolean, code:number, output:string,
    *   error:string, sessionId:string|null, eventCount?:number, steps?:Array}>}
    */
-  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, reasoningEffort, timeoutMs, availableTools, meta, onPermissionRequest }) {
+  async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, modelCategory, reasoningEffort, timeoutMs, availableTools, meta, onPermissionRequest }) {
     if (!this._available) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
     }
@@ -739,8 +927,10 @@ class SdkRunner {
       streaming: true,
       onPermissionRequest: permHandler,
     };
-    if (model) opts.model = model;
-    const effort = this._reasoningEffort('chat', config, reasoningEffort);
+    const category = modelCategory || ((meta && meta.source === 'system') ? 'system' : 'chat');
+    const selectedModel = this._model(category, config, model);
+    if (selectedModel) opts.model = selectedModel;
+    const effort = this._reasoningEffort(category, config, reasoningEffort);
     if (effort) opts.reasoningEffort = effort;
     if (Number.isFinite(timeoutMs) && timeoutMs > 0) opts.__timeoutMs = timeoutMs;
     // Default chat turns to the chat/system buckets; callers override via meta.
@@ -749,7 +939,9 @@ class SdkRunner {
     // (e.g. summarization) so the model cannot wander off to inspect the
     // filesystem and leak "let me check…" tool-planning prose into the output.
     if (Array.isArray(availableTools)) opts.availableTools = availableTools;
-    if (resume) {
+    const strictModelSelection = this._strictModelSelection();
+    opts.__modelPolicyKey = strictModelSelection ? `strict:${selectedModel || ''}` : 'standard';
+    if (resume && !strictModelSelection) {
       // Resuming a persisted session: the agent/tools are already wired in.
       opts.__resume = true;
       opts.__keepAlive = true;
@@ -758,10 +950,16 @@ class SdkRunner {
     // New session: resolve the agent wiring (same rules as runAgent). If nothing
     // resolves, the chat still runs as the default copilot.
     if (config && config.pluginDir && fs.existsSync(config.pluginDir)) {
-      opts.pluginDirectories = [config.pluginDir];
-      opts.agent = this._resolvePluginAgentName(config);
+      let pluginDir;
+      try {
+        pluginDir = this._modelSafePluginDir(config.pluginDir, selectedModel);
+      } catch (e) {
+        return { ok: false, fallback: true, code: -1, output: '', error: `sdk-runner: ${e.message}`, sessionId };
+      }
+      opts.pluginDirectories = [pluginDir];
+      opts.agent = this._resolvePluginAgentName({ ...config, pluginDir });
       this._applyOverlayCaps(opts, config);
-    } else if (config && this._usePackage(config) && this._applyPackage(opts, config)) {
+    } else if (config && this._usePackage(config) && this._applyPackage(opts, config, selectedModel)) {
       // Generated-package path: skills + MCP load from the wrapper plugin dir.
     } else if (config) {
       const agentCfg = this._resolveProjectAgent(config);
@@ -779,6 +977,7 @@ class SdkRunner {
     if (config && config.mcpConfig && !(opts.pluginDirectories && opts.pluginDirectories.length)) {
       this._attachMcp(opts, config);
     }
+    if (resume) opts.__resume = true;
     opts.__keepAlive = true;
     return this._execute(opts, prompt, sessionId, onChunk, onStep);
   }
@@ -828,6 +1027,7 @@ class SdkRunner {
     const meta = opts.__meta || null;
     const timeoutMs = Number.isFinite(opts.__timeoutMs) && opts.__timeoutMs > 0 ? opts.__timeoutMs : this._timeoutMs;
     const completionText = String(opts.__completionText || '').trim();
+    const completionCheck = typeof opts.__completionCheck === 'function' ? opts.__completionCheck : null;
     const explicitAtts = Array.isArray(opts.__attachments) && opts.__attachments.length
       ? opts.__attachments
       : null;
@@ -838,6 +1038,9 @@ class SdkRunner {
     delete sessionOpts.__attachments;
     delete sessionOpts.__timeoutMs;
     delete sessionOpts.__completionText;
+    delete sessionOpts.__completionCheck;
+    const modelPolicyKey = String(sessionOpts.__modelPolicyKey || '');
+    delete sessionOpts.__modelPolicyKey;
 
     let session = null;
     let entry = null;
@@ -849,7 +1052,15 @@ class SdkRunner {
       if (keepAlive && this._liveSessions.has(sessionId)) {
         entry = this._liveSessions.get(sessionId);
         if (entry.timer) clearTimeout(entry.timer);
-        session = entry.session;
+        if (entry.modelPolicyKey !== modelPolicyKey) {
+          this._liveSessions.delete(sessionId);
+          try { await entry.session.disconnect(); } catch (_) { /* reconnect below */ }
+          entry = null;
+        } else {
+          session = entry.session;
+        }
+      }
+      if (session) {
         // A live chat session otherwise keeps the model/effort it was created
         // with forever. Apply settings changes before the next turn.
         const requestedModel = opts.model || entry.model;
@@ -892,7 +1103,13 @@ class SdkRunner {
         });
         add('tool.execution_complete', (ev) => {
           const d = (ev && ev.data) || {};
-          emit({ kind: 'tool_complete', toolCallId: d.toolCallId, tool: d.toolName, success: d.success !== false && !d.error, result: String(d.result?.content || d.error?.message || '').slice(0, 6000) });
+          emit({
+            kind: 'tool_complete',
+            toolCallId: d.toolCallId,
+            tool: d.toolName,
+            success: d.success !== false && !d.error,
+            result: String(d.result?.detailedContent || d.result?.content || d.error?.message || '').slice(0, 12000)
+          });
         });
         add('assistant.reasoning', (ev) => {
           const d = (ev && ev.data) || {};
@@ -908,18 +1125,26 @@ class SdkRunner {
       // (tokens, model multiplier as `cost`, duration). They are emitted live and
       // are NOT persisted in getEvents(), so we must accumulate them off the live
       // stream. Registered per-turn so reused chat sessions count only this turn.
-      const usageAcc = { premiumRequests: 0, apiDurationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 0 };
+      const newUsageBucket = () => ({ premiumRequests: 0, apiDurationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, calls: 0 });
+      const usageAcc = { ...newUsageBucket(), byModel: new Map() };
+      const addUsage = (bucket, d) => {
+        bucket.calls += 1;
+        const mult = Number(d.cost);
+        bucket.premiumRequests += Number.isFinite(mult) && mult > 0 ? mult : 1;
+        bucket.apiDurationMs += Number(d.duration) || 0;
+        bucket.inputTokens += Number(d.inputTokens) || 0;
+        bucket.outputTokens += Number(d.outputTokens) || 0;
+        bucket.cacheReadTokens += Number(d.cacheReadTokens) || 0;
+        bucket.cacheWriteTokens += Number(d.cacheWriteTokens) || 0;
+      };
       const onUsage = (ev) => {
         const d = ev && ev.data;
         if (!d) return;
-        usageAcc.calls += 1;
-        const mult = Number(d.cost);
-        usageAcc.premiumRequests += Number.isFinite(mult) && mult > 0 ? mult : 1;
-        usageAcc.apiDurationMs += Number(d.duration) || 0;
-        usageAcc.inputTokens += Number(d.inputTokens) || 0;
-        usageAcc.outputTokens += Number(d.outputTokens) || 0;
-        usageAcc.cacheReadTokens += Number(d.cacheReadTokens) || 0;
-        usageAcc.cacheWriteTokens += Number(d.cacheWriteTokens) || 0;
+        addUsage(usageAcc, d);
+        const model = typeof d.model === 'string' ? d.model.trim() : '';
+        const bucket = usageAcc.byModel.get(model) || newUsageBucket();
+        addUsage(bucket, d);
+        usageAcc.byModel.set(model, bucket);
       };
       try { session.on('assistant.usage', onUsage); } catch (_) { /* ignore */ }
 
@@ -938,9 +1163,14 @@ class SdkRunner {
           // session.idle. Trust only an exact terminal response, then abort any
           // lingering runtime work so a completed one-shot run exits promptly.
           let timeoutId;
+          let completionCheckId;
           let unsubscribe;
           try {
             const finished = new Promise((resolve, reject) => {
+              const checkExternalCompletion = () => {
+                if (!completionCheck) return;
+                try { if (completionCheck()) resolve('completion-check'); } catch (_) { /* keep waiting */ }
+              };
               unsubscribe = session.on((event) => {
                 if (event.type === 'assistant.message' && !event.agentId &&
                     String(event.data?.content || '').trim() === completionText) {
@@ -954,14 +1184,17 @@ class SdkRunner {
               timeoutId = setTimeout(() => reject(
                 new Error(`Timeout after ${timeoutMs}ms waiting for ${completionText} or session.idle`)
               ), timeoutMs);
+              if (completionCheck) completionCheckId = setInterval(checkExternalCompletion, 500);
             });
             await session.send(payload);
             completionReason = await finished;
-            if (completionReason === 'terminal-message' && !keepAlive && typeof session.abort === 'function') {
+            if ((completionReason === 'terminal-message' || completionReason === 'completion-check') &&
+                !keepAlive && typeof session.abort === 'function') {
               try { await session.abort(); } catch (_) { /* disconnect below is the final cleanup */ }
             }
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
+            if (completionCheckId) clearInterval(completionCheckId);
             if (unsubscribe) unsubscribe();
           }
         } else {
@@ -1046,7 +1279,7 @@ class SdkRunner {
         output = parts.join(SEP);
         steps = this._buildSteps(events);
         // Surface a session-level error if sendAndWait succeeded but the run failed.
-        if (code === 0 && completionReason !== 'terminal-message') {
+        if (code === 0 && completionReason !== 'terminal-message' && completionReason !== 'completion-check') {
           const errEv = events.find(e => e.type === 'error' || e.type === 'session.error');
           if (errEv) {
             code = 1;
@@ -1063,18 +1296,49 @@ class SdkRunner {
         if (!entry) entry = {};
         entry.session = session;
         entry.lastUsed = Date.now();
-        entry.model = usedModel || opts.model || entry.model || '';
+        entry.model = opts.model || entry.model || '';
         entry.reasoningEffort = opts.reasoningEffort || '';
+        entry.modelPolicyKey = modelPolicyKey;
         this._liveSessions.set(sessionId, entry);
         this._scheduleEvict(sessionId, entry);
       }
 
-      // Canonical usage ledger: every executed run records exactly one row here
-      // (unless the caller opted out via meta.record:false). This is what makes
-      // ALL AI usage — including future call sites — show up in Reports for free.
-      this._emitUsage(meta, { model: usedModel || opts.model || '', code, usage });
+      // Record each runtime-reported model separately. Curated aggregate callers
+      // use record:false; their rows become audit-only observations so Reports do
+      // not double-count the aggregate ledger entry they write themselves.
+      const reportedModels = Array.from(usageAcc.byModel.keys()).filter(Boolean);
+      if (usageAcc.byModel.size) {
+        for (const [model, bucket] of usageAcc.byModel) {
+          this._emitUsage(meta, {
+            model,
+            code,
+            observationOnly: true,
+            usage: {
+              premiumRequests: +bucket.premiumRequests.toFixed(4),
+              apiDurationMs: bucket.apiDurationMs,
+              inputTokens: bucket.inputTokens,
+              outputTokens: bucket.outputTokens,
+              cacheReadTokens: bucket.cacheReadTokens,
+              cacheWriteTokens: bucket.cacheWriteTokens,
+            },
+          });
+        }
+        if (!meta || meta.record !== false) {
+          this._emitUsage(meta, {
+            model: reportedModels.length === 1 ? reportedModels[0] : '(multiple models)',
+            code,
+            usage,
+            observe: false,
+          });
+        }
+      } else {
+        this._emitUsage(meta, { model: usedModel, code, usage });
+      }
 
-      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: usedModel || opts.model || '', usage, completionReason };
+      const reportedModel = reportedModels.length === 1
+        ? reportedModels[0]
+        : (reportedModels.length > 1 ? '(multiple models)' : usedModel);
+      return { ok: code === 0, fallback: false, code, output, error, sessionId, eventCount, steps, model: reportedModel || '', models: reportedModels, usage, completionReason };
     } catch (e) {
       // createSession/resumeSession failed - return fallback so the caller can
       // record a terminal failure (no CLI fallback remains).
