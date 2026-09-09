@@ -406,11 +406,44 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     /View full run/.test(html) &&
     /Private chain-of-thought is not exposed/.test(html),
     'reviews exit on their exact terminal response or a stable new report and retain a safe full-run viewer');
-  t.ok(/ARTIFACT RECOVERY REQUIRED/.test(route) &&
+  t.ok(/_cfWriteRecoveredReviewReport\(wtPath, pr, completedResponse\)/.test(route) &&
+    /run && run\.ok === true/.test(route) &&
+    /completionReason: recovered \? 'response-recovered'/.test(route) &&
     /Automatic report recovery started/.test(route) &&
     /reviewRecoveryAttempted:\s*recoveryNeeded/.test(route) &&
     /The agent did not provide a reason/.test(route),
-    'a missing or unchanged report triggers a focused automatic recovery pass with a durable diagnosis');
+    'a missing report is recovered from the completed response without a second open-ended AI run');
+  t.ok(/configuredMs \+ 10 \* 60 \* 1000/.test(server) &&
+    /The review exceeded its overall execution deadline/.test(server),
+    'the stale-record watchdog gives live work teardown headroom while retaining a whole-lifecycle deadline');
+  t.ok(/function _cfWriteArtifactFile/.test(server) &&
+    /stat\.isSymbolicLink\(\) \|\| !stat\.isFile\(\)/.test(server) &&
+    /flag: 'wx'/.test(server),
+    'server-created review artifacts reject PR-controlled symlinks and stage regular files safely');
+  t.ok(/const _cfActiveReviews = new Map\(\)/.test(server) &&
+    /_cfActiveReviews\.set\(key, activeReview\)/.test(route) &&
+    /const ownsAttempt = \(\)/.test(route) &&
+    /if \(!ownsAttempt\(\)\) return/.test(route) &&
+    /_cfActiveReviews\.get\(key\) === activeReview/.test(route),
+    'only the currently owned review attempt may publish progress, artifacts, or final state');
+  t.ok(/verdict recovered/.test(server) &&
+    /read its verdict and findings below/.test(server) &&
+    /_cfIsCompletedReviewResponse\(completedResponse\)/.test(route) &&
+    server.includes('no (?:significant |actionable )?(?:issues|findings)') &&
+    !/completedResponse\.length >= 200/.test(route),
+    'recovered responses retain their own verdict and concise completed reviews are accepted');
+  t.ok(/An AI review is already running for this pull request/.test(route) &&
+    /sdkRunner\.abortSession\(liveReview\.sessionId\)/.test(server) &&
+    /async abortSession\(sessionId\)/.test(sdkRunner) &&
+    /bounded\(sessionStart, 'SDK session startup'/.test(sdkRunner) &&
+    /typeof session\.abort === 'function'/.test(sdkRunner) &&
+    /await session\.abort\(\)/.test(sdkRunner),
+    'concurrent review attempts are rejected and timed-out one-shot sessions are aborted before retry');
+  t.ok(/fs\.lstatSync\(file\)/.test(server) &&
+    /!stat\.isFile\(\) \|\| stat\.nlink > 1/.test(server) &&
+    /function _readStableRegularFile/.test(readFileSync('devitems.js', 'utf8')) &&
+    /fs\.fstatSync\(fd\)/.test(readFileSync('devitems.js', 'utf8')),
+    'review artifacts must be regular non-linked files before fingerprinting or durable caching');
   t.ok(/pr\.sourceHead/.test(route) &&
     /const preparationBlocked = !prep\.ok/.test(route) &&
     /if \(preparationBlocked\)/.test(route) &&

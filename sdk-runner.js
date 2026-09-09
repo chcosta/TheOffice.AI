@@ -91,6 +91,8 @@ class SdkRunner {
     // agent" on every turn). Keyed by sessionId -> { session, lastUsed, timer }.
     // Evicted (disconnected) after SDK_CHAT_IDLE_MS of inactivity.
     this._liveSessions = new Map();
+    this._oneShotSessions = new Map();
+    this._cancelledOneShots = new Set();
     this._liveTtlMs = parseInt(process.env.SDK_CHAT_IDLE_MS || '', 10) || 600000; // 10 min
     // Cached model catalog from client.listModels().
     this._modelsCache = null;
@@ -1017,7 +1019,33 @@ class SdkRunner {
   }
 
   async _execute(opts, prompt, sessionId, onChunk, onStep) {
-    const client = await this._getClient();
+    const timeoutMs = Number.isFinite(opts.__timeoutMs) && opts.__timeoutMs > 0 ? opts.__timeoutMs : this._timeoutMs;
+    const deadline = Date.now() + timeoutMs;
+    const bounded = (promise, label, onLate) => {
+      const remaining = Math.max(1, deadline - Date.now());
+      let timer;
+      let timedOut = false;
+      const operation = Promise.resolve(promise);
+      if (onLate) operation.then((value) => { if (timedOut) onLate(value); }, () => {});
+      return Promise.race([
+        operation,
+        new Promise((_, reject) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            reject(new Error(`${label} timed out after ${timeoutMs}ms`));
+          }, remaining);
+        })
+      ]).finally(() => clearTimeout(timer));
+    };
+    let client;
+    try {
+      client = await bounded(this._getClient(), 'SDK client startup');
+    } catch (e) {
+      return {
+        ok: false, fallback: true, code: -1, output: '',
+        error: `sdk-runner: ${e && e.message ? e.message : String(e)}`, sessionId
+      };
+    }
     if (!client) {
       return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: no client', sessionId };
     }
@@ -1025,7 +1053,6 @@ class SdkRunner {
     const resume = !!opts.__resume;
     const keepAlive = !!opts.__keepAlive;
     const meta = opts.__meta || null;
-    const timeoutMs = Number.isFinite(opts.__timeoutMs) && opts.__timeoutMs > 0 ? opts.__timeoutMs : this._timeoutMs;
     const completionText = String(opts.__completionText || '').trim();
     const completionCheck = typeof opts.__completionCheck === 'function' ? opts.__completionCheck : null;
     const explicitAtts = Array.isArray(opts.__attachments) && opts.__attachments.length
@@ -1072,9 +1099,23 @@ class SdkRunner {
           entry.reasoningEffort = opts.reasoningEffort || '';
         }
       } else {
-        session = resume
-          ? await client.resumeSession(sessionId, sessionOpts)
-          : await client.createSession(sessionOpts);
+        const sessionStart = resume
+          ? client.resumeSession(sessionId, sessionOpts)
+          : client.createSession(sessionOpts);
+        session = await bounded(sessionStart, 'SDK session startup', async (lateSession) => {
+          if (!lateSession) return;
+          try { if (typeof lateSession.abort === 'function') await lateSession.abort(); } catch (_) {}
+          try { await lateSession.disconnect(); } catch (_) {}
+        });
+      }
+      if (!keepAlive) {
+        this._oneShotSessions.set(sessionId, session);
+        if (this._cancelledOneShots.has(sessionId)) {
+          if (typeof session.abort === 'function') {
+            try { await session.abort(); } catch (_) { /* disconnect in finally */ }
+          }
+          throw new Error('Session was cancelled before startup completed.');
+        }
       }
 
       if (typeof onChunk === 'function') {
@@ -1183,11 +1224,11 @@ class SdkRunner {
               });
               timeoutId = setTimeout(() => reject(
                 new Error(`Timeout after ${timeoutMs}ms waiting for ${completionText} or session.idle`)
-              ), timeoutMs);
+              ), Math.max(1, deadline - Date.now()));
               if (completionCheck) completionCheckId = setInterval(checkExternalCompletion, 500);
             });
-            await session.send(payload);
-            completionReason = await finished;
+            const send = Promise.resolve().then(() => session.send(payload));
+            completionReason = await Promise.race([finished, send.then(() => finished)]);
             if ((completionReason === 'terminal-message' || completionReason === 'completion-check') &&
                 !keepAlive && typeof session.abort === 'function') {
               try { await session.abort(); } catch (_) { /* disconnect below is the final cleanup */ }
@@ -1204,6 +1245,9 @@ class SdkRunner {
       } catch (e) {
         code = 1;
         error = e && e.message ? e.message : String(e);
+        if (!keepAlive && session && typeof session.abort === 'function') {
+          try { await session.abort(); } catch (_) { /* disconnect below is the final cleanup */ }
+        }
       }
 
       // Detach the per-turn listeners before we may reuse this session again.
@@ -1367,10 +1411,20 @@ class SdkRunner {
       }
       // Only one-shot runs disconnect here; kept-alive chat sessions stay open
       // and are closed by the idle timer or closeChatSession().
+      if (!keepAlive) this._cancelledOneShots.delete(sessionId);
       if (session && !keepAlive) {
+        if (this._oneShotSessions.get(sessionId) === session) this._oneShotSessions.delete(sessionId);
         try { await session.disconnect(); } catch (_) { /* preserves disk */ }
       }
     }
+  }
+
+  async abortSession(sessionId) {
+    this._cancelledOneShots.add(sessionId);
+    const session = this._oneShotSessions.get(sessionId);
+    if (!session || typeof session.abort !== 'function') return false;
+    await session.abort();
+    return true;
   }
 
   async stop() {

@@ -1579,7 +1579,8 @@ function _scanReportDir(absDir, relPrefix, out) {
     if (!REPORT_NAME_RE.test(name)) continue;
     const isHtml = ext === '.html' || ext === '.htm';
     let st;
-    try { st = fs.statSync(path.join(absDir, name)); } catch { continue; }
+    try { st = fs.lstatSync(path.join(absDir, name)); } catch { continue; }
+    if (!st.isFile() || st.nlink > 1) continue;
     // Skip absurdly large files (not a human-readable report).
     if (st.size > 8 * 1024 * 1024) continue;
     out.push({
@@ -1621,11 +1622,9 @@ function _readReportFrom(rootDir, rel) {
   if (!within) throw err('Forbidden path', 403);
   const ext = path.extname(abs).toLowerCase();
   if (!REPORT_EXTS.has(ext)) throw err('Unsupported file type', 415);
-  let st;
-  try { st = fs.statSync(abs); } catch { throw err('Not found', 404); }
-  if (!st.isFile()) throw err('Not a file', 404);
-  if (st.size > 8 * 1024 * 1024) throw err('Report too large to preview', 413);
-  const content = fs.readFileSync(abs);
+  const source = _readStableRegularFile(abs);
+  if (!source) throw err('Not a regular report file', 404);
+  const content = source.content;
   const isHtml = ext === '.html' || ext === '.htm';
   const contentType = isHtml ? 'text/html; charset=utf-8'
     : (ext === '.md' || ext === '.markdown') ? 'text/markdown; charset=utf-8'
@@ -1716,10 +1715,11 @@ function readWorktreeFile(rootDir, rel) {
   const ok = WORKTREE_TEXT_EXTS.has(ext) || WORKTREE_TEXT_NAMES.has(base.toLowerCase());
   if (!ok) throw err('Unsupported file type', 415);
   let st;
-  try { st = fs.statSync(abs); } catch { throw err('Not found', 404); }
-  if (!st.isFile()) throw err('Not a file', 404);
-  if (st.size > 8 * 1024 * 1024) throw err('File too large to preview', 413);
-  const content = fs.readFileSync(abs);
+  try { st = fs.lstatSync(abs); } catch { throw err('Not found', 404); }
+  if (st.isFile() && st.size > 8 * 1024 * 1024) throw err('File too large to preview', 413);
+  const source = _readStableRegularFile(abs);
+  if (!source) throw err('Not a regular file', 404);
+  const content = source.content;
   const isHtml = ext === '.html' || ext === '.htm';
   const contentType = isHtml ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8';
   return { content, contentType, name: base };
@@ -1739,6 +1739,23 @@ function reportCacheDir(boardId, devId) {
   return path.join(REPORT_CACHE_DIR, _sanitizeId(boardId), _sanitizeId(devId));
 }
 
+function _readStableRegularFile(file, maxBytes = 8 * 1024 * 1024) {
+  let fd;
+  try {
+    const before = fs.lstatSync(file);
+    if (!before.isFile() || before.nlink > 1 || before.size > maxBytes) return null;
+    fd = fs.openSync(file, 'r');
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile() || stat.nlink > 1 || stat.size > maxBytes ||
+        stat.dev !== before.dev || stat.ino !== before.ino) return null;
+    return { content: fs.readFileSync(fd), stat };
+  } catch {
+    return null;
+  } finally {
+    if (fd != null) try { fs.closeSync(fd); } catch {}
+  }
+}
+
 // Copy a worktree-relative file into the durable cache, mirroring `rel`. Both
 // the source (inside the worktree) and the destination (inside the cache dir)
 // are traversal-guarded. Returns true when a copy was made.
@@ -1748,12 +1765,13 @@ function _cacheCopy(wt, destRoot, rel) {
     const rootWt = path.resolve(wt);
     const src = path.resolve(rootWt, rel);
     if (!(src === rootWt || src.startsWith(rootWt + path.sep))) return false;
-    if (!fs.existsSync(src) || !fs.statSync(src).isFile()) return false;
+    const source = _readStableRegularFile(src);
+    if (!source) return false;
     const rootDest = path.resolve(destRoot);
     const dest = path.resolve(rootDest, rel);
     if (!(dest === rootDest || dest.startsWith(rootDest + path.sep))) return false;
     fs.mkdirSync(path.dirname(dest), { recursive: true });
-    fs.copyFileSync(src, dest);
+    fs.writeFileSync(dest, source.content);
     return true;
   } catch { return false; }
 }
