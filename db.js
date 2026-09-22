@@ -5,13 +5,70 @@ const path = require('path');
 let _dbInstance = null;
 let _dbPath = null;
 
+function _atomicWrite(filePath, data) {
+  const dir = path.dirname(filePath);
+  fs.mkdirSync(dir, { recursive: true });
+  const temp = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${Date.now()}.tmp`);
+  let fd;
+  try {
+    fd = fs.openSync(temp, 'wx', 0o600);
+    fs.writeFileSync(fd, data);
+    fs.fsyncSync(fd);
+    fs.closeSync(fd);
+    fd = null;
+    fs.renameSync(temp, filePath);
+  } finally {
+    if (fd != null) try { fs.closeSync(fd); } catch {}
+    try { if (fs.existsSync(temp)) fs.unlinkSync(temp); } catch {}
+  }
+}
+
+function _assertHealthy(sqlDb) {
+  const result = sqlDb.exec('PRAGMA quick_check');
+  const values = result.length && Array.isArray(result[0].values) ? result[0].values : [];
+  if (values.length !== 1 || values[0][0] !== 'ok') {
+    throw new Error('SQLite integrity check failed');
+  }
+}
+
+function _openChecked(SQL, buffer) {
+  if (!buffer || buffer.length === 0) {
+    throw new Error('SQLite database file is empty');
+  }
+  const db = new SQL.Database(buffer);
+  try {
+    _assertHealthy(db);
+    return db;
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
+}
+
+function _quarantine(filePath) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  for (let i = 0; i < 10; i++) {
+    const suffix = i ? `-${i}` : '';
+    const target = `${filePath}.corrupt-${stamp}${suffix}`;
+    try {
+      fs.copyFileSync(filePath, target, fs.constants.COPYFILE_EXCL);
+      return target;
+    } catch (error) {
+      if (error && error.code === 'EEXIST') continue;
+      throw new Error(`Could not preserve malformed database at ${target}: ${error.message}`);
+    }
+  }
+  throw new Error('Could not allocate a unique quarantine path for malformed database');
+}
+
 /**
  * Thin synchronous wrapper around sql.js that mimics better-sqlite3 API subset.
  */
 class DbWrapper {
-  constructor(sqlDb, filePath) {
+  constructor(sqlDb, filePath, initialData = null) {
     this._db = sqlDb;
     this._path = filePath;
+    this._lastPersisted = initialData;
   }
 
   exec(sql) {
@@ -32,8 +89,12 @@ class DbWrapper {
 
   _save() {
     if (this._path) {
-      const data = this._db.export();
-      fs.writeFileSync(this._path, Buffer.from(data));
+      const data = Buffer.from(this._db.export());
+      if (this._lastPersisted) {
+        _atomicWrite(this._path + '.bak', this._lastPersisted);
+      }
+      _atomicWrite(this._path, data);
+      this._lastPersisted = data;
     }
   }
 }
@@ -82,13 +143,35 @@ class StatementWrapper {
 async function openDatabase(filePath) {
   const SQL = await initSqlJs();
   let db;
+  let initialData = null;
   if (fs.existsSync(filePath)) {
     const buffer = fs.readFileSync(filePath);
-    db = new SQL.Database(buffer);
+    try {
+      db = _openChecked(SQL, buffer);
+      initialData = buffer;
+    } catch (error) {
+      const quarantine = _quarantine(filePath);
+      const backupPath = filePath + '.bak';
+      if (fs.existsSync(backupPath)) {
+        try {
+          const backup = fs.readFileSync(backupPath);
+          db = _openChecked(SQL, backup);
+          initialData = backup;
+          _atomicWrite(filePath, backup);
+          console.error(`[database] Recovered malformed database from ${backupPath}; original preserved at ${quarantine}`);
+        } catch {
+          db = null;
+        }
+      }
+      if (!db) {
+        db = new SQL.Database();
+        console.error(`[database] Malformed database could not be recovered; starting clean. Original preserved at ${quarantine}`);
+      }
+    }
   } else {
     db = new SQL.Database();
   }
-  return new DbWrapper(db, filePath);
+  return new DbWrapper(db, filePath, initialData);
 }
 
 module.exports = { openDatabase };
