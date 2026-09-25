@@ -77,24 +77,39 @@ function _apiRoot() {
   return host === HOST ? API_ROOT : `https://${host}/api/v3`;
 }
 
+// `gh` gives GH_TOKEN / GITHUB_TOKEN precedence over credentials stored by
+// `gh auth login`. That is useful in CI, but wrong for the app's explicit CLI
+// path: a stale or rate-limited inherited token can mask a healthy keyring
+// login and even prevents `gh auth login` from starting. Run CLI auth commands
+// with those variables removed; getToken() still uses them as the documented
+// fallback when no CLI credential exists.
+function _ghCliEnv() {
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    const upper = key.toUpperCase();
+    if (upper === 'GH_TOKEN' || upper === 'GITHUB_TOKEN') delete env[key];
+  }
+  return env;
+}
+
 // Run `gh auth token` for the preferred account. When an account is pinned we
-// pass `--user` so gh returns THAT account's token even if GH_TOKEN is set in
-// the environment (which otherwise wins). Falls back to the plain call if the
-// installed gh predates `--user` on `auth token`.
+// pass `--user` so gh returns THAT account's keyring token. Falls back to the
+// active keyring account if the installed gh predates `--user`.
 function _ghAuthToken() {
   const a = _preferredAccount();
   const host = (a && a.host) || HOST;
+  const env = _ghCliEnv();
   if (a && a.login) {
     try {
       const raw = execSync(`gh auth token --hostname ${host} --user ${a.login}`, {
-        encoding: 'utf-8', timeout: 15_000, shell: true
+        encoding: 'utf-8', timeout: 15_000, shell: true, env
       }).trim();
       if (raw && !/not logged|no oauth|error|unknown|invalid/i.test(raw)) return raw;
     } catch { /* old gh or account gone — fall through to the plain call */ }
   }
   try {
     return execSync(`gh auth token --hostname ${host}`, {
-      encoding: 'utf-8', timeout: 15_000, shell: true
+      encoding: 'utf-8', timeout: 15_000, shell: true, env
     }).trim();
   } catch { return ''; }
 }
@@ -1175,7 +1190,7 @@ function listAccounts() {
   try {
     // --show-token would leak secrets; we only need logins + which is active.
     const raw = execSync('gh auth status', {
-      encoding: 'utf-8', timeout: 15_000, shell: true
+      encoding: 'utf-8', timeout: 15_000, shell: true, env: _ghCliEnv()
     });
     out = _parseGhAuthStatus(raw);
   } catch (e) {
@@ -1213,6 +1228,13 @@ function _parseGhAuthStatus(text) {
   const lines = String(text || '').split(/\r?\n/);
   let cur = null;
   for (const line of lines) {
+    // A failed account block has the same "Active account:" detail lines as a
+    // healthy block. Reset the cursor so its false flag cannot overwrite the
+    // previously parsed valid account.
+    if (/Failed to log in to\s+\S+\s+account/i.test(line)) {
+      cur = null;
+      continue;
+    }
     const m = line.match(/Logged in to\s+(\S+)\s+account\s+(\S+)\s*(?:\(([^)]*)\))?/i);
     if (m) {
       cur = { host: m[1], login: m[2], source: (m[3] || '').trim(), active: false, protocol: '', preferred: false };

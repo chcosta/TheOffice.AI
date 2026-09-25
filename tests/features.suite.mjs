@@ -81,6 +81,39 @@ await t.test('desktop: internal Code Flow PR links stay in the SPA', () => {
     'the primary dev-card PR action is no longer an external-link anchor');
 });
 
+await t.test('GitHub CLI auth is isolated from inherited environment tokens', () => {
+  const gh = readFileSync('github.js', 'utf8');
+  const srv = readFileSync(SERVER, 'utf8');
+  t.ok(/function _ghCliEnv\(\)/.test(gh) &&
+       /upper === 'GH_TOKEN' \|\| upper === 'GITHUB_TOKEN'/.test(gh),
+    'GitHub CLI commands receive an environment without token overrides');
+  const tokenFn = sliceSource('github.js', 'function _ghAuthToken()', '// Get a GitHub token.');
+  t.ok(/const env = _ghCliEnv\(\)/.test(tokenFn) &&
+       /shell: true, env/.test(tokenFn),
+    'gh auth token reads the OS keyring instead of an inherited GH_TOKEN');
+  const accountsFn = sliceSource('github.js', 'function listAccounts()', '// Parse `gh auth status`');
+  t.ok(/env: _ghCliEnv\(\)/.test(accountsFn),
+    'account discovery is not polluted by an environment-token pseudo-account');
+  const loginFn = sliceSource(SERVER, 'function _openWindowsAuthCli(args)', "app.post('/api/github/connect'");
+  t.ok(/delete env\[key\]/.test(loginFn) && /windowsVerbatimArguments: true,[\s\S]*env,/.test(loginFn),
+    'the visible sign-in window can launch even when the parent process has GH_TOKEN');
+});
+
+await t.test('GitHub account parsing ignores failed-account detail lines', () => {
+  const { _parseGhAuthStatus } = extractFns('github.js', ['_parseGhAuthStatus']);
+  const accounts = _parseGhAuthStatus([
+    'github.com',
+    '  Logged in to github.com account healthy (keyring)',
+    '  - Active account: true',
+    '  - Git operations protocol: ssh',
+    '  Failed to log in to github.com account stale (keyring)',
+    '  - Active account: false',
+  ].join('\n'));
+  t.eq(accounts.length, 1, 'failed account is not offered as usable');
+  t.eq(accounts[0].login, 'healthy');
+  t.eq(accounts[0].active, true, 'failed account metadata did not overwrite the valid account');
+});
+
 await t.test('Code Flow: PR tabs swap per-view data immediately and sequence in-flight loads', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   const state = sliceSource(APP_HTML, 'codeflow: {', 'filterRepo:');

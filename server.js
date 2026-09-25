@@ -1936,6 +1936,11 @@ app.get('/api/github/status', async (req, res) => {
 function _openWindowsAuthCli(args) {
   const { spawn } = require('child_process');
   const cmdExe = process.env.ComSpec || 'cmd.exe';
+  const env = { ...process.env };
+  for (const key of Object.keys(env)) {
+    const upper = key.toUpperCase();
+    if (upper === 'GH_TOKEN' || upper === 'GITHUB_TOKEN') delete env[key];
+  }
   const child = spawn(cmdExe, [
     '/d', '/c', 'start', '""', `"${cmdExe}"`, '/d', '/k', ...args,
   ], {
@@ -1943,6 +1948,7 @@ function _openWindowsAuthCli(args) {
     stdio: 'ignore',
     windowsHide: false,
     windowsVerbatimArguments: true,
+    env,
   });
   child.unref();
 }
@@ -1978,8 +1984,11 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
           'gh', 'auth', 'logout', '--hostname', 'github.com'],
           { detached: true, stdio: 'ignore', windowsHide: false });
       } else {
+        const env = { ...process.env };
+        delete env.GH_TOKEN;
+        delete env.GITHUB_TOKEN;
         spawn('gh', ['auth', 'logout', '--hostname', 'github.com'],
-          { detached: true, stdio: 'ignore' });
+          { detached: true, stdio: 'ignore', env });
       }
       return res.json({ ok: true, launched: true, message: 'A GitHub sign-out window has opened. Complete it to switch or remove the account.' });
     }
@@ -2011,8 +2020,11 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
         'gh', 'auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web',
       ]);
     } else {
+      const env = { ...process.env };
+      delete env.GH_TOKEN;
+      delete env.GITHUB_TOKEN;
       spawn('gh', ['auth', 'login', '--hostname', 'github.com', '--git-protocol', 'https', '--web'],
-        { detached: true, stdio: 'ignore' });
+        { detached: true, stdio: 'ignore', env });
     }
     return res.json({ ok: true, launched: true, message: 'A sign-in window has opened. Complete it, then this page will reconnect.' });
   } catch (e) {
