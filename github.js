@@ -222,6 +222,25 @@ async function getCurrentUser(_owner) {
   };
 }
 
+async function listWorkflowRuns(owner, _project, repo, { actor, perPage = 25 } = {}) {
+  const query = [`per_page=${Math.max(1, Math.min(100, Number(perPage) || 25))}`];
+  if (actor) query.push(`actor=${encodeURIComponent(actor)}`);
+  const data = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs?${query.join('&')}`);
+  return (data.workflow_runs || []).map(run => ({
+    id: run.id,
+    name: run.name || run.display_title || 'GitHub Actions workflow',
+    displayTitle: run.display_title || '',
+    status: run.status || '',
+    conclusion: run.conclusion || '',
+    branch: run.head_branch || '',
+    event: run.event || '',
+    actor: (run.actor && run.actor.login) || '',
+    createdAt: run.created_at || '',
+    updatedAt: run.updated_at || '',
+    url: run.html_url || '',
+  }));
+}
+
 // ---- Listing -------------------------------------------------------------
 
 // List repos for an owner. Tries org first, then the authed user's affiliations
@@ -1262,6 +1281,7 @@ module.exports = {
   getStatus,
   listAccounts,
   getCurrentUser,
+  listWorkflowRuns,
   voteLabel,
   getRepoContributors,
   getFileContributors,

@@ -225,6 +225,334 @@ fn navigate_main(app: &tauri::AppHandle, url: String) {
     });
 }
 
+fn dev_buddy_position_path() -> Option<PathBuf> {
+    std::env::var("LOCALAPPDATA")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .map(|value| PathBuf::from(value).join("TheOffice.AI").join("dev-buddy-position.json"))
+}
+
+fn read_dev_buddy_anchor() -> Option<tauri::PhysicalPosition<i32>> {
+    let value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dev_buddy_position_path()?).ok()?).ok()?;
+    let x = i32::try_from(value.get("x")?.as_i64()?).ok()?;
+    let y = i32::try_from(value.get("y")?.as_i64()?).ok()?;
+    Some(tauri::PhysicalPosition::new(x, y))
+}
+
+fn save_dev_buddy_anchor(position: tauri::PhysicalPosition<i32>) -> Result<(), String> {
+    let path = dev_buddy_position_path().ok_or_else(|| "Pixel position storage is unavailable.".to_string())?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        path,
+        serde_json::to_vec(&serde_json::json!({ "x": position.x, "y": position.y }))
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
+fn monitor_containing_anchor(
+    window: &tauri::WebviewWindow,
+    anchor: tauri::PhysicalPosition<i32>,
+) -> Result<Option<tauri::Monitor>, String> {
+    let center_x = anchor.x + 80;
+    let center_y = anchor.y + 90;
+    for monitor in window.available_monitors().map_err(|e| e.to_string())? {
+        let origin = monitor.position();
+        let size = monitor.size();
+        if center_x >= origin.x
+            && center_x < origin.x + size.width as i32
+            && center_y >= origin.y
+            && center_y < origin.y + size.height as i32
+        {
+            return Ok(Some(monitor));
+        }
+    }
+    Ok(None)
+}
+
+fn position_dev_buddy(
+    window: &tauri::WebviewWindow,
+    requested_width: u32,
+    requested_height: u32,
+) -> Result<serde_json::Value, String> {
+    const IDLE_WIDTH: f64 = 160.0;
+    const IDLE_HEIGHT: f64 = 180.0;
+    const BUDDY_LEFT: f64 = 14.0;
+    const BUDDY_TOP: f64 = 8.0;
+
+    let saved_anchor = read_dev_buddy_anchor();
+    let monitor = if let Some(anchor) = saved_anchor {
+        monitor_containing_anchor(window, anchor)?
+    } else {
+        None
+    }
+    .or(window.current_monitor().map_err(|e| e.to_string())?)
+    .or(window.primary_monitor().map_err(|e| e.to_string())?);
+    let Some(monitor) = monitor else {
+        return Ok(serde_json::json!({
+            "anchorX": "left", "anchorY": "top", "buddyLeft": BUDDY_LEFT, "buddyTop": BUDDY_TOP
+        }));
+    };
+
+    let scale_factor = monitor.scale_factor();
+    let area = monitor.size();
+    let origin = monitor.position();
+    let margin = (16.0 * scale_factor).round() as i32;
+    let max_width = ((area.width as f64 - margin as f64 * 2.0) / scale_factor)
+        .floor()
+        .max(IDLE_WIDTH) as u32;
+    let max_height = ((area.height as f64 - margin as f64 * 2.0) / scale_factor)
+        .floor()
+        .max(IDLE_HEIGHT) as u32;
+    let width = requested_width.min(max_width);
+    let height = requested_height.min(max_height);
+    let physical_width = (width as f64 * scale_factor).round() as i32;
+    let physical_height = (height as f64 * scale_factor).round() as i32;
+    let idle_width = (IDLE_WIDTH * scale_factor).round() as i32;
+    let idle_height = (IDLE_HEIGHT * scale_factor).round() as i32;
+    let monitor_right = origin.x + area.width as i32;
+    let monitor_bottom = origin.y + area.height as i32;
+
+    let default_anchor = tauri::PhysicalPosition::new(
+        monitor_right - idle_width - margin,
+        origin.y + margin,
+    );
+    let mut anchor = saved_anchor.unwrap_or(default_anchor);
+    anchor.x = anchor
+        .x
+        .clamp(origin.x + margin, monitor_right - idle_width - margin);
+    anchor.y = anchor
+        .y
+        .clamp(origin.y + margin, monitor_bottom - idle_height - margin);
+
+    let idle_mode = width as f64 == IDLE_WIDTH && height as f64 == IDLE_HEIGHT;
+    let right_space = monitor_right - margin - anchor.x;
+    let left_space = anchor.x + idle_width - (origin.x + margin);
+    let below_space = monitor_bottom - margin - anchor.y;
+    let above_space = anchor.y + idle_height - (origin.y + margin);
+    let grow_right = right_space >= physical_width || right_space >= left_space;
+    let grow_down = below_space >= physical_height || below_space >= above_space;
+    let desired_x = if idle_mode || grow_right {
+        anchor.x
+    } else {
+        anchor.x + idle_width - physical_width
+    };
+    let desired_y = if idle_mode || grow_down {
+        anchor.y
+    } else {
+        anchor.y + idle_height - physical_height
+    };
+    let x = desired_x.clamp(origin.x + margin, monitor_right - physical_width - margin);
+    let y = desired_y.clamp(origin.y + margin, monitor_bottom - physical_height - margin);
+
+    window
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+            physical_width as u32,
+            physical_height as u32,
+        )))
+        .map_err(|e| e.to_string())?;
+
+    let buddy_left =
+        (anchor.x + (BUDDY_LEFT * scale_factor).round() as i32 - x) as f64 / scale_factor;
+    let buddy_top =
+        (anchor.y + (BUDDY_TOP * scale_factor).round() as i32 - y) as f64 / scale_factor;
+    Ok(serde_json::json!({
+        "anchorX": if grow_right { "left" } else { "right" },
+        "anchorY": if grow_down { "top" } else { "bottom" },
+        "buddyLeft": buddy_left,
+        "buddyTop": buddy_top,
+    }))
+}
+
+fn ensure_dev_buddy_window(app: &tauri::AppHandle, base_url: &str) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("dev-buddy") {
+        return Ok(window);
+    }
+    let url = tauri::Url::parse(&format!("{}/public/dev-buddy.html", base_url.trim_end_matches('/')))
+        .map_err(|e| e.to_string())?;
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "dev-buddy",
+        tauri::WebviewUrl::External(url),
+    )
+    .title("Dev Buddy")
+    .inner_size(160.0, 180.0)
+    .resizable(true)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    position_dev_buddy(&window, 160, 180)?;
+    Ok(window)
+}
+
+fn position_dev_buddy_alert(window: &tauri::WebviewWindow) -> Result<(), String> {
+    let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
+    let monitor = window
+        .current_monitor()
+        .map_err(|e| e.to_string())?
+        .or(window.primary_monitor().map_err(|e| e.to_string())?);
+    if let Some(monitor) = monitor {
+        let area = monitor.size();
+        let origin = monitor.position();
+        let logical_width = area.width as f64 / scale_factor;
+        window
+            .set_size(tauri::Size::Logical(tauri::LogicalSize::new(logical_width, 72.0)))
+            .map_err(|e| e.to_string())?;
+        window
+            .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(
+                origin.x,
+                origin.y,
+            )))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn ensure_dev_buddy_alert_window(
+    app: &tauri::AppHandle,
+    base_url: &str,
+) -> Result<tauri::WebviewWindow, String> {
+    if let Some(window) = app.get_webview_window("dev-buddy-alert") {
+        return Ok(window);
+    }
+    let url = tauri::Url::parse(&format!(
+        "{}/public/dev-buddy-alert.html",
+        base_url.trim_end_matches('/')
+    ))
+    .map_err(|e| e.to_string())?;
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        "dev-buddy-alert",
+        tauri::WebviewUrl::External(url),
+    )
+    .title("Dev Buddy Alert")
+    .inner_size(800.0, 72.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(false)
+    .visible(false)
+    .build()
+    .map_err(|e| e.to_string())?;
+    window
+        .set_ignore_cursor_events(true)
+        .map_err(|e| e.to_string())?;
+    position_dev_buddy_alert(&window)?;
+    Ok(window)
+}
+
+#[tauri::command]
+fn show_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
+    let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
+    position_dev_buddy(&window, 160, 180)?;
+    window.show().map_err(|e| e.to_string())?;
+    window.eval("location.reload()").map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn hide_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("dev-buddy") {
+        position_dev_buddy(&window, 160, 180)?;
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_dev_buddy_mode(app: tauri::AppHandle, mode: String) -> Result<serde_json::Value, String> {
+    let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
+    let (width, height) = match mode.as_str() {
+        "expanded" => (440, 900),
+        "wide" => (680, 900),
+        "ultra" => (u32::MAX, 900),
+        "bubble" => (380, 250),
+        _ => (160, 180),
+    };
+    let placement = position_dev_buddy(&window, width, height)?;
+    window.show().map_err(|e| e.to_string())?;
+    Ok(placement)
+}
+
+#[tauri::command]
+fn start_dev_buddy_drag(
+    app: tauri::AppHandle,
+    buddy_left: f64,
+    buddy_top: f64,
+) -> Result<(), String> {
+    let window = app
+        .get_webview_window("dev-buddy")
+        .ok_or_else(|| "Dev Buddy window is unavailable.".to_string())?;
+    let initial_position = window.outer_position().map_err(|e| e.to_string())?;
+    let initial_size = window.outer_size().map_err(|e| e.to_string())?;
+    window.start_dragging().map_err(|e| e.to_string())?;
+    let tracker = window.clone();
+    std::thread::spawn(move || {
+        let mut last_position = initial_position;
+        let mut moved = false;
+        let mut stable_ticks = 0;
+        for _ in 0..120 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            let Ok(size) = tracker.outer_size() else { break };
+            if size != initial_size {
+                break;
+            }
+            let Ok(position) = tracker.outer_position() else { break };
+            if (position.x - last_position.x).abs() > 1 || (position.y - last_position.y).abs() > 1 {
+                moved = true;
+                stable_ticks = 0;
+                last_position = position;
+                let scale_factor = tracker.scale_factor().unwrap_or(1.0);
+                let _ = save_dev_buddy_anchor(tauri::PhysicalPosition::new(
+                    position.x + (buddy_left * scale_factor).round() as i32
+                        - (14.0 * scale_factor).round() as i32,
+                    position.y + (buddy_top * scale_factor).round() as i32
+                        - (8.0 * scale_factor).round() as i32,
+                ));
+            } else if moved {
+                stable_ticks += 1;
+                if stable_ticks >= 15 {
+                    break;
+                }
+            }
+        }
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_dev_buddy_alert(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("dev-buddy-alert") {
+        window.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn open_main_window(app: tauri::AppHandle, target: String) -> Result<(), String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| "TheOffice.AI window is unavailable.".to_string())?;
+    if target.starts_with("#/") {
+        let url = tauri::Url::parse(&format!("http://127.0.0.1:3848/{target}"))
+            .map_err(|e| e.to_string())?;
+        window.navigate(url).map_err(|e| e.to_string())?;
+    }
+    window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())
+}
+
 /// Shared sidecar supervision state.
 ///
 /// - `pid`: the OS process id of the *current* Node sidecar, so the exit handler
@@ -818,6 +1146,18 @@ fn spawn_sidecar_once(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
                             let _ = win.navigate(u);
                         }
                     }
+                    if let Ok(buddy) = ensure_dev_buddy_window(&h2, &url) {
+                        let _ = buddy.navigate(
+                            tauri::Url::parse(&format!(
+                                "{}/public/dev-buddy.html?startup=1",
+                                url.trim_end_matches('/')
+                            ))
+                            .expect("valid Dev Buddy URL"),
+                        );
+                    }
+                    if let Ok(alert) = ensure_dev_buddy_alert_window(&h2, &url) {
+                        let _ = alert.hide();
+                    }
                 });
             }
         }
@@ -1081,7 +1421,13 @@ fn main() {
             quit_and_update,
             open_logs_dir,
             get_diagnostics,
-            read_log_tail
+            read_log_tail,
+            show_dev_buddy,
+            hide_dev_buddy,
+            set_dev_buddy_mode,
+            start_dev_buddy_drag,
+            hide_dev_buddy_alert,
+            open_main_window
         ])
         .setup(move |app| {
             log_line("[desktop] --- session start ---");

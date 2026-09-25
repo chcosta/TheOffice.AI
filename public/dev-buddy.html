@@ -1,0 +1,2286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dev Buddy</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+      --cp-notification: #ffffff;
+      --cp-clear: transparent;
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+      --cp-notification: #ffffff;
+      --cp-clear: transparent;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: var(--cp-clear);
+      color: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      user-select: none;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .stage {
+      --buddy-left: 14px;
+      --buddy-top: 8px;
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+    .buddy {
+      position: absolute;
+      left: var(--buddy-left);
+      top: var(--buddy-top);
+      width: 132px;
+      height: 152px;
+      border: 0;
+      padding: 0;
+      background: var(--cp-clear);
+      cursor: pointer;
+      filter: drop-shadow(0 10px 14px var(--cp-border-strong));
+      animation: buddy-float 3.2s ease-in-out infinite;
+      z-index: 4;
+    }
+    .buddy:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 2px; border-radius: 16px; }
+    .antenna {
+      position: absolute;
+      width: 4px;
+      height: 28px;
+      left: 64px;
+      top: 7px;
+      background: var(--cp-border-strong);
+      transform: rotate(-8deg);
+      transform-origin: bottom;
+      border-radius: 4px;
+    }
+    .antenna::before {
+      content: "";
+      position: absolute;
+      width: 12px;
+      height: 12px;
+      left: -4px;
+      top: -7px;
+      border-radius: 50%;
+      background: var(--cp-accent);
+      box-shadow: 0 0 0 5px var(--cp-accent-soft);
+    }
+    .head {
+      position: absolute;
+      left: 23px;
+      top: 31px;
+      width: 88px;
+      height: 76px;
+      border: 3px solid var(--cp-border-strong);
+      border-radius: 28px 28px 24px 24px;
+      background: var(--cp-panel-strong);
+      box-shadow: inset 0 10px 0 var(--cp-sheen);
+    }
+    .screen {
+      position: absolute;
+      inset: 14px 12px 15px;
+      border: 2px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-surface-soft);
+    }
+    .screen::before,
+    .screen::after {
+      content: "";
+      position: absolute;
+      top: 12px;
+      width: 15px;
+      height: 2px;
+      border-radius: 2px;
+      background: var(--cp-text);
+      opacity: 0;
+      transition: opacity .2s ease, transform .2s ease;
+    }
+    .screen::before { left: 12px; }
+    .screen::after { right: 12px; }
+    .eye {
+      position: absolute;
+      top: 18px;
+      width: 8px;
+      height: 13px;
+      border-radius: 50%;
+      background: var(--cp-text);
+      animation: blink 5.5s infinite;
+    }
+    .eye.left { left: 17px; }
+    .eye.right { right: 17px; }
+    .buddy[data-mood="focused"] .eye { height: 9px; top: 20px; }
+    .buddy[data-mood="happy"] {
+      animation: buddy-happy 1.5s ease-in-out infinite;
+    }
+    .buddy[data-mood="happy"] .antenna::before { background: var(--cp-success); }
+    .buddy[data-mood="concerned"] .screen::before,
+    .buddy[data-mood="concerned"] .screen::after,
+    .buddy[data-mood="overloaded"] .screen::before,
+    .buddy[data-mood="overloaded"] .screen::after { opacity: 1; }
+    .buddy[data-mood="concerned"] .screen::before,
+    .buddy[data-mood="overloaded"] .screen::before { transform: rotate(14deg); }
+    .buddy[data-mood="concerned"] .screen::after,
+    .buddy[data-mood="overloaded"] .screen::after { transform: rotate(-14deg); }
+    .buddy[data-mood="overloaded"] {
+      animation: buddy-hustle 1.2s ease-in-out infinite;
+    }
+    .buddy[data-mood="overloaded"] .eye { height: 15px; top: 16px; }
+    .buddy[data-mood="overloaded"] .attention-dot { background: var(--cp-danger); }
+    .body {
+      position: absolute;
+      left: 35px;
+      top: 101px;
+      width: 66px;
+      height: 42px;
+      border: 3px solid var(--cp-border-strong);
+      border-radius: 16px 16px 20px 20px;
+      background: var(--cp-bg-elevated);
+    }
+    .body-count {
+      position: absolute;
+      left: 19px;
+      top: 8px;
+      width: 22px;
+      min-height: 18px;
+      padding: 1px 2px;
+      border-radius: 5px;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+    }
+    .work-bars {
+      position: absolute;
+      left: 112px;
+      top: 45px;
+      width: 18px;
+      height: 96px;
+      display: flex;
+      align-items: flex-end;
+      gap: 2px;
+      pointer-events: none;
+    }
+    .work-bar {
+      display: block;
+      width: 4px;
+      min-height: 0;
+      border-radius: 3px 3px 1px 1px;
+      transition: height .35s ease;
+    }
+    .work-bar.open { background: var(--cp-danger); }
+    .work-bar.deferred { background: var(--cp-warning); }
+    .work-bar.addressed { background: var(--cp-success); }
+    .buddy[data-progress="good"] .antenna::before { background: var(--cp-success); }
+    .buddy[data-progress="mixed"] .antenna::before { background: var(--cp-warning); }
+    .buddy[data-progress="behind"] .antenna::before { background: var(--cp-danger); }
+    .stage.celebrating .antenna::before {
+      animation: antenna-alert .55s ease-in-out 4;
+    }
+    .buddy.critical-work .antenna::before {
+      background: var(--cp-danger);
+      animation: antenna-critical .9s ease-in-out infinite;
+    }
+    .buddy.dragging {
+      cursor: grabbing;
+      animation: buddy-drag .48s ease-in-out infinite;
+      filter: drop-shadow(0 16px 18px var(--cp-border-strong));
+    }
+    .arm {
+      position: absolute;
+      top: 108px;
+      width: 31px;
+      height: 10px;
+      border: 3px solid var(--cp-border-strong);
+      border-radius: 8px;
+      background: var(--cp-bg-elevated);
+    }
+    .arm.left { left: 12px; transform: rotate(-22deg); }
+    .arm.right { right: 10px; transform: rotate(24deg); }
+    .buddy.dragging .arm.left { transform: rotate(-38deg) translateY(-2px); }
+    .buddy.dragging .arm.right { transform: rotate(40deg) translateY(-2px); }
+    .attention-dot {
+      position: absolute;
+      left: 8px;
+      top: 25px;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid var(--cp-surface);
+      background: var(--cp-warning);
+      display: none;
+    }
+    .attention-dot.on { display: block; animation: pulse 1.8s ease-in-out infinite; }
+    .buddy.new-work .attention-dot {
+      display: block;
+      background: var(--cp-link);
+      filter: drop-shadow(0 0 7px var(--cp-link));
+      animation: antenna-new-item 1.2s ease-in-out infinite;
+    }
+    .buddy.commenting .attention-dot {
+      display: block;
+      border-color: var(--cp-border-strong);
+      background: var(--cp-notification);
+      filter: drop-shadow(0 0 8px var(--cp-notification));
+      animation: antenna-comment .62s ease-in-out infinite;
+    }
+    .bubble {
+      --category-color: var(--cp-border-strong);
+      position: absolute;
+      left: calc(var(--buddy-left) + 112px);
+      top: calc(var(--buddy-top) + 48px);
+      width: 245px;
+      padding: 14px 16px;
+      border: 1px solid var(--cp-border);
+      border-left: 4px solid var(--category-color);
+      border-radius: 16px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+      opacity: 0;
+      transform: translateY(8px) scale(.98);
+      pointer-events: none;
+      transition: opacity .3s ease, transform .3s ease;
+      z-index: 6;
+    }
+    .stage[data-anchor-x="right"] .bubble {
+      right: calc(100% - var(--buddy-left) - 34px);
+      left: auto;
+    }
+    .stage[data-anchor-y="bottom"] .bubble {
+      top: auto;
+      bottom: calc(100% - var(--buddy-top) - 152px);
+    }
+    .bubble[data-kind="pull-request"] { --category-color: var(--cp-link); }
+    .bubble[data-kind="agent-run"] { --category-color: var(--cp-success); }
+    .bubble[data-kind="agenda"] { --category-color: var(--cp-warning); }
+    .bubble[data-kind="memory"] { --category-color: var(--cp-accent); }
+    .bubble::after {
+      content: "";
+      position: absolute;
+      right: -9px;
+      bottom: 28px;
+      width: 16px;
+      height: 16px;
+      border-right: 1px solid var(--cp-border);
+      border-top: 1px solid var(--cp-border);
+      background: var(--cp-panel-strong);
+      transform: rotate(45deg);
+    }
+    .bubble.show { opacity: 1; transform: none; pointer-events: auto; }
+    .bubble-kicker { color: var(--category-color); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    .bubble-title { margin-top: 4px; font-size: 14px; font-weight: 650; line-height: 1.3; }
+    .bubble-detail { margin-top: 4px; color: var(--cp-text-muted); font-size: 12px; line-height: 1.4; }
+    .bubble-dismiss {
+      position: absolute;
+      right: 6px;
+      top: 5px;
+      width: 25px;
+      height: 25px;
+      padding: 0;
+      border: 0;
+      background: var(--cp-clear);
+      color: var(--cp-text-muted);
+      cursor: pointer;
+    }
+    .panel {
+      position: absolute;
+      right: 16px;
+      left: 16px;
+      top: calc(var(--buddy-top) + 146px);
+      bottom: 16px;
+      display: none;
+      flex-direction: column;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+      overflow: hidden;
+      opacity: .34;
+      transition: opacity .2s ease;
+      z-index: 8;
+    }
+    .stage[data-anchor-y="bottom"] .panel {
+      top: 16px;
+      bottom: calc(100% - var(--buddy-top) + 2px);
+    }
+    .panel.open { display: flex; animation: panel-in .18s ease-out; }
+    .stage:hover .panel.open { opacity: 1; }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--cp-border);
+      cursor: move;
+    }
+    .panel-title { font-weight: 700; }
+    .panel-sub { color: var(--cp-text-muted); font-size: 12px; }
+    .view-nav {
+      display: flex;
+      gap: 18px;
+      padding: 8px 16px 0;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+    }
+    .view-link {
+      padding: 0 0 7px;
+      border: 0;
+      border-bottom: 2px solid var(--cp-clear);
+      background: var(--cp-clear);
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .view-link.active {
+      border-bottom-color: var(--cp-accent);
+      color: var(--cp-text);
+      font-weight: 700;
+    }
+    .view-count { margin-left: 3px; color: var(--cp-text-muted); font-weight: 400; }
+    .panel-view {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    .panel-view[hidden] { display: none; }
+    .panel-tools {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin-left: auto;
+    }
+    .panel-pin,
+    .panel-size,
+    .panel-close {
+      width: 30px;
+      height: 30px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface);
+      cursor: pointer;
+    }
+    .panel-pin,
+    .panel-size {
+      width: auto;
+      padding: 0 8px;
+      color: var(--cp-link);
+      font-size: 11px;
+    }
+    select.panel-size {
+      outline: 0;
+      background: var(--cp-surface);
+    }
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--cp-border);
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .metric { padding: 10px 12px; background: var(--cp-surface); }
+    .metric strong { display: block; font-size: 18px; }
+    .metric span { color: var(--cp-text-muted); font-size: 11px; }
+    .legend {
+      display: flex;
+      gap: 14px;
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 10px;
+    }
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .legend-item::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--category-color);
+    }
+    .legend-pr { --category-color: var(--cp-link); }
+    .legend-agent { --category-color: var(--cp-success); }
+    .legend-agenda { --category-color: var(--cp-warning); }
+    .legend-memory { --category-color: var(--cp-accent); }
+    .list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 6px 14px;
+    }
+    .empty { padding: 22px 4px; color: var(--cp-text-muted); font-size: 13px; text-align: center; }
+    .item {
+      --category-color: var(--cp-border-strong);
+      margin: 0 -2px;
+      padding: 11px 4px 11px 10px;
+      border-bottom: 1px solid var(--cp-border);
+      border-left: 3px solid var(--category-color);
+    }
+    .item[data-openable="1"] { cursor: pointer; }
+    .item[data-openable="1"]:hover,
+    .item[data-openable="1"]:focus-visible {
+      background: var(--cp-accent-soft);
+      outline: none;
+    }
+    .item.dragging { opacity: .38; }
+    .item.drag-target { border-top: 2px solid var(--cp-accent); }
+    .item[data-kind="pull-request"] { --category-color: var(--cp-link); }
+    .item[data-kind="agent-run"] { --category-color: var(--cp-success); }
+    .item[data-kind="build"] { --category-color: var(--cp-success); }
+    .item[data-kind="session"] { --category-color: var(--cp-text-soft); }
+    .item[data-kind="agenda"] { --category-color: var(--cp-warning); }
+    .item[data-kind="email"] { --category-color: var(--cp-accent); }
+    .item[data-kind="teams"] { --category-color: var(--cp-link); }
+    .item[data-kind="meeting"],
+    .item[data-kind="calendar"] { --category-color: var(--cp-warning); }
+    .item[data-kind="memory"] { --category-color: var(--cp-accent); }
+    .item:last-child { border-bottom: 0; }
+    .item-top { display: flex; gap: 8px; align-items: flex-start; }
+    .drag-handle {
+      flex: none;
+      width: 14px;
+      margin-top: 1px;
+      color: var(--cp-text-muted);
+      cursor: grab;
+      font-size: 13px;
+      line-height: 18px;
+      text-align: center;
+    }
+    .drag-handle:active { cursor: grabbing; }
+    .priority {
+      width: 8px;
+      height: 8px;
+      margin-top: 6px;
+      border-radius: 50%;
+      background: var(--cp-border-strong);
+      flex: none;
+    }
+    .priority.high { background: var(--cp-danger); }
+    .item-title { font-size: 13px; font-weight: 650; line-height: 1.35; }
+    .item-detail { margin-top: 2px; color: var(--cp-text-muted); font-size: 12px; line-height: 1.35; }
+    .item-blurb {
+      margin-top: 5px;
+      color: var(--cp-text);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .item-meta {
+      display: flex;
+      gap: 5px;
+      margin-top: 5px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+    }
+    .urgency { font-weight: 700; }
+    .urgency[data-level="critical"] { color: var(--cp-danger); }
+    .urgency[data-level="high"] { color: var(--cp-warning); }
+    .urgency[data-level="medium"] { color: var(--cp-link); }
+    .urgency[data-level="low"] { color: var(--cp-text-muted); }
+    .item-source { margin-top: 5px; color: var(--category-color); font-size: 11px; font-weight: 600; }
+    .item-actions { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 8px; }
+    .reminder-controls {
+      display: flex;
+      flex-basis: 100%;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px 10px;
+    }
+    .reminder-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+    }
+    .reminder-control select,
+    .reminder-control input {
+      min-height: 26px;
+      padding: 2px 5px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      outline: 0;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font: inherit;
+    }
+    .reminder-control select:focus,
+    .reminder-control input:focus { border-color: var(--cp-accent); }
+    .text-action {
+      padding: 0;
+      border: 0;
+      border-bottom: 1px solid var(--cp-clear);
+      background: var(--cp-clear);
+      color: var(--cp-link);
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .text-action:hover { border-bottom-color: var(--cp-link); }
+    .recent-activity {
+      border-top: 1px solid var(--cp-border);
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+    }
+    .recent-activity summary {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 9px 14px;
+      color: var(--cp-text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+      list-style: none;
+    }
+    .recent-activity summary::-webkit-details-marker { display: none; }
+    .recent-summary-meta {
+      margin-left: auto;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 400;
+    }
+    .recent-list {
+      max-height: 190px;
+      overflow-y: auto;
+      padding: 0 14px 7px;
+    }
+    .recent-row {
+      padding: 8px 0;
+      border-top: 1px solid var(--cp-border);
+    }
+    .recent-title { font-size: 12px; font-weight: 600; }
+    .recent-meta {
+      margin-top: 2px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .recent-actions { display: flex; gap: 12px; margin-top: 5px; }
+    .recent-state { color: var(--cp-text-muted); font-size: 11px; }
+    .catch-up-list {
+      height: 100%;
+      overflow-y: auto;
+      padding: 8px 14px 14px;
+    }
+    .catch-up-intro {
+      padding: 2px 0 10px;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .catch-up-item {
+      padding: 11px 2px;
+      border-top: 1px solid var(--cp-border);
+    }
+    .catch-up-item[data-openable="1"] { cursor: pointer; }
+    .catch-up-item[data-openable="1"]:hover .catch-up-title { color: var(--cp-link); }
+    .catch-up-change { color: var(--cp-accent); font-size: 11px; font-weight: 650; }
+    .catch-up-title { margin-top: 2px; font-size: 13px; font-weight: 650; }
+    .catch-up-detail { margin-top: 3px; color: var(--cp-text-muted); font-size: 12px; line-height: 1.4; }
+    .catch-up-meta { margin-top: 5px; color: var(--cp-text-soft); font-size: 11px; }
+    .source-status {
+      padding: 7px 14px;
+      border-bottom: 1px solid var(--cp-border);
+      color: var(--cp-text-muted);
+      font-size: 10px;
+      line-height: 1.45;
+    }
+    .map-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+      padding: 0;
+      cursor: grab;
+      touch-action: none;
+    }
+    .map-wrap.dragging { cursor: grabbing; }
+    .map-wrap svg {
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      display: block;
+    }
+    .map-canvas {
+      transform-origin: 0 0;
+      will-change: transform;
+    }
+    .map-controls {
+      position: absolute;
+      right: 12px;
+      top: 12px;
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-panel-strong);
+      box-shadow: 0 0 2px var(--cp-border);
+      z-index: 2;
+    }
+    .map-grouping {
+      height: 28px;
+      max-width: 180px;
+      border: 0;
+      border-right: 1px solid var(--cp-border);
+      outline: 0;
+      background: var(--cp-clear);
+      color: var(--cp-text);
+      font-size: 11px;
+    }
+    .map-control {
+      min-width: 28px;
+      height: 28px;
+      padding: 0 7px;
+      border: 0;
+      border-right: 1px solid var(--cp-border);
+      background: var(--cp-clear);
+      cursor: pointer;
+    }
+    .map-control:last-child { border-right: 0; }
+    .map-help {
+      position: absolute;
+      left: 12px;
+      bottom: 10px;
+      padding: 4px 7px;
+      border-radius: 6px;
+      background: var(--cp-panel-strong);
+      color: var(--cp-text-muted);
+      font-size: 10px;
+      pointer-events: none;
+    }
+    .map-edge { stroke: var(--cp-border-strong); stroke-width: 1.5; opacity: .7; }
+    .map-node rect {
+      fill: var(--cp-surface);
+      stroke: var(--cp-border-strong);
+      stroke-width: 1.5;
+      rx: 8px;
+    }
+    .map-node[data-kind="center"] rect { fill: var(--cp-accent-soft); stroke: var(--cp-accent); }
+    .map-node[data-kind="repository"] rect { stroke: var(--cp-link); }
+    .map-node[data-item-id] { cursor: pointer; }
+    .map-node text {
+      fill: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 11px;
+    }
+    .memory-list {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 8px 14px;
+    }
+    .pixel-chat {
+      max-height: 190px;
+      overflow-y: auto;
+      border-top: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+    }
+    .chat-empty {
+      padding: 8px 14px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .chat-message {
+      padding: 8px 14px;
+      border-bottom: 1px solid var(--cp-border);
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .chat-message[data-role="user"] { color: var(--cp-text-muted); }
+    .chat-message[data-role="assistant"] { color: var(--cp-text); }
+    .chat-role {
+      display: block;
+      margin-bottom: 2px;
+      color: var(--cp-accent);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .chat-action {
+      margin-top: 7px;
+      padding: 5px 8px;
+      border: 1px solid var(--cp-link);
+      border-radius: 7px;
+      background: var(--cp-surface);
+      color: var(--cp-link);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .chat-thinking { color: var(--cp-text-muted); font-style: italic; }
+    .memory-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .memory-row input {
+      min-width: 0;
+      border: 0;
+      border-bottom: 1px solid var(--cp-border);
+      outline: 0;
+      background: var(--cp-clear);
+      color: var(--cp-text);
+      font-size: 12px;
+    }
+    .memory-row input:focus { border-bottom-color: var(--cp-accent); }
+    .composer {
+      display: flex;
+      gap: 8px;
+      padding: 12px 14px;
+      border-top: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+    }
+    .composer input {
+      min-width: 0;
+      flex: 1;
+      padding: 8px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      outline: 0;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+    }
+    .composer input:focus { border-color: var(--cp-accent); }
+    .primary {
+      padding: 8px 12px;
+      border: 1px solid var(--cp-accent);
+      border-radius: 8px;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      cursor: pointer;
+    }
+    .resize-handle {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      width: 20px;
+      height: 20px;
+      display: none;
+      border: 0;
+      border-left: 2px solid var(--cp-border-strong);
+      border-bottom: 2px solid var(--cp-border-strong);
+      background: var(--cp-clear);
+      cursor: sw-resize;
+      z-index: 10;
+    }
+    .stage[data-anchor-x="left"] .resize-handle {
+      right: 16px;
+      left: auto;
+      border-right: 2px solid var(--cp-border-strong);
+      border-left: 0;
+    }
+    .stage[data-anchor-y="bottom"] .resize-handle {
+      top: 16px;
+      bottom: auto;
+      border-top: 2px solid var(--cp-border-strong);
+      border-bottom: 0;
+    }
+    .stage[data-anchor-x="left"][data-anchor-y="top"] .resize-handle { cursor: se-resize; }
+    .stage[data-anchor-x="right"][data-anchor-y="top"] .resize-handle { cursor: sw-resize; }
+    .stage[data-anchor-x="left"][data-anchor-y="bottom"] .resize-handle { cursor: ne-resize; }
+    .stage[data-anchor-x="right"][data-anchor-y="bottom"] .resize-handle { cursor: nw-resize; }
+    .reward {
+      position: absolute;
+      right: 22px;
+      top: 112px;
+      max-width: 260px;
+      padding: 9px 12px;
+      border: 1px solid var(--cp-success);
+      border-radius: 10px;
+      background: var(--cp-panel-strong);
+      color: var(--cp-success);
+      box-shadow: var(--cp-shadow);
+      font-size: 12px;
+      font-weight: 700;
+      opacity: 0;
+      transform: translateY(8px) scale(.96);
+      pointer-events: none;
+      z-index: 12;
+    }
+    .stage.celebrating .reward { animation: reward-in 2.8s ease both; }
+    .stage.panel-open .resize-handle { display: block; }
+    @keyframes buddy-float { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-5px) rotate(1deg); } }
+    @keyframes buddy-hustle { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
+    @keyframes buddy-happy { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-9px) rotate(2deg); } }
+    @keyframes buddy-drag { 0%, 100% { transform: translateY(-4px) rotate(-3deg) scale(.97); } 50% { transform: translateY(-7px) rotate(3deg) scale(.97); } }
+    @keyframes blink { 0%, 44%, 48%, 100% { transform: scaleY(1); } 46% { transform: scaleY(.08); } }
+    @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.22); } }
+    @keyframes antenna-alert { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.55); } }
+    @keyframes antenna-new-item {
+      0%, 100% { opacity: .72; transform: scale(1); }
+      50% { opacity: 1; transform: scale(1.35); }
+    }
+    @keyframes antenna-comment {
+      0%, 38%, 100% { opacity: 1; transform: scale(1.25); }
+      52%, 86% { opacity: .12; transform: scale(.9); }
+    }
+    @keyframes antenna-critical {
+      0%, 42%, 100% { opacity: 1; transform: scale(1); }
+      52%, 88% { opacity: .18; transform: scale(.78); }
+    }
+    @keyframes reward-in {
+      0% { opacity: 0; transform: translateY(8px) scale(.96); }
+      14%, 78% { opacity: 1; transform: none; }
+      100% { opacity: 0; transform: translateY(-7px) scale(.98); }
+    }
+    @keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage" id="stage">
+    <section class="panel" id="panel" aria-label="Dev Buddy">
+      <header class="panel-head">
+        <div>
+          <div class="panel-title" id="panelTitle">Pixel</div>
+          <div class="panel-sub" id="panelSub">Keeping the loose ends together</div>
+        </div>
+        <div class="panel-tools">
+          <button class="panel-pin" id="pinPanel" type="button">Pin</button>
+          <select class="panel-size" id="sizePanel" aria-label="Flyout width">
+            <option value="expanded">Compact</option>
+            <option value="wide">Wide</option>
+            <option value="ultra">Ultra wide</option>
+          </select>
+          <button class="panel-close" id="closePanel" type="button" aria-label="Close">×</button>
+        </div>
+      </header>
+      <nav class="view-nav" aria-label="Dev Buddy views">
+        <button class="view-link active" type="button" data-view-target="work">Work</button>
+        <button class="view-link" type="button" data-view-target="catchup">Catch up <span class="view-count" id="catchUpCount">0</span></button>
+        <button class="view-link" type="button" data-view-target="map">Map</button>
+        <button class="view-link" type="button" data-view-target="memory">Memory</button>
+      </nav>
+      <section class="panel-view" id="workView">
+        <div class="summary">
+          <div class="metric"><strong id="attentionCount">0</strong><span>need attention</span></div>
+          <div class="metric"><strong id="trackingCount">0</strong><span>being tracked</span></div>
+          <div class="metric"><strong id="memoryCount">0</strong><span>remembered</span></div>
+        </div>
+        <div class="legend" aria-label="Work categories">
+          <span class="legend-item legend-pr">PR</span>
+          <span class="legend-item legend-agent">Build / Agent</span>
+          <span class="legend-item legend-agenda">Agenda / Meeting</span>
+          <span class="legend-item legend-memory">Email / Reminder</span>
+        </div>
+        <div class="source-status" id="sourceStatus"></div>
+        <div class="list" id="itemList"></div>
+        <details class="recent-activity" id="recentActivity">
+          <summary>
+            Recent activity
+            <span class="recent-summary-meta">Past 24 hours · <span id="recentCount">0</span></span>
+          </summary>
+          <div class="recent-list" id="recentList"></div>
+        </details>
+        <div class="pixel-chat" id="pixelChat" aria-live="polite"></div>
+        <form class="composer" id="composer">
+          <input id="newItem" maxlength="4000" placeholder="Ask Pixel to help…" aria-label="Message Pixel">
+          <button class="primary" id="chatSend" type="submit">Ask</button>
+        </form>
+      </section>
+      <section class="panel-view" id="catchUpView" hidden>
+        <div class="catch-up-list" id="catchUpList"></div>
+      </section>
+      <section class="panel-view" id="mapView" hidden>
+        <div class="map-wrap" id="mapWrap">
+          <div class="map-controls" aria-label="Map controls">
+            <select class="map-grouping" id="mapGrouping" aria-label="Map grouping">
+              <option value="context">Work context</option>
+              <option value="urgency">Urgency</option>
+              <option value="source">Source</option>
+              <option value="ai-workstream">AI workstreams</option>
+              <option value="ai-effort">AI effort</option>
+            </select>
+            <button class="map-control" type="button" data-map-action="zoom-in" aria-label="Zoom in">+</button>
+            <button class="map-control" type="button" data-map-action="zoom-out" aria-label="Zoom out">−</button>
+            <button class="map-control" type="button" data-map-action="fit">Fit</button>
+          </div>
+          <div class="map-help">Drag to pan · wheel or pinch to zoom · select an item to open it</div>
+          <svg id="mapSvg" role="img" aria-label="Relationships among tracked work"><g class="map-canvas" id="mapCanvas"></g></svg>
+        </div>
+      </section>
+      <section class="panel-view" id="memoryView" hidden>
+        <div class="source-status">These are durable preferences and context shared with Connect. Edit or forget anything that is no longer true.</div>
+        <div class="memory-list" id="memoryList"></div>
+        <form class="composer" id="memoryComposer">
+          <input id="newMemory" maxlength="400" placeholder="Something Pixel should know…" aria-label="New learned memory">
+          <button class="primary" type="submit">Remember</button>
+        </form>
+      </section>
+    </section>
+    <button class="resize-handle" id="resizeHandle" type="button" aria-label="Resize Dev Buddy"></button>
+
+    <aside class="bubble" id="bubble" aria-live="polite" data-kind="memory">
+      <button class="bubble-dismiss" id="dismissBubble" type="button" aria-label="Dismiss">×</button>
+      <div class="bubble-kicker" id="bubbleKicker">Quick heads-up</div>
+      <div class="bubble-title" id="bubbleTitle"></div>
+      <div class="bubble-detail" id="bubbleDetail"></div>
+    </aside>
+
+    <button class="buddy" id="buddy" type="button" aria-label="Open Dev Buddy" data-mood="calm">
+      <span class="antenna"></span>
+      <span class="head">
+        <span class="screen">
+          <span class="eye left"></span>
+          <span class="eye right"></span>
+        </span>
+      </span>
+      <span class="arm left"></span>
+      <span class="arm right"></span>
+      <span class="body"><span class="body-count" id="bodyCount">0</span></span>
+      <span class="work-bars" id="workBars" aria-hidden="true">
+        <span class="work-bar open" id="openBar"></span>
+        <span class="work-bar deferred" id="deferredBar"></span>
+        <span class="work-bar addressed" id="addressedBar"></span>
+      </span>
+      <span class="attention-dot" id="attentionDot"></span>
+    </button>
+    <aside class="reward" id="reward" aria-live="polite">Nice work — one less loose end.</aside>
+  </main>
+
+  <script>
+    (() => {
+      const $ = id => document.getElementById(id);
+      const invoke = () => window.__TAURI__ && (window.__TAURI__.core?.invoke || window.__TAURI__.invoke);
+      let status = null;
+      let panelOpen = false;
+      let bubbleTimer = null;
+      let reminderTimer = null;
+      let newWorkTimer = null;
+      let snoozeWakeTimer = null;
+      let snoozeWakeAt = 0;
+      let closeTimer = null;
+      let lastFingerprint = '';
+      let panelSize = localStorage.getItem('dev-buddy-size') ||
+        (localStorage.getItem('dev-buddy-wide') === '1' ? 'wide' : 'expanded');
+      let panelPinned = localStorage.getItem('dev-buddy-pinned') === '1';
+      let manipulatingWindow = false;
+      let buddyGesture = null;
+      let buddyDragSafety = null;
+      let controlFocused = false;
+      let controlInteractionUntil = 0;
+      let draggedId = '';
+      let suppressItemOpenUntil = 0;
+      let currentView = localStorage.getItem('dev-buddy-view') || 'work';
+      let startupLaunch = new URLSearchParams(location.search).get('startup') === '1';
+      let knownItemIds = null;
+      let catchUpSeen = {};
+      let catchUpItems = [];
+      let catchUpViewing = false;
+      try {
+        const saved = JSON.parse(localStorage.getItem('dev-buddy-catch-up-seen') || '{}');
+        catchUpSeen = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+      } catch {}
+      let mapTransform = { x: 24, y: 24, scale: 1 };
+      let mapExtent = { width: 980, height: 600 };
+      let mapPointer = null;
+      let mapMoved = false;
+      let mapPinch = null;
+      const mapPointers = new Map();
+      let mapMode = localStorage.getItem('dev-buddy-map-mode') || 'context';
+      let mapRelationships = null;
+      let mapRelationshipSignature = '';
+      let mapGroupingBusy = false;
+      let chatBusy = false;
+      let windowPlacement = { anchorX: 'left', anchorY: 'top', buddyLeft: 14, buddyTop: 8 };
+      let chatHistory = [];
+      try {
+        const saved = JSON.parse(localStorage.getItem('dev-buddy-chat') || '[]');
+        chatHistory = Array.isArray(saved) ? saved.slice(-12) : [];
+      } catch {}
+
+      function applyWindowPlacement(placement) {
+        if (!placement || typeof placement !== 'object') return;
+        windowPlacement = {
+          anchorX: placement.anchorX === 'right' ? 'right' : 'left',
+          anchorY: placement.anchorY === 'bottom' ? 'bottom' : 'top',
+          buddyLeft: Number.isFinite(Number(placement.buddyLeft)) ? Number(placement.buddyLeft) : 14,
+          buddyTop: Number.isFinite(Number(placement.buddyTop)) ? Number(placement.buddyTop) : 8,
+        };
+        $('stage').dataset.anchorX = windowPlacement.anchorX;
+        $('stage').dataset.anchorY = windowPlacement.anchorY;
+        $('stage').style.setProperty('--buddy-left', `${windowPlacement.buddyLeft}px`);
+        $('stage').style.setProperty('--buddy-top', `${windowPlacement.buddyTop}px`);
+      }
+
+      async function setMode(mode) {
+        const fn = invoke();
+        if (!fn) return;
+        try { applyWindowPlacement(await fn('set_dev_buddy_mode', { mode })); } catch (_) {}
+      }
+
+      async function request(url, options = {}) {
+        const response = await fetch(url, {
+          ...options,
+          headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+        return data;
+      }
+
+      function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, char => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+        })[char]);
+      }
+
+      function catchUpKey(item) {
+        return String(item?.reminderKey || item?.id || '');
+      }
+
+      function catchUpFacts(item) {
+        return {
+          state: item?.id || '',
+          title: item?.title || '',
+          detail: item?.detail || '',
+          priority: item?.priority || 'normal',
+          dueAt: item?.dueAt || '',
+          urgency: item?.urgency?.level || '',
+          kind: item?.kind || '',
+          source: item?.source || '',
+        };
+      }
+
+      function catchUpSignature(facts) {
+        return JSON.stringify(facts);
+      }
+
+      function catchUpChangeSummary(previous, current) {
+        if (!previous) return 'New since your last look';
+        const changes = [];
+        if (previous.urgency !== current.urgency) changes.push(`urgency ${previous.urgency || 'unknown'} → ${current.urgency || 'unknown'}`);
+        if (previous.priority !== current.priority) changes.push(`priority ${previous.priority || 'normal'} → ${current.priority || 'normal'}`);
+        if (previous.dueAt !== current.dueAt) changes.push('due time changed');
+        if (previous.state !== current.state || previous.detail !== current.detail) changes.push('status or details changed');
+        if (previous.title !== current.title) changes.push('title changed');
+        return changes.length ? `Changed: ${changes.slice(0, 2).join(' · ')}` : 'Changed since your last look';
+      }
+
+      function saveCatchUpSnapshot(items) {
+        catchUpSeen = Object.fromEntries((items || []).map(item => {
+          const facts = catchUpFacts(item);
+          return [catchUpKey(item), { ...facts, signature: catchUpSignature(facts) }];
+        }).filter(([key]) => key));
+        localStorage.setItem('dev-buddy-catch-up-seen', JSON.stringify(catchUpSeen));
+      }
+
+      function updateCatchUp(items) {
+        const current = new Map((items || []).map(item => [catchUpKey(item), item]).filter(([key]) => key));
+        const changes = [];
+        for (const [key, item] of current) {
+          const facts = catchUpFacts(item);
+          const previous = catchUpSeen[key];
+          const previousSignature = typeof previous === 'string' ? previous : previous?.signature;
+          if (!previousSignature || previousSignature !== catchUpSignature(facts)) {
+            changes.push({
+              ...item,
+              catchUpKey: key,
+              catchUpType: previousSignature ? 'changed' : 'new',
+              catchUpSummary: catchUpChangeSummary(typeof previous === 'object' ? previous : null, facts),
+            });
+          }
+        }
+        if (catchUpViewing) {
+          const merged = new Map(catchUpItems
+            .filter(item => current.has(item.catchUpKey))
+            .map(item => [item.catchUpKey, item]));
+          for (const item of changes) merged.set(item.catchUpKey, item);
+          catchUpItems = [...merged.values()];
+          saveCatchUpSnapshot(items);
+        } else {
+          catchUpItems = changes;
+        }
+        catchUpItems.sort((a, b) =>
+          (b.urgency?.score || 0) - (a.urgency?.score || 0) ||
+          String(a.title || '').localeCompare(String(b.title || '')));
+      }
+
+      function renderCatchUp() {
+        $('catchUpCount').textContent = String(catchUpItems.length);
+        $('catchUpList').innerHTML = catchUpItems.length ? `
+          <div class="catch-up-intro">New and changed work since your last Catch up view. Items stay here while you review them.</div>
+          ${catchUpItems.map(item => `
+            <article class="catch-up-item" data-catch-up-id="${escapeHtml(item.id)}" data-openable="${item.link || item.route ? '1' : '0'}" ${item.link || item.route ? 'role="link" tabindex="0"' : ''}>
+              <div class="catch-up-change">${escapeHtml(item.catchUpSummary)}</div>
+              <div class="catch-up-title">${escapeHtml(item.title)}</div>
+              <div class="catch-up-detail">${escapeHtml(item.attentionBlurb || item.detail || '')}</div>
+              <div class="catch-up-meta">${escapeHtml(item.urgency?.label || 'Medium')} urgency · ${escapeHtml(item.source || 'Pixel')} · tracked ${escapeHtml(item.trackedFor || 'just now')}</div>
+            </article>`).join('')}
+        ` : '<div class="empty">You’re caught up. Nothing currently on your list has changed since your last look.</div>';
+      }
+
+      function render() {
+        const settings = status?.settings || {};
+        const mood = status?.mood || { id: 'calm', label: 'Calm', detail: 'Keeping the loose ends together.' };
+        const day = status?.day || {};
+        $('panelTitle').textContent = settings.name || 'Pixel';
+        $('panelSub').textContent = `${mood.label}${day.hasAgenda ? ` · ${day.label}` : ''}`;
+        $('buddy').dataset.mood = mood.id || 'calm';
+        $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${mood.label}. ${mood.detail || ''}`);
+        $('buddy').title = `${mood.label}: ${mood.detail || ''}`;
+        $('attentionCount').textContent = status?.counts?.attention || 0;
+        $('trackingCount').textContent = status?.counts?.tracking || 0;
+        $('memoryCount').textContent = status?.counts?.remembered || 0;
+        $('sizePanel').value = panelSize;
+        $('pinPanel').textContent = panelPinned ? 'Unpin' : 'Pin';
+        $('attentionDot').classList.toggle('on', (status?.counts?.attention || 0) > 0);
+        const combined = status?.list || [...(status?.signals || []), ...(status?.items || []).filter(item => !item.snoozed)];
+        $('buddy').classList.toggle('critical-work', combined.some(item => item.urgency?.level === 'critical'));
+        const relationshipSignature = combined.map(item => `${item.id}:${item.urgency?.level || ''}`).join('|');
+        if (mapMode !== 'context' && mapRelationshipSignature && relationshipSignature !== mapRelationshipSignature) {
+          mapRelationships = null;
+          mapRelationshipSignature = '';
+        }
+        const progress = status?.progress || {
+          open: combined.length,
+          addressedToday: 0,
+          deferredToday: 0,
+          completionPercent: 0,
+        };
+        const barMaximum = Math.max(1, progress.open || 0, progress.deferredToday || 0, progress.addressedToday || 0);
+        const setBar = (id, value) => {
+          $(id).style.height = value > 0 ? `${Math.max(5, Math.round(value / barMaximum * 100))}%` : '0';
+        };
+        setBar('openBar', progress.open || 0);
+        setBar('deferredBar', progress.deferredToday || 0);
+        setBar('addressedBar', progress.addressedToday || 0);
+        $('workBars').title = `${progress.open || 0} open · ${progress.deferredToday || 0} deferred or reprioritized today · ${progress.addressedToday || 0} addressed today`;
+        $('buddy').dataset.progress = progress.completionPercent >= 60 ? 'good' : progress.completionPercent >= 25 ? 'mixed' : 'behind';
+        const sourceBits = [];
+        if (status?.sources?.builds?.enabled) {
+          sourceBits.push(status.sources.builds.configured
+            ? status.sources.builds.refreshing ? 'Builds refreshing' : 'Builds watching'
+            : 'Builds need a Code Flow repository');
+        }
+        if (status?.sources?.sessions?.enabled) sourceBits.push('Copilot sessions watching');
+        if (status?.sources?.commitments?.enabled) {
+          const commitments = status.sources.commitments;
+          if (!commitments.consent || !commitments.collectionEnabled) sourceBits.push('M365 needs Connect consent');
+          else if (commitments.sync?.error) sourceBits.push('M365 sync needs attention');
+          else sourceBits.push(commitments.sync?.lastSuccessAt ? `M365 synced ${formatRelative(commitments.sync.lastSuccessAt)}` : 'M365 preparing first sync');
+        }
+        $('sourceStatus').textContent = sourceBits.join(' · ') || 'No automatic sources enabled';
+        $('bodyCount').textContent = combined.length > 99 ? '99+' : String(combined.length);
+        $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${combined.length} tracked items · ${mood.label}. ${mood.detail || ''}`);
+        $('itemList').innerHTML = combined.length ? combined.slice(0, 24).map(item => `
+          <article class="item" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" ${item.link || item.route ? 'role="link" tabindex="0"' : ''}>
+            <div class="item-top">
+              <span class="drag-handle" draggable="true" title="Drag to reprioritize">↕</span>
+              <span class="priority ${item.priority === 'high' ? 'high' : ''}"></span>
+              <div>
+                <div class="item-title">${escapeHtml(item.title)}</div>
+                <div class="item-detail">${escapeHtml(item.detail || '')}</div>
+                <div class="item-blurb">${escapeHtml(item.attentionBlurb || '')}</div>
+                <div class="item-meta">
+                  <span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}" title="${escapeHtml(item.urgency?.reason || '')}">${escapeHtml(item.urgency?.label || 'Medium')} urgency</span>
+                  <span>·</span>
+                  <span>Tracked ${escapeHtml(item.trackedFor || 'just now')}</span>
+                </div>
+                <div class="item-source">${escapeHtml(item.source || 'Dev Buddy')}</div>
+              </div>
+            </div>
+            <div class="item-actions">
+              ${item.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
+              <button class="text-action" type="button" data-action="dismiss">Dismiss</button>
+              <button class="text-action" type="button" data-action="done">Mark done</button>
+              <div class="reminder-controls">
+                <label class="reminder-control">Remind me in
+                  <select data-reminder-in aria-label="Remind me in">
+                    <option value="">Select…</option>
+                    <option value="5">5m</option>
+                    <option value="15">15m</option>
+                    <option value="30">30m</option>
+                    <option value="60">1h</option>
+                    <option value="120">2h</option>
+                    <option value="240">4h</option>
+                    <option value="1440">Tomorrow</option>
+                  </select>
+                </label>
+                <label class="reminder-control">Remind me at
+                  <input type="datetime-local" data-reminder-at value="${defaultReminderAt()}" min="${minimumReminderAt()}" aria-label="Reminder date and time">
+                </label>
+                <button class="text-action" type="button" data-action="remind-at">Set</button>
+              </div>
+            </div>
+          </article>`).join('') : '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
+        const recentActivity = status?.recentActivity || [];
+        $('recentCount').textContent = String(recentActivity.length);
+        $('recentList').innerHTML = recentActivity.length ? recentActivity.map(item => {
+          const actionLabels = {
+            completed: 'Marked done',
+            dismissed: 'Dismissed',
+            deferred: 'Deferred',
+            reprioritized: 'Priority lowered',
+          };
+          const actions = (item.actions || []).map(action => actionLabels[action] || action).join(' · ');
+          const controls = [
+            item.canPutBack
+              ? `<button class="text-action" type="button" data-recent-action="put-back" data-recent-id="${escapeHtml(item.id)}">Put back on list</button>`
+              : '',
+            item.canRestorePriority
+              ? `<button class="text-action" type="button" data-recent-action="restore-priority" data-recent-id="${escapeHtml(item.id)}">Restore normal priority</button>`
+              : '',
+          ].filter(Boolean).join('');
+          return `<div class="recent-row">
+            <div class="recent-title">${escapeHtml(item.title)}</div>
+            <div class="recent-meta">${escapeHtml(actions)} · ${escapeHtml(formatRelative(item.at))}${item.source ? ` · ${escapeHtml(item.source)}` : ''}</div>
+            <div class="recent-actions">${controls || '<span class="recent-state">Currently on the list</span>'}</div>
+          </div>`;
+        }).join('') : '<div class="empty">No changes in the past 24 hours.</div>';
+        $('mapGrouping').value = mapMode;
+        renderCatchUp();
+        renderMap(mapMode === 'context' ? status?.relationships : (mapRelationships || status?.relationships));
+        renderMemories(status?.memories || []);
+        renderChat();
+        setView(currentView, false);
+      }
+
+      function formatRelative(value) {
+        const elapsed = Date.now() - Date.parse(value || '');
+        if (!Number.isFinite(elapsed) || elapsed < 0) return 'recently';
+        const minutes = Math.floor(elapsed / 60000);
+        if (minutes < 2) return 'just now';
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+      }
+
+      function localDateTimeValue(value) {
+        const date = new Date(value);
+        const pad = number => String(number).padStart(2, '0');
+        return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+      }
+
+      function minimumReminderAt() {
+        return localDateTimeValue(Date.now() + 60 * 1000);
+      }
+
+      function defaultReminderAt() {
+        const date = new Date(Date.now() + 60 * 60 * 1000);
+        date.setMinutes(0, 0, 0);
+        if (date.getTime() < Date.now() + 60 * 60 * 1000) date.setHours(date.getHours() + 1);
+        return localDateTimeValue(date);
+      }
+
+      function renderMap(relationships) {
+        const nodes = relationships?.nodes || [];
+        const edges = relationships?.edges || [];
+        if (!nodes.length) {
+          $('mapCanvas').innerHTML = '<text x="24" y="42" class="map-empty">Relationships will appear as Pixel learns about your work.</text>';
+          return;
+        }
+        const center = nodes.find(node => node.id === 'pixel');
+        const groups = nodes.filter(node => node.kind === 'repository' || node.kind === 'source');
+        const positions = new Map();
+        const byGroup = new Map();
+        for (const edge of edges) {
+          if (edge.from === 'pixel') continue;
+          if (!byGroup.has(edge.from)) byGroup.set(edge.from, []);
+          byGroup.get(edge.from).push(edge.to);
+        }
+        let cursorY = 34;
+        for (const group of groups) {
+          const children = byGroup.get(group.id) || [];
+          const firstY = cursorY;
+          children.forEach((id, index) => {
+            positions.set(id, { x: 570, y: cursorY + index * 62, w: 360, h: 46 });
+          });
+          const height = Math.max(46, children.length * 62 - 16);
+          positions.set(group.id, { x: 285, y: firstY + (height - 46) / 2, w: 220, h: 46 });
+          cursorY += height + 34;
+        }
+        const contentHeight = Math.max(560, cursorY + 20);
+        if (center) positions.set(center.id, { x: 34, y: contentHeight / 2 - 23, w: 150, h: 46 });
+        mapExtent = { width: 970, height: contentHeight };
+        const lines = edges.map(edge => {
+          const from = positions.get(edge.from);
+          const to = positions.get(edge.to);
+          return from && to ? `<line class="map-edge" x1="${from.x + from.w}" y1="${from.y + from.h / 2}" x2="${to.x}" y2="${to.y + to.h / 2}"></line>` : '';
+        }).join('');
+        const boxes = nodes.map(node => {
+          const pos = positions.get(node.id);
+          if (!pos) return '';
+          const maxLength = node.itemId ? 49 : 29;
+          const label = String(node.label || '').length > maxLength ? String(node.label).slice(0, maxLength - 1) + '…' : node.label;
+          return `<g class="map-node" data-kind="${escapeHtml(node.kind)}" ${node.itemId ? `data-item-id="${escapeHtml(node.itemId)}"` : ''}>
+            <title>${escapeHtml(node.label)}</title>
+            <rect x="${pos.x}" y="${pos.y}" width="${pos.w}" height="${pos.h}"></rect>
+            <text x="${pos.x + 11}" y="${pos.y + 28}">${escapeHtml(label)}</text>
+          </g>`;
+        }).join('');
+        $('mapSvg').setAttribute('viewBox', `0 0 ${Math.max(600, $('mapWrap').clientWidth)} ${Math.max(400, $('mapWrap').clientHeight)}`);
+        $('mapCanvas').innerHTML = lines + boxes;
+        applyMapTransform();
+      }
+
+      function applyMapTransform() {
+        $('mapCanvas').setAttribute('transform', `translate(${mapTransform.x} ${mapTransform.y}) scale(${mapTransform.scale})`);
+      }
+
+      function fitMap() {
+        const width = Math.max(320, $('mapWrap').clientWidth);
+        const height = Math.max(280, $('mapWrap').clientHeight);
+        mapTransform.scale = Math.max(.35, Math.min(1.25, (width - 48) / mapExtent.width, (height - 48) / mapExtent.height));
+        mapTransform.x = Math.max(24, (width - mapExtent.width * mapTransform.scale) / 2);
+        mapTransform.y = Math.max(24, (height - mapExtent.height * mapTransform.scale) / 2);
+        applyMapTransform();
+      }
+
+      function zoomMap(factor, clientX, clientY) {
+        const rect = $('mapWrap').getBoundingClientRect();
+        const pointX = (clientX ?? rect.left + rect.width / 2) - rect.left;
+        const pointY = (clientY ?? rect.top + rect.height / 2) - rect.top;
+        const previous = mapTransform.scale;
+        const next = Math.max(.35, Math.min(2.5, previous * factor));
+        mapTransform.x = pointX - (pointX - mapTransform.x) * (next / previous);
+        mapTransform.y = pointY - (pointY - mapTransform.y) * (next / previous);
+        mapTransform.scale = next;
+        applyMapTransform();
+      }
+
+      function renderMemories(memories) {
+        $('memoryList').innerHTML = memories.length ? memories.map(memory => `
+          <div class="memory-row" data-memory-id="${escapeHtml(memory.id)}">
+            <input value="${escapeHtml(memory.text)}" maxlength="400" aria-label="Learned memory">
+            <button class="text-action" type="button" data-memory-action="save">Save</button>
+            <button class="text-action" type="button" data-memory-action="forget">Forget</button>
+          </div>`).join('') : '<div class="empty">Pixel has no learned preferences yet.</div>';
+      }
+
+      function saveChat() {
+        try { localStorage.setItem('dev-buddy-chat', JSON.stringify(chatHistory.slice(-12))); } catch {}
+      }
+
+      function renderChat() {
+        const entries = chatHistory.slice(-8);
+        $('pixelChat').innerHTML = entries.length ? entries.map((entry, index) => `
+          <div class="chat-message ${entry.pending ? 'chat-thinking' : ''}" data-role="${escapeHtml(entry.role)}">
+            <span class="chat-role">${entry.role === 'user' ? 'You' : 'Pixel'}</span>
+            ${escapeHtml(entry.content)}
+            ${entry.action && ['open', 'confirm-work-item'].includes(entry.action.type) ? `<button class="chat-action" type="button" data-chat-action="${index}">${escapeHtml(entry.action.label || 'Continue')}</button>` : ''}
+          </div>`).join('') : '<div class="chat-empty">Ask me to find and open a PR or build, help prioritize, draft an email, create a work item, or remember something for you.</div>';
+        $('pixelChat').scrollTop = $('pixelChat').scrollHeight;
+        $('chatSend').disabled = chatBusy;
+        $('chatSend').textContent = chatBusy ? 'Thinking…' : 'Ask';
+      }
+
+      async function loadMapGrouping(mode) {
+        mapMode = ['context', 'urgency', 'source', 'ai-workstream', 'ai-effort'].includes(mode) ? mode : 'context';
+        localStorage.setItem('dev-buddy-map-mode', mapMode);
+        $('mapGrouping').value = mapMode;
+        if (mapMode === 'context') {
+          mapRelationships = null;
+          renderMap(status?.relationships);
+          setTimeout(fitMap, 30);
+          return;
+        }
+        if (mapGroupingBusy) return;
+        mapGroupingBusy = true;
+        $('mapGrouping').disabled = true;
+        $('mapCanvas').innerHTML = `<text x="24" y="42" class="map-empty">${mapMode.startsWith('ai-') ? 'Pixel is organizing this work…' : 'Reorganizing map…'}</text>`;
+        try {
+          const result = await request('/api/dev-buddy/map-groupings', {
+            method: 'POST',
+            body: JSON.stringify({ mode: mapMode }),
+          });
+          mapRelationships = result.relationships;
+          mapRelationshipSignature = (status?.list || []).map(item => `${item.id}:${item.urgency?.level || ''}`).join('|');
+          renderMap(mapRelationships);
+          setTimeout(fitMap, 30);
+        } catch (error) {
+          $('mapCanvas').innerHTML = `<text x="24" y="42" class="map-empty">${escapeHtml(error.message || 'Pixel could not organize the map.')}</text>`;
+        } finally {
+          mapGroupingBusy = false;
+          $('mapGrouping').disabled = false;
+        }
+      }
+
+      async function setView(view, resize = true) {
+        const previousView = currentView;
+        currentView = ['work', 'catchup', 'map', 'memory'].includes(view) ? view : 'work';
+        if (previousView === 'catchup' && currentView !== 'catchup') {
+          catchUpViewing = false;
+          catchUpItems = [];
+        }
+        if (currentView === 'catchup' && !catchUpViewing) {
+          catchUpViewing = true;
+          saveCatchUpSnapshot(status?.list || []);
+        }
+        localStorage.setItem('dev-buddy-view', currentView);
+        $('workView').hidden = currentView !== 'work';
+        $('catchUpView').hidden = currentView !== 'catchup';
+        $('mapView').hidden = currentView !== 'map';
+        $('memoryView').hidden = currentView !== 'memory';
+        renderCatchUp();
+        for (const button of document.querySelectorAll('[data-view-target]')) {
+          button.classList.toggle('active', button.dataset.viewTarget === currentView);
+        }
+        if (resize && panelOpen) {
+          await setMode(panelSize);
+          if (currentView === 'map') {
+            if (mapMode !== 'context' && !mapRelationships) loadMapGrouping(mapMode);
+            else setTimeout(fitMap, 80);
+          }
+        }
+      }
+
+      async function load(refresh = false) {
+        try {
+          status = await request('/api/dev-buddy/status' + (refresh ? '?refresh=1' : ''));
+          updateCatchUp(status.list || []);
+          for (const item of (status.items || [])) {
+            if (item.snoozedUntil) scheduleSnoozeWake(item.snoozedUntil);
+          }
+          const shouldHide = status.settings &&
+            (status.settings.enabled === false || (startupLaunch && status.settings.launchAtStartup === false));
+          startupLaunch = false;
+          if (shouldHide) {
+            const fn = invoke();
+            if (fn) await fn('hide_dev_buddy');
+            return;
+          }
+          const nextIds = new Set((status.list || []).map(item => item.id));
+          const added = knownItemIds
+            ? (status.list || []).filter(item => !knownItemIds.has(item.id))
+            : [];
+          knownItemIds = nextIds;
+          render();
+          if (panelOpen && currentView === 'map' && mapMode !== 'context' && !mapRelationships) {
+            loadMapGrouping(mapMode);
+          }
+          if (added.length) flashNewWork(added[0]);
+          if (panelPinned && !panelOpen) await openPanel();
+          scheduleReminder();
+        } catch (error) {
+          $('panelSub').textContent = 'Reconnecting to TheOffice.AI…';
+        }
+      }
+
+      function hideBubble() {
+        clearTimeout(bubbleTimer);
+        $('buddy').classList.remove('commenting');
+        $('bubble').classList.remove('show');
+        if (!panelOpen) {
+          setTimeout(() => {
+            if (!panelOpen) setMode('idle');
+          }, 350);
+        }
+      }
+
+      async function showBubble(item, force = false) {
+        if (!item || panelOpen || (!force && !status?.settings?.remindersEnabled)) return;
+        lastFingerprint = item.fingerprint || item.id || '';
+        $('bubble').dataset.kind = item.kind || 'memory';
+        $('bubbleKicker').textContent = item.priority === 'high' ? 'Needs your attention' : 'Quick heads-up';
+        $('bubbleTitle').textContent = item.title || 'A small reminder';
+        $('bubbleDetail').textContent = item.semanticComment || item.attentionBlurb || item.detail || '';
+        $('buddy').classList.add('commenting');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        if (panelOpen) {
+          $('buddy').classList.remove('commenting');
+          return;
+        }
+        await setMode('bubble');
+        $('bubble').classList.add('show');
+        clearTimeout(bubbleTimer);
+        bubbleTimer = setTimeout(hideBubble, 9000);
+      }
+
+      function scheduleReminder() {
+        clearTimeout(reminderTimer);
+        if (!status?.settings?.remindersEnabled) return;
+        const minutes = Math.max(5, Number(status.settings.reminderIntervalMinutes) || 30);
+        reminderTimer = setTimeout(() => {
+          showBubble(status?.suggestedReminder);
+          scheduleReminder();
+        }, minutes * 60 * 1000);
+      }
+
+      function scheduleSnoozeWake(value) {
+        const wakeAt = Date.parse(value || '');
+        if (!Number.isFinite(wakeAt) || wakeAt <= Date.now()) return;
+        if (snoozeWakeAt && snoozeWakeAt <= wakeAt) return;
+        clearTimeout(snoozeWakeTimer);
+        snoozeWakeAt = wakeAt;
+        snoozeWakeTimer = setTimeout(() => {
+          snoozeWakeAt = 0;
+          load();
+        }, Math.min(2147483647, wakeAt - Date.now() + 250));
+      }
+
+      async function openPanel(focusComposer = false) {
+        clearTimeout(closeTimer);
+        panelOpen = true;
+        hideBubble();
+        await setMode(panelSize);
+        $('panel').classList.add('open');
+        $('stage').classList.add('panel-open');
+        if (currentView === 'map') setTimeout(fitMap, 80);
+        if (focusComposer) setTimeout(() => $('newItem').focus(), 80);
+      }
+
+      async function closePanel() {
+        clearTimeout(closeTimer);
+        panelOpen = false;
+        $('panel').classList.remove('open');
+        $('stage').classList.remove('panel-open');
+        await setMode('idle');
+      }
+
+      async function beginWindowAction(command) {
+        const fn = invoke();
+        if (!fn) return;
+        clearTimeout(closeTimer);
+        manipulatingWindow = true;
+        try {
+          await fn(command, {
+            buddyLeft: windowPlacement.buddyLeft,
+            buddyTop: windowPlacement.buddyTop,
+          });
+        } catch (_) {}
+        setTimeout(() => { manipulatingWindow = false; }, 500);
+      }
+
+      async function beginResizeAction() {
+        clearTimeout(closeTimer);
+        manipulatingWindow = true;
+        try {
+          const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+          const direction = {
+            'left-top': 'SouthEast',
+            'right-top': 'SouthWest',
+            'left-bottom': 'NorthEast',
+            'right-bottom': 'NorthWest',
+          }[`${windowPlacement.anchorX}-${windowPlacement.anchorY}`];
+          if (currentWindow) await currentWindow.startResizeDragging(direction || 'SouthWest');
+        } catch (_) {}
+        setTimeout(() => { manipulatingWindow = false; }, 500);
+      }
+
+      function flashNewWork(item) {
+        clearTimeout(newWorkTimer);
+        $('buddy').classList.add('new-work');
+        newWorkTimer = setTimeout(() => $('buddy').classList.remove('new-work'), 30000);
+        showBubble({
+          ...item,
+          detail: item.detail || 'A new item was added to your work list.',
+        }, true);
+      }
+
+      function celebrate(title) {
+        $('reward').textContent = title ? `Nice work — ${title} is done.` : 'Nice work — one less loose end.';
+        $('stage').classList.remove('celebrating');
+        void $('stage').offsetWidth;
+        $('stage').classList.add('celebrating');
+        setTimeout(() => $('stage').classList.remove('celebrating'), 3000);
+      }
+
+      async function openItem(item) {
+        if (item.link) {
+          await request('/api/open-external', { method: 'POST', body: JSON.stringify({ url: item.link }) });
+          return;
+        }
+        const fn = invoke();
+        if (fn && item.route) {
+          try { await fn('open_main_window', { target: item.route }); } catch (_) {}
+        }
+      }
+
+      function togglePanel() {
+        if (panelOpen) {
+          if (panelPinned) {
+            panelPinned = false;
+            localStorage.setItem('dev-buddy-pinned', '0');
+          }
+          closePanel();
+        } else {
+          openPanel(true);
+        }
+      }
+      function finishBuddyDrag() {
+        clearTimeout(buddyDragSafety);
+        $('buddy').classList.remove('dragging');
+        setTimeout(() => { manipulatingWindow = false; }, 180);
+      }
+      $('buddy').addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        const fn = invoke();
+        if (!fn) return;
+        event.preventDefault();
+        clearTimeout(closeTimer);
+        buddyGesture = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+          dragging: false,
+        };
+        try { $('buddy').setPointerCapture(event.pointerId); } catch (_) {}
+      });
+      $('buddy').addEventListener('pointermove', event => {
+        const gesture = buddyGesture;
+        if (!gesture || gesture.id !== event.pointerId || gesture.dragging) return;
+        if (Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) < 6) return;
+        gesture.dragging = true;
+        manipulatingWindow = true;
+        $('buddy').classList.add('dragging');
+        clearTimeout(buddyDragSafety);
+        buddyDragSafety = setTimeout(finishBuddyDrag, 10000);
+        const fn = invoke();
+        if (!fn) return finishBuddyDrag();
+        fn('start_dev_buddy_drag', {
+            buddyLeft: windowPlacement.buddyLeft,
+            buddyTop: windowPlacement.buddyTop,
+          })
+          .catch(finishBuddyDrag);
+      });
+      $('buddy').addEventListener('pointerup', event => {
+        const gesture = buddyGesture;
+        if (!gesture || gesture.id !== event.pointerId) return;
+        buddyGesture = null;
+        try { $('buddy').releasePointerCapture(event.pointerId); } catch (_) {}
+        if (gesture.dragging) {
+          setTimeout(finishBuddyDrag, 180);
+        } else {
+          togglePanel();
+        }
+      });
+      $('buddy').addEventListener('pointercancel', event => {
+        if (!buddyGesture || buddyGesture.id !== event.pointerId) return;
+        const wasDragging = buddyGesture.dragging;
+        buddyGesture = null;
+        if (wasDragging) setTimeout(finishBuddyDrag, 1500);
+      });
+      $('buddy').addEventListener('click', event => {
+        if (invoke()) {
+          event.preventDefault();
+          return;
+        }
+        togglePanel();
+      });
+      $('stage').addEventListener('mouseenter', () => clearTimeout(closeTimer));
+      $('stage').addEventListener('mouseleave', () => {
+        clearTimeout(closeTimer);
+        closeTimer = setTimeout(() => {
+          if (panelOpen && !panelPinned && !manipulatingWindow && !controlFocused &&
+              Date.now() >= controlInteractionUntil) closePanel();
+        }, 900);
+      });
+      $('panel').addEventListener('focusin', event => {
+        if (!event.target.closest('button, input, select')) return;
+        controlFocused = true;
+        controlInteractionUntil = Number.POSITIVE_INFINITY;
+        clearTimeout(closeTimer);
+      });
+      $('panel').addEventListener('focusout', () => {
+        setTimeout(() => {
+          controlFocused = !!$('panel').contains(document.activeElement) &&
+            !!document.activeElement.closest?.('button, input, select');
+          if (!controlFocused) controlInteractionUntil = Date.now() + 1200;
+        }, 0);
+      });
+      $('closePanel').addEventListener('click', () => {
+        panelPinned = false;
+        localStorage.setItem('dev-buddy-pinned', '0');
+        closePanel();
+      });
+      $('pinPanel').addEventListener('click', event => {
+        event.stopPropagation();
+        panelPinned = !panelPinned;
+        localStorage.setItem('dev-buddy-pinned', panelPinned ? '1' : '0');
+        $('pinPanel').textContent = panelPinned ? 'Unpin' : 'Pin';
+      });
+      $('sizePanel').addEventListener('change', async event => {
+        event.stopPropagation();
+        panelSize = ['expanded', 'wide', 'ultra'].includes(event.target.value) ? event.target.value : 'expanded';
+        localStorage.setItem('dev-buddy-size', panelSize);
+        await setMode(panelSize);
+        if (currentView === 'map') setTimeout(fitMap, 80);
+      });
+      for (const button of document.querySelectorAll('[data-view-target]')) {
+        button.addEventListener('click', () => setView(button.dataset.viewTarget));
+      }
+      $('panel').querySelector('.panel-head').addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.target.closest('button, input, select')) return;
+        event.preventDefault();
+        beginWindowAction('start_dev_buddy_drag');
+      });
+      $('resizeHandle').addEventListener('pointerdown', event => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        beginResizeAction();
+      });
+      $('bubble').addEventListener('click', event => {
+        if (!event.target.closest('#dismissBubble')) openPanel();
+      });
+      $('dismissBubble').addEventListener('click', async event => {
+        event.stopPropagation();
+        if (lastFingerprint) {
+          const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+          try {
+            await request('/api/dev-buddy/signals/dismiss', {
+              method: 'POST',
+              body: JSON.stringify({ fingerprint: lastFingerprint, until }),
+            });
+          } catch (_) {}
+        }
+        hideBubble();
+      });
+
+      $('composer').addEventListener('submit', async event => {
+        event.preventDefault();
+        const input = $('newItem');
+        const message = input.value.trim();
+        if (!message || chatBusy) return;
+        const conversation = chatHistory.filter(entry => !entry.pending).map(entry => ({
+          role: entry.role,
+          content: entry.content,
+        }));
+        chatHistory.push({ role: 'user', content: message });
+        chatHistory.push({ role: 'assistant', content: 'Thinking with you…', pending: true });
+        input.value = '';
+        chatBusy = true;
+        renderChat();
+        try {
+          const result = await request('/api/dev-buddy/chat', {
+            method: 'POST',
+            body: JSON.stringify({ message, history: conversation }),
+          });
+          chatHistory.pop();
+          chatHistory.push({ role: 'assistant', content: result.reply || 'I’m not sure how to help with that yet.', action: result.action || null });
+          saveChat();
+          await load();
+        } catch (error) {
+          chatHistory.pop();
+          chatHistory.push({ role: 'assistant', content: error.message || 'I could not complete that request.' });
+          saveChat();
+        } finally {
+          chatBusy = false;
+          renderChat();
+          input.focus();
+        }
+      });
+
+      $('pixelChat').addEventListener('click', async event => {
+        const button = event.target.closest('[data-chat-action]');
+        if (!button) return;
+        const entry = chatHistory.slice(-8)[Number(button.dataset.chatAction)];
+        const action = entry && entry.action;
+        if (!action) return;
+        button.disabled = true;
+        try {
+          if (action.type === 'open' && action.item) {
+            await openItem(action.item);
+          } else if (action.type === 'confirm-work-item') {
+            const result = await request('/api/dev-buddy/actions/work-item', {
+              method: 'POST',
+              body: JSON.stringify({ title: action.title, description: action.description }),
+            });
+            const workItem = result.workItem || {};
+            entry.action = workItem.url ? {
+              type: 'open',
+              label: `Open work item #${workItem.id || ''}`,
+              item: { title: action.title, link: workItem.url },
+            } : null;
+            chatHistory.push({
+              role: 'assistant',
+              content: `Created ${workItem.id ? `work item #${workItem.id}` : 'the work item'}: ${action.title}`,
+              action: entry.action,
+            });
+            saveChat();
+            renderChat();
+          }
+        } catch (error) {
+          chatHistory.push({ role: 'assistant', content: error.message || 'That action could not be completed.' });
+          saveChat();
+          renderChat();
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      function findListItem(row) {
+        return (status?.list || [...(status?.signals || []), ...(status?.items || [])])
+          .find(entry => entry.id === row.dataset.id);
+      }
+
+      function refreshProgressIndicators() {
+        const progress = status?.progress || {};
+        const maximum = Math.max(1, progress.open || 0, progress.deferredToday || 0, progress.addressedToday || 0);
+        const setBar = (id, value) => {
+          $(id).style.height = value > 0 ? `${Math.max(5, Math.round(value / maximum * 100))}%` : '0';
+        };
+        setBar('openBar', progress.open || 0);
+        setBar('deferredBar', progress.deferredToday || 0);
+        setBar('addressedBar', progress.addressedToday || 0);
+        $('workBars').title = `${progress.open || 0} open · ${progress.deferredToday || 0} deferred or reprioritized today · ${progress.addressedToday || 0} addressed today`;
+      }
+
+      function removeListItemLocally(row, item, actionType = 'completed') {
+        const previousStatus = status;
+        row.remove();
+        const remove = entries => (entries || []).filter(entry => entry.id !== item.id);
+        const list = remove(status?.list);
+        const progress = status?.progress || {};
+        const counts = status?.counts || {};
+        const alreadyCounted = (status?.recentActivity || []).some(entry =>
+          entry.id === item.id && (entry.actions || []).includes(actionType));
+        const addressedIncrement = ['completed', 'dismissed'].includes(actionType) && !alreadyCounted ? 1 : 0;
+        const deferredIncrement = actionType === 'deferred' && !alreadyCounted ? 1 : 0;
+        status = {
+          ...status,
+          list,
+          signals: remove(status?.signals),
+          items: remove(status?.items),
+          counts: {
+            ...counts,
+            attention: Math.max(0, Number(counts.attention || 0) - (item.urgency?.score >= 2 ? 1 : 0)),
+            tracking: Math.max(0, Number(counts.tracking || 0) - (['agent-run', 'build', 'session'].includes(item.kind) ? 1 : 0)),
+            remembered: Math.max(0, Number(counts.remembered || 0) - (!item.fingerprint || item.completable ? 1 : 0)),
+          },
+          progress: {
+            ...progress,
+            open: Math.max(0, Number(progress.open || list.length + 1) - 1),
+            addressedToday: Number(progress.addressedToday || 0) + addressedIncrement,
+            deferredToday: Number(progress.deferredToday || 0) + deferredIncrement,
+            completedToday: Number(progress.completedToday || 0) + addressedIncrement,
+          },
+        };
+        $('bodyCount').textContent = list.length > 99 ? '99+' : String(list.length);
+        $('attentionCount').textContent = status.counts.attention;
+        $('trackingCount').textContent = status.counts.tracking;
+        $('memoryCount').textContent = status.counts.remembered;
+        refreshProgressIndicators();
+        if (!$('itemList').querySelector('.item')) {
+          $('itemList').innerHTML = '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
+        }
+        return () => {
+          status = previousStatus;
+          render();
+        };
+      }
+
+      function lowerPriorityLocally(row, item, priority) {
+        const previousStatus = status;
+        const update = entries => (entries || []).map(entry =>
+          entry.id === item.id ? { ...entry, priority } : entry);
+        const progress = status?.progress || {};
+        const alreadyCounted = (status?.recentActivity || []).some(entry =>
+          entry.id === item.id && (entry.actions || []).includes('reprioritized'));
+        status = {
+          ...status,
+          list: update(status?.list),
+          signals: update(status?.signals),
+          items: update(status?.items),
+          progress: {
+            ...progress,
+            deferredToday: Number(progress.deferredToday || 0) + (alreadyCounted ? 0 : 1),
+          },
+        };
+        row.querySelector('.priority')?.classList.toggle('high', priority === 'high');
+        const button = row.querySelector('[data-action="priority-down"]');
+        if (button && priority === 'low') button.remove();
+        refreshProgressIndicators();
+        return () => {
+          status = previousStatus;
+          render();
+        };
+      }
+
+      async function updateListItem(row, item, body, reload = true) {
+        if (item.completable) {
+          await request('/api/dev-buddy/commitments/' + encodeURIComponent(item.id), {
+            method: 'PUT',
+            body: JSON.stringify(body),
+          });
+        } else if (row.dataset.signal === '1') {
+          const signalKey = body.snoozedUntil ? (item.reminderKey || item.fingerprint) : item.fingerprint;
+          await request('/api/dev-buddy/signals/' + encodeURIComponent(signalKey), {
+            method: 'PUT',
+            body: JSON.stringify({ ...body, title: item.title, source: item.source }),
+          });
+        } else {
+          await request('/api/dev-buddy/items/' + encodeURIComponent(item.id), {
+            method: 'PUT',
+            body: JSON.stringify(body),
+          });
+        }
+        if (body.snoozedUntil) scheduleSnoozeWake(body.snoozedUntil);
+        if (reload) await load();
+      }
+
+      $('itemList').addEventListener('change', async event => {
+        const select = event.target.closest('[data-reminder-in]');
+        const row = event.target.closest('.item');
+        if (!select || !row || !select.value) return;
+        const item = findListItem(row);
+        const minutes = Number(select.value);
+        if (!item || !Number.isFinite(minutes) || minutes <= 0) return;
+        select.disabled = true;
+        const snoozedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+        const restore = removeListItemLocally(row, item, 'deferred');
+        try {
+          await updateListItem(row, item, { snoozedUntil }, false);
+          void load();
+        } catch (error) {
+          restore();
+        } finally {
+          select.disabled = false;
+        }
+      });
+
+      $('itemList').addEventListener('click', async event => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        const row = event.target.closest('.item');
+        if (!row) return;
+        const item = findListItem(row);
+        if (!item) return;
+        if (!action) {
+          const interactive = event.target.closest('button, input, select, label, .drag-handle');
+          if (!interactive && row.dataset.openable === '1' && Date.now() >= suppressItemOpenUntil) {
+            return openItem(item);
+          }
+          return;
+        }
+        if (action === 'remind-at') {
+          const input = row.querySelector('[data-reminder-at]');
+          const reminderAt = new Date(input.value).getTime();
+          if (!Number.isFinite(reminderAt) || reminderAt <= Date.now()) {
+            input.setCustomValidity('Choose a future reminder time.');
+            input.reportValidity();
+            return;
+          }
+          input.setCustomValidity('');
+          const restore = removeListItemLocally(row, item, 'deferred');
+          try {
+            await updateListItem(row, item, { snoozedUntil: new Date(reminderAt).toISOString() }, false);
+            void load();
+          } catch (error) {
+            restore();
+          }
+          return;
+        }
+        const priorities = ['low', 'normal', 'high'];
+        const currentPriority = Math.max(0, priorities.indexOf(item.priority || 'normal'));
+        const body = action === 'done'
+          ? { status: 'done' }
+          : action === 'dismiss'
+            ? { status: 'dismissed' }
+            : { priority: priorities[Math.max(0, currentPriority - 1)] };
+        if (action === 'done' || action === 'dismiss') {
+          const restore = removeListItemLocally(row, item, action === 'done' ? 'completed' : 'dismissed');
+          if (action === 'done') celebrate(item.title);
+          try {
+            await updateListItem(row, item, body, false);
+            void load();
+          } catch (error) {
+            restore();
+            throw error;
+          }
+          return;
+        }
+        const nextPriority = body.priority;
+        const restore = lowerPriorityLocally(row, item, nextPriority);
+        try {
+          await updateListItem(row, item, body, false);
+          void load();
+        } catch (error) {
+          restore();
+        }
+      });
+      $('itemList').addEventListener('keydown', event => {
+        if (!['Enter', ' '].includes(event.key) || event.target !== event.target.closest('.item')) return;
+        const row = event.target.closest('.item');
+        const item = row && findListItem(row);
+        if (!item || row.dataset.openable !== '1') return;
+        event.preventDefault();
+        openItem(item);
+      });
+
+      $('recentList').addEventListener('click', async event => {
+        const button = event.target.closest('[data-recent-action]');
+        if (!button) return;
+        const label = button.textContent;
+        button.disabled = true;
+        button.textContent = 'Restoring…';
+        try {
+          await request('/api/dev-buddy/activity/' + encodeURIComponent(button.dataset.recentId) + '/restore', {
+            method: 'POST',
+            body: JSON.stringify({ action: button.dataset.recentAction }),
+          });
+          await load();
+        } catch (error) {
+          button.disabled = false;
+          button.textContent = label;
+        }
+      });
+
+      $('itemList').addEventListener('dragstart', event => {
+        const row = event.target.closest('.item');
+        if (!row) return;
+        draggedId = row.dataset.id;
+        suppressItemOpenUntil = Date.now() + 10000;
+        row.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', draggedId);
+      });
+      $('itemList').addEventListener('dragover', event => {
+        const row = event.target.closest('.item');
+        if (!row || row.dataset.id === draggedId) return;
+        event.preventDefault();
+        for (const item of $('itemList').querySelectorAll('.drag-target')) item.classList.remove('drag-target');
+        row.classList.add('drag-target');
+      });
+      $('itemList').addEventListener('drop', async event => {
+        const target = event.target.closest('.item');
+        const source = [...$('itemList').querySelectorAll('.item')].find(row => row.dataset.id === draggedId);
+        if (!target || !source || target === source) return;
+        event.preventDefault();
+        const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+        target.parentNode.insertBefore(source, after ? target.nextSibling : target);
+        const ids = [...$('itemList').querySelectorAll('.item')].map(row => row.dataset.id);
+        try {
+          await request('/api/dev-buddy/order', {
+            method: 'PUT',
+            body: JSON.stringify({ ids }),
+          });
+          await load();
+        } catch (_) {}
+      });
+      $('itemList').addEventListener('dragend', () => {
+        draggedId = '';
+        suppressItemOpenUntil = Date.now() + 350;
+        for (const item of $('itemList').querySelectorAll('.dragging, .drag-target')) {
+          item.classList.remove('dragging', 'drag-target');
+        }
+      });
+
+      $('catchUpList').addEventListener('click', event => {
+        const row = event.target.closest('[data-catch-up-id]');
+        if (!row || row.dataset.openable !== '1') return;
+        const item = catchUpItems.find(entry => entry.id === row.dataset.catchUpId);
+        if (item) openItem(item);
+      });
+      $('catchUpList').addEventListener('keydown', event => {
+        if (!['Enter', ' '].includes(event.key)) return;
+        const row = event.target.closest('[data-catch-up-id]');
+        if (!row || row.dataset.openable !== '1') return;
+        const item = catchUpItems.find(entry => entry.id === row.dataset.catchUpId);
+        if (!item) return;
+        event.preventDefault();
+        openItem(item);
+      });
+
+      $('mapWrap').addEventListener('click', event => {
+        if (mapMoved) return;
+        const id = event.target.closest('[data-item-id]')?.dataset.itemId;
+        const item = (status?.list || []).find(entry => entry.id === id);
+        if (item) openItem(item);
+      });
+      $('mapWrap').addEventListener('wheel', event => {
+        event.preventDefault();
+        zoomMap(event.deltaY < 0 ? 1.12 : .89, event.clientX, event.clientY);
+      }, { passive: false });
+      $('mapWrap').addEventListener('pointerdown', event => {
+        if (event.button !== 0 || event.target.closest('.map-controls')) return;
+        $('mapWrap').setPointerCapture(event.pointerId);
+        if (event.pointerType === 'touch') {
+          mapPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          if (mapPointers.size === 2) {
+            const [first, second] = [...mapPointers.values()];
+            mapPinch = {
+              distance: Math.hypot(second.x - first.x, second.y - first.y),
+              midpoint: { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 },
+              transform: { ...mapTransform },
+            };
+            mapPointer = null;
+          } else {
+            mapPointer = {
+              id: event.pointerId,
+              x: event.clientX,
+              y: event.clientY,
+              originX: mapTransform.x,
+              originY: mapTransform.y,
+            };
+          }
+        } else {
+          mapPointer = {
+            id: event.pointerId,
+            x: event.clientX,
+            y: event.clientY,
+            originX: mapTransform.x,
+            originY: mapTransform.y,
+          };
+        }
+        mapMoved = false;
+        $('mapWrap').classList.add('dragging');
+      });
+      $('mapWrap').addEventListener('pointermove', event => {
+        if (event.pointerType === 'touch' && mapPointers.has(event.pointerId)) {
+          mapPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+          if (mapPinch && mapPointers.size >= 2) {
+            const [first, second] = [...mapPointers.values()];
+            const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+            const midpoint = { x: (first.x + second.x) / 2, y: (first.y + second.y) / 2 };
+            const rect = $('mapWrap').getBoundingClientRect();
+            const anchorX = mapPinch.midpoint.x - rect.left;
+            const anchorY = mapPinch.midpoint.y - rect.top;
+            const nextScale = Math.max(.35, Math.min(2.5,
+              mapPinch.transform.scale * distance / Math.max(1, mapPinch.distance)
+            ));
+            mapTransform.scale = nextScale;
+            mapTransform.x = midpoint.x - rect.left -
+              (anchorX - mapPinch.transform.x) * (nextScale / mapPinch.transform.scale);
+            mapTransform.y = midpoint.y - rect.top -
+              (anchorY - mapPinch.transform.y) * (nextScale / mapPinch.transform.scale);
+            mapMoved = true;
+            applyMapTransform();
+            return;
+          }
+        }
+        if (!mapPointer || mapPointer.id !== event.pointerId) return;
+        const dx = event.clientX - mapPointer.x;
+        const dy = event.clientY - mapPointer.y;
+        if (Math.abs(dx) + Math.abs(dy) > 5) mapMoved = true;
+        mapTransform.x = mapPointer.originX + dx;
+        mapTransform.y = mapPointer.originY + dy;
+        applyMapTransform();
+      });
+      const endMapPointer = event => {
+        mapPointers.delete(event.pointerId);
+        if (mapPointers.size < 2) mapPinch = null;
+        if (mapPointer && mapPointer.id === event.pointerId) mapPointer = null;
+        $('mapWrap').classList.remove('dragging');
+        setTimeout(() => { mapMoved = false; }, 0);
+      };
+      $('mapWrap').addEventListener('pointerup', endMapPointer);
+      $('mapWrap').addEventListener('pointercancel', endMapPointer);
+      $('mapWrap').addEventListener('click', event => {
+        const action = event.target.closest('[data-map-action]')?.dataset.mapAction;
+        if (action === 'zoom-in') zoomMap(1.2);
+        else if (action === 'zoom-out') zoomMap(.8);
+        else if (action === 'fit') fitMap();
+      });
+      $('mapGrouping').addEventListener('change', event => loadMapGrouping(event.target.value));
+
+      $('memoryComposer').addEventListener('submit', async event => {
+        event.preventDefault();
+        const text = $('newMemory').value.trim();
+        if (!text) return;
+        await request('/api/dev-buddy/memories', {
+          method: 'POST',
+          body: JSON.stringify({ text }),
+        });
+        $('newMemory').value = '';
+        await load();
+      });
+
+      $('memoryList').addEventListener('click', async event => {
+        const action = event.target.closest('[data-memory-action]')?.dataset.memoryAction;
+        const row = event.target.closest('[data-memory-id]');
+        if (!action || !row) return;
+        const url = '/api/dev-buddy/memories/' + encodeURIComponent(row.dataset.memoryId);
+        if (action === 'forget') await request(url, { method: 'DELETE' });
+        else {
+          const text = row.querySelector('input').value.trim();
+          if (!text) return;
+          await request(url, { method: 'PUT', body: JSON.stringify({ text }) });
+        }
+        await load();
+      });
+
+      const events = new EventSource('/api/events');
+      events.addEventListener('dev-buddy-changed', () => load());
+      ['agent-status', 'agent-completed', 'boards-changed'].forEach(name => {
+        events.addEventListener(name, () => setTimeout(() => load(), 1200));
+      });
+
+      load(true).then(() => {
+        const item = status?.suggestedReminder || {
+          title: `${status?.settings?.name || 'Pixel'} is keeping watch`,
+          detail: 'I’ll quietly track open work and only pop up when something deserves your attention.',
+          priority: 'normal',
+          fingerprint: 'welcome',
+        };
+        setTimeout(() => showBubble(item, true), 1800);
+      });
+      setInterval(() => load(), 60000);
+    })();
+  </script>
+</body>
+</html>

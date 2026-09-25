@@ -15138,6 +15138,19 @@
               .meai-goals-tab-n { font-size:11px; font-weight:700; color:var(--cp-text-muted); min-width:14px; text-align:center; }
               .meai-goals-tab.on .meai-goals-tab-n { color:var(--cp-accent); }
               @media (prefers-reduced-motion: reduce) { .meai-goals-tab { transition:none; } }
+              .meai-goals-tools { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:-2px 0 10px; }
+              .meai-goals-select { appearance:none; border:0; background:transparent; color:var(--cp-accent); padding:3px 0;
+                font-size:11.5px; font-weight:600; cursor:pointer; border-bottom:1px solid transparent; }
+              .meai-goals-select:hover { border-bottom-color:var(--cp-accent); }
+              .meai-goals-bulk { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:8px 0 10px;
+                border-bottom:1px solid var(--cp-border); margin-bottom:8px; }
+              .meai-goals-bulk-n { font-size:11.5px; font-weight:700; color:var(--cp-text); margin-right:auto; }
+              .meai-goals-bulk button { appearance:none; border:0; background:transparent; padding:2px 0; cursor:pointer;
+                font-size:11px; font-weight:600; color:var(--cp-text-muted); border-bottom:1px solid transparent; }
+              .meai-goals-bulk button:hover:not(:disabled) { color:var(--cp-text); border-bottom-color:var(--cp-text-muted); }
+              .meai-goals-bulk button.danger:hover:not(:disabled) { color:var(--cp-danger); border-bottom-color:var(--cp-danger); }
+              .meai-goals-bulk button:disabled { opacity:.4; cursor:default; }
+              .meai-goal-pick { flex:none; width:17px; height:17px; margin-top:1px; cursor:pointer; accent-color:var(--cp-accent); }
               .meai-chk-group + .meai-chk-group { margin-top:14px; }
               .meai-chk-glabel { font-size:11px; font-weight:700; letter-spacing:.02em; color:var(--cp-text-muted); text-transform:uppercase;
                 margin:6px 0 6px; display:flex; align-items:center; gap:6px; }
@@ -16394,6 +16407,14 @@
                           <span class="meai-chk-realign-ic" aria-hidden="true">↻</span>
                           <span x-text="meai.goalsRegenerating ? 'Realigning…' : 'Realign to agenda'"></span>
                         </button>
+                        <button class="meai-chk-realign" type="button" x-show="meai.date === meai.today"
+                          :class="{ 'is-busy': meai.goalsRefreshing }"
+                          @click="meAiStartFreshGoals()" :disabled="meai.goalsRefreshing || meai.goalsRegenerating"
+                          title="Clear every goal status and carried goal, then rebuild the list from today's current agenda. Your separate To-dos are kept."
+                          aria-label="Start today's goals fresh">
+                          <span class="meai-chk-realign-ic" aria-hidden="true">↺</span>
+                          <span x-text="meai.goalsRefreshing ? 'Starting…' : 'Start fresh'"></span>
+                        </button>
                         <button class="meai-chk-x" type="button" @click="meAiChecklistDock(!meai.checklistDocked)"
                           :title="meai.checklistDocked ? 'Float over the page' : 'Dock into the page'"
                           :aria-label="meai.checklistDocked ? 'Undock goals' : 'Dock goals'"
@@ -16413,6 +16434,20 @@
                           </button>
                         </template>
                       </div>
+                      <div class="meai-goals-tools">
+                        <button class="meai-goals-select" type="button" @click="meAiToggleGoalSelectionMode()"
+                          x-text="meai.goalSelectionMode ? 'Cancel selection' : 'Select goals'"></button>
+                        <button class="meai-goals-select" type="button" x-show="meai.goalSelectionMode"
+                          @click="meAiSelectVisibleGoals()" x-text="meAiVisibleGoalsAllSelected() ? 'Clear visible' : 'Select visible'"></button>
+                      </div>
+                      <div class="meai-goals-bulk" x-show="meai.goalSelectionMode" x-transition.opacity.duration.100ms>
+                        <span class="meai-goals-bulk-n" x-text="meAiGoalSelectionCount() + ' selected'"></span>
+                        <button type="button" @click="meAiApplyGoalBulk('open')" :disabled="!meAiGoalSelectionCount()">Reopen</button>
+                        <button type="button" @click="meAiApplyGoalBulk('done')" :disabled="!meAiGoalSelectionCount()">Done</button>
+                        <button type="button" @click="meAiApplyGoalBulk('partial')" :disabled="!meAiGoalSelectionCount()">Need more time</button>
+                        <button type="button" @click="meAiApplyGoalBulk('missed')" :disabled="!meAiGoalSelectionCount()">Didn't get to</button>
+                        <button class="danger" type="button" @click="meAiApplyGoalBulk('remove')" :disabled="!meAiGoalSelectionCount()">Remove</button>
+                      </div>
                       <!-- Accomplishment: your one big thing is done — celebrated + kept visible on the Open tab -->
                       <div class="meai-chk-accomplished" x-show="meai.goalsTab === 'open' && meAiBigGoalDone()" x-transition>
                         <template x-for="t in meAiBigGoalList()" :key="'acc-'+(_meAiGoalKey(t)||'x')">
@@ -16431,6 +16466,9 @@
                         <div class="meai-chk-glabel">🎯 One big thing <span class="meai-chk-gn">the win for today</span></div>
                         <template x-for="(t, i) in meAiBigGoalList()" :key="'big-'+(_meAiGoalKey(t)||i)">
                           <div class="meai-chk-row meai-chk-big" :class="{ done: t.done }">
+                            <input class="meai-goal-pick" type="checkbox" x-show="meai.goalSelectionMode"
+                              :checked="meAiGoalSelected(t)" @change="meAiToggleGoalSelected(t)"
+                              :aria-label="'Select ' + (t.title||'goal')">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
                               <div class="meai-chk-title"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span></div>
@@ -16458,6 +16496,9 @@
                         <div class="meai-chk-glabel"><span x-text="meai.goalsTab === 'open' ? &quot;Today's goals&quot; : 'Goals'"></span> <span class="meai-chk-gn" x-text="meai.goalsTab === 'open' ? (meAiRegularOpenCount() + ' open') : (meAiRegularGoalsTab().length + '')"></span></div>
                         <template x-for="(t, i) in meAiRegularGoalsTab()" :key="'chk-'+i+'-'+(t.title||'')">
                           <div class="meai-chk-row" :class="{ done: t.done }">
+                            <input class="meai-goal-pick" type="checkbox" x-show="meai.goalSelectionMode"
+                              :checked="meAiGoalSelected(t)" @change="meAiToggleGoalSelected(t)"
+                              :aria-label="'Select ' + (t.title||'goal')">
                             <input class="meai-chk-cb" type="checkbox" :checked="t.done" @change="meAiToggleTodoDone(t)" :aria-label="'Mark ' + (t.title||'item') + ' done'">
                             <div class="meai-chk-main">
                               <div class="meai-chk-title" :class="{ 'meai-chk-title-nav': meAiGoalActionable(t) }" @click="meAiGoalActionable(t) && meAiGoalOpen(t)" :title="meAiGoalHasBlock(t) ? 'Go to the agenda block that gets this done' : (t.link ? 'Open' : 'Not on today\'s agenda — an audit-only goal')"><span class="meai-chk-pri" :class="'pri-'+meAiGoalPriority(t)" :title="meAiPriLabel(meAiGoalPriority(t))"></span><span x-text="t.title"></span><span class="meai-chk-noagenda" x-show="!meAiGoalActionable(t)" title="This goal isn't tied to a block on today's agenda — it's here for tracking only">not on today's agenda</span></div>
@@ -28982,6 +29023,80 @@
               </div>
               </div><!-- /experience category -->
 
+            <!-- ===== Dev Buddy category ===== -->
+            <div x-show="settingsCat === 'dev-buddy'">
+              <div class="card" style="margin-bottom:20px">
+                <h3 style="margin-bottom:8px">🤖 Dev Buddy</h3>
+                <p class="hint" style="margin-bottom:18px">A detached desktop companion that quietly remembers your open loops, watches development activity and work commitments, and surfaces short reminders only when something deserves attention.</p>
+
+                <div style="display:flex;flex-direction:column;gap:16px;max-width:600px">
+                  <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                    <input type="checkbox" x-model="devBuddySettings.enabled" @change="saveDevBuddySettings(true)" style="margin-top:3px">
+                    <span>
+                      <strong>Enable Dev Buddy</strong>
+                      <span class="hint" style="display:block;margin-top:3px">Show the companion independently of the main TheOffice.AI window.</span>
+                    </span>
+                  </label>
+
+                  <div>
+                    <label class="field-label">Companion name</label>
+                    <input class="field-input" type="text" maxlength="40" x-model="devBuddySettings.name" @change="saveDevBuddySettings()" style="max-width:280px">
+                  </div>
+
+                  <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                    <input type="checkbox" x-model="devBuddySettings.launchAtStartup" @change="saveDevBuddySettings()" style="margin-top:3px">
+                    <span>
+                      <strong>Launch with TheOffice.AI</strong>
+                      <span class="hint" style="display:block;margin-top:3px">Dev Buddy appears when the desktop app starts, even if the main window stays out of the way.</span>
+                    </span>
+                  </label>
+
+                  <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                    <input type="checkbox" x-model="devBuddySettings.remindersEnabled" @change="saveDevBuddySettings()" style="margin-top:3px">
+                    <span>
+                      <strong>Occasional reminder bubbles</strong>
+                      <span class="hint" style="display:block;margin-top:3px">Short comments fade away automatically. Dismissing one silences that item until tomorrow.</span>
+                    </span>
+                  </label>
+
+                  <div style="padding-top:4px;border-top:1px solid var(--cp-border)">
+                    <div class="field-label" style="margin:12px 0 10px">Sources Pixel watches</div>
+                    <div style="display:flex;flex-direction:column;gap:12px">
+                      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                        <input type="checkbox" x-model="devBuddySettings.trackBuilds" @change="saveDevBuddySettings()" style="margin-top:3px">
+                        <span><strong>Builds and pipelines</strong><span class="hint" style="display:block;margin-top:3px">Watch active and failed CI runs associated with your development work.</span></span>
+                      </label>
+                      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                        <input type="checkbox" x-model="devBuddySettings.trackSessions" @change="saveDevBuddySettings()" style="margin-top:3px">
+                        <span><strong>Copilot sessions</strong><span class="hint" style="display:block;margin-top:3px">Remember active and interrupted coding sessions so work is easy to resume.</span></span>
+                      </label>
+                      <label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer">
+                        <input type="checkbox" x-model="devBuddySettings.trackCommitments" @change="saveDevBuddySettings()" style="margin-top:3px">
+                        <span><strong>Email, Teams, and calendar commitments</strong><span class="hint" style="display:block;margin-top:3px">Use consented Connect and Agenda.AI data to surface requests, promises, meetings, and follow-ups.</span></span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div x-show="devBuddySettings.remindersEnabled">
+                    <label class="field-label">Quiet reminder cadence</label>
+                    <select class="field-input" x-model.number="devBuddySettings.reminderIntervalMinutes" @change="saveDevBuddySettings()" style="max-width:280px">
+                      <option :value="15">At most every 15 minutes</option>
+                      <option :value="30">At most every 30 minutes</option>
+                      <option :value="60">At most hourly</option>
+                      <option :value="120">At most every 2 hours</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--cp-border)">
+                  <button class="btn primary" type="button" @click="showDevBuddy()" :disabled="devBuddyBusy || !devBuddySettings.enabled">Launch Dev Buddy</button>
+                  <button class="btn" type="button" @click="hideDevBuddy()" :disabled="devBuddyBusy">Hide for now</button>
+                  <span class="hint" x-show="!window.__DESKTOP__">The detached companion is available in the desktop app.</span>
+                  <span class="hint" x-show="devBuddySaved">✓ Saved</span>
+                </div>
+              </div>
+            </div><!-- /dev-buddy category -->
+
             <!-- ===== Appearance category ===== -->
             <div x-show="settingsCat === 'appearance'">
             <div class="card" style="margin-bottom:20px">
@@ -32801,14 +32916,14 @@
         // Optional features the user can switch on while staying in Basic mode. Each
         // key toggles the matching nav item into the flat Basic sidebar.
         basicFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, meetings: false, epics: false };
+          const defaults = { 'me-ai': true, diary: true, managers: false, tasks: true, autonomous: true, flows: false, watercooler: false, sessions: false, news: false, connect: false, newsletter: false, pulse: false, meetings: false, epics: false, devbuddy: false };
           try { const raw = JSON.parse(localStorage.getItem('basic-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Advanced is the inverse of Basic: every optional feature starts ON and the
         // user opts OUT. Persists independently of basicFeatures so each level keeps
         // its own curated set. A newly-shipped key defaults to on (stays visible).
         advancedFeatures: (() => {
-          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, meetings: true, epics: true };
+          const defaults = { 'me-ai': true, diary: true, autonomous: true, playbooks: true, watercooler: true, sessions: true, news: true, connect: true, newsletter: true, pulse: true, meetings: true, epics: true, devbuddy: true };
           try { const raw = JSON.parse(localStorage.getItem('advanced-features') || '{}') || {}; return Object.assign(defaults, raw); } catch { return defaults; }
         })(),
         // Home "Getting started" guided onboarding (Basic only). Tracks dismissal so
@@ -33613,6 +33728,9 @@
           bigGoalNonce: 0,  // bumped on big-goal pin/clear to force a reactive recompute
           bigWinNonce: 0,  // bumped when the day's big-thing "wins" log changes (durable Done record)
           goalsRegenerating: false,  // true while the on-demand "realign goals to agenda" call is in flight
+          goalsRefreshing: false,    // true while "Start fresh" replaces goals from today's agenda
+          goalSelectionMode: false,  // bulk goal decisions
+          goalSelection: {},         // stable goal key -> true
           autoUpdates: (() => { try { const v = localStorage.getItem('meai-auto-updates'); return v === null ? true : v === '1'; } catch (_) { return true; } })(),
           autoTriageAdvOpen: false,  // Phase 2: per-action tiering collapsed by default
           inboxSecCollapsed: {},     // per-disposition section collapse overrides (attention inbox)
@@ -34047,6 +34165,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         devSettings: { devOrg: '', devProject: '', worktreeRoot: '' },
         devSettingsSaved: false,
         _devSettingsLoaded: false,
+        devBuddySettings: { enabled: false, name: 'Pixel', launchAtStartup: true, alwaysOnTop: true, remindersEnabled: true, reminderIntervalMinutes: 30, trackBuilds: true, trackSessions: true, trackCommitments: true },
+        devBuddySaved: false,
+        devBuddyBusy: false,
         // Part A: auto-create dev cards from Azure DevOps work-item conditions.
         devAuto: { enabled: false, rules: [], loaded: false, saving: false, saved: false, running: false, previews: {}, lastRun: null },
         cfGroups: { github: [], azdo: [], inputGithub: '', inputAzdo: '', saved: false, loaded: false },
@@ -35247,7 +35368,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } else if (this.route === 'events') {
             await this.loadEvents();
           } else if (this.route === 'settings') {
-            const cats = ['experience', 'appearance', 'ai', 'agents', 'integrations', 'dependencies', 'storage', 'connect', 'about'];
+            const cats = ['experience', 'dev-buddy', 'appearance', 'ai', 'agents', 'integrations', 'dependencies', 'storage', 'connect', 'about'];
             this.settingsCat = (this.app.routeParam && cats.includes(this.app.routeParam)) ? this.app.routeParam : 'appearance';
             await this.loadSyncStatus();
             this.loadModels();
@@ -35257,6 +35378,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.settingsCat === 'integrations') { this.ensureCfGroups(); this.ensureDevSettings(); this.loadDevAuto(); }
             if (this.settingsCat === 'connect') this.ensureConnectConfig();
             if (this.settingsCat === 'agents') this.loadSystemAgents();
+            if (this.settingsCat === 'dev-buddy') this.loadDevBuddySettings();
           } else if (this.route === 'chains' || this.route === 'autonomous' || this.route === 'tasks') {
             // Seed the active section tab from the route/param so deep-links and
             // detail back-links land on the right tab; after that, tab switches
@@ -37008,6 +37130,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'me-ai', label: 'Agenda.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'meetings', label: 'Meetings.AI', icon: '🎬', hint: 'Verified meeting recaps and evidence-rich narrated newscasts.' },
+            { key: 'devbuddy', label: 'Dev Buddy', icon: '🤖', hint: 'A quiet desktop companion that tracks open loops and calls attention to changes.' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
             { key: 'sessions', label: 'CLI Sessions', icon: '⌨', hint: 'Live Copilot CLI coding sessions.' },
@@ -37026,6 +37149,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'me-ai', label: 'Agenda.AI', icon: '🧭', hint: 'Your AI-planned daily agenda & personal command center.', requires: 'diary' },
             { key: 'pulse', label: "Pulse.AI", icon: '📡', hint: 'Ambient team conversations & meeting recaps worth staying close to.', requires: 'me-ai' },
             { key: 'meetings', label: 'Meetings.AI', icon: '🎬', hint: 'Verified meeting recaps and evidence-rich narrated newscasts.' },
+            { key: 'devbuddy', label: 'Dev Buddy', icon: '🤖', hint: 'A quiet desktop companion that tracks open loops and calls attention to changes.' },
             { key: 'autonomous', label: 'Automation', icon: '⚡', hint: 'Scheduled tasks & multi-step agent flows.' },
             { key: 'playbooks', label: 'Playbooks', icon: '📘', hint: 'Author & tune the Me-agent playbook prompts.' },
             { key: 'watercooler', label: 'Agent Chats', icon: '💬', hint: 'Ad-hoc chat with your agents.' },
@@ -37074,6 +37198,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.basicFeatures = Object.assign({}, this.basicFeatures, { [key]: !cur });
           try { localStorage.setItem('basic-features', JSON.stringify(this.basicFeatures)); } catch {}
           this._publishEnabledFeatures();
+          if (key === 'devbuddy' && cur) this.disableDevBuddy();
           // Hiding the team selector while scoped to a team would strand the filter on.
           if (key === 'teams' && cur && this.experienceLevel === 'basic' && this.currentTeamId !== 'all') {
             this.setCurrentOrg('all');
@@ -37100,6 +37225,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.advancedFeatures = Object.assign({}, af, { [key]: !cur });
           try { localStorage.setItem('advanced-features', JSON.stringify(this.advancedFeatures)); } catch {}
           this._publishEnabledFeatures();
+          if (key === 'devbuddy' && cur) this.disableDevBuddy();
           // If we just hid the page we're standing on (directly or via cascade), land Home.
           if (cur && this.experienceLevel === 'advanced' && !this.advancedRouteVisible(this.route)) this.goTo('#/home');
           // Epics is a Code Flow tab (not a route) — bounce off it to Dev cards when hidden.
@@ -39665,6 +39791,76 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             }
           } catch {}
         },
+        async loadDevBuddySettings() {
+          try {
+            const s = await this.request('/api/settings');
+            if (s && s.devBuddy) {
+              this.devBuddySettings = Object.assign({
+                enabled: false,
+                name: 'Pixel',
+                launchAtStartup: true,
+                alwaysOnTop: true,
+                remindersEnabled: true,
+                reminderIntervalMinutes: 30,
+                trackBuilds: true,
+                trackSessions: true,
+                trackCommitments: true
+              }, s.devBuddy);
+            }
+          } catch (err) {
+            this.showToast('Dev Buddy', 'Could not load settings: ' + err.message, 'error');
+          }
+        },
+        async saveDevBuddySettings(syncWindow = false) {
+          this.devBuddySaved = false;
+          try {
+            const saved = await this.request('/api/settings', {
+              method: 'PUT',
+              body: JSON.stringify({ devBuddy: this.devBuddySettings })
+            });
+            if (saved && saved.devBuddy) this.devBuddySettings = Object.assign({}, this.devBuddySettings, saved.devBuddy);
+            this.devBuddySaved = true;
+            setTimeout(() => { this.devBuddySaved = false; }, 2200);
+            if (syncWindow) {
+              if (this.devBuddySettings.enabled) await this.showDevBuddy();
+              else await this.hideDevBuddy();
+            }
+          } catch (err) {
+            this.showToast('Dev Buddy', 'Could not save: ' + err.message, 'error');
+          }
+        },
+        async disableDevBuddy() {
+          this.devBuddySettings.enabled = false;
+          await this.saveDevBuddySettings();
+          await this.hideDevBuddy();
+        },
+        async showDevBuddy() {
+          const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+          if (!invoke) {
+            this.showToast('Dev Buddy', 'The detached companion is available in the desktop app.', 'info');
+            return;
+          }
+          this.devBuddyBusy = true;
+          try {
+            await invoke('show_dev_buddy');
+          } catch (err) {
+            this.showToast('Dev Buddy', 'Could not launch: ' + String(err), 'error');
+          } finally {
+            this.devBuddyBusy = false;
+          }
+        },
+        async hideDevBuddy() {
+          const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+          if (!invoke) return;
+          this.devBuddyBusy = true;
+          try {
+            await invoke('hide_dev_buddy');
+          } catch (err) {
+            this.showToast('Dev Buddy', 'Could not hide: ' + String(err), 'error');
+          } finally {
+            this.devBuddyBusy = false;
+          }
+        },
         // ---- System agents (Settings → System agents) ----
         async loadSystemAgents() {
           this.sysAgents.loading = true; this.sysAgents.error = '';
@@ -39731,6 +39927,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         settingsNav() {
           return [
             { id: 'experience', label: 'Experience', ico: '🧭', hash: '#/settings/experience' },
+            ...(this.featureEnabled('devbuddy') ? [{ id: 'dev-buddy', label: 'Dev Buddy', ico: '🤖', hash: '#/settings/dev-buddy' }] : []),
             { id: 'appearance', label: 'Appearance', ico: '🎨', hash: '#/settings/appearance' },
             { id: 'ai', label: 'AI & Behavior', ico: '🧠', hash: '#/settings/ai' },
             { id: 'agents', label: 'System agents', ico: '🤖', hash: '#/settings/agents' },
@@ -46331,6 +46528,64 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return "Today's goals — " + t.map(x => x.n + ' ' + x.label.toLowerCase()).join(' · ');
         },
         meAiSetGoalsTab(tab) { this.meai.goalsTab = tab; },
+        meAiGoalSelected(t) { return !!this.meai.goalSelection[this._meAiGoalKey(t)]; },
+        meAiToggleGoalSelected(t) {
+          const k = this._meAiGoalKey(t); if (!k) return;
+          const next = Object.assign({}, this.meai.goalSelection);
+          if (next[k]) delete next[k]; else next[k] = true;
+          this.meai.goalSelection = next;
+        },
+        meAiSelectedGoals() {
+          const selected = this.meai.goalSelection || {};
+          return this.meAiChecklistItems().filter(t => !!selected[this._meAiGoalKey(t)]);
+        },
+        meAiGoalSelectionCount() { return this.meAiSelectedGoals().length; },
+        meAiVisibleGoals() {
+          const out = this.meAiRegularGoalsTab().slice();
+          const big = this.meAiBigGoal();
+          if (big && this._meAiGoalInTab(big, this.meai.goalsTab)) out.unshift(big);
+          return out;
+        },
+        meAiVisibleGoalsAllSelected() {
+          const rows = this.meAiVisibleGoals();
+          return !!rows.length && rows.every(t => this.meAiGoalSelected(t));
+        },
+        meAiToggleGoalSelectionMode() {
+          this.meai.goalSelectionMode = !this.meai.goalSelectionMode;
+          if (!this.meai.goalSelectionMode) this.meai.goalSelection = {};
+        },
+        meAiSelectVisibleGoals() {
+          const rows = this.meAiVisibleGoals();
+          const clear = rows.length && rows.every(t => this.meAiGoalSelected(t));
+          const next = Object.assign({}, this.meai.goalSelection);
+          rows.forEach(t => {
+            const k = this._meAiGoalKey(t);
+            if (!k) return;
+            if (clear) delete next[k]; else next[k] = true;
+          });
+          this.meai.goalSelection = next;
+        },
+        async meAiApplyGoalBulk(action) {
+          const rows = this.meAiSelectedGoals();
+          if (!rows.length) return;
+          if (action === 'remove' && !confirm('Remove ' + rows.length + ' selected goal' + (rows.length === 1 ? '' : 's') + ' from today?')) return;
+          if (action === 'remove') {
+            const keys = new Set(rows.map(t => this._meAiGoalKey(t)));
+            this.meai.todos = (this.meai.todos || []).filter(t => !(t && typeof t !== 'string' && t.kind === 'checklist' && keys.has(this._meAiGoalKey(t))));
+          } else {
+            rows.forEach(t => {
+              t.status = action;
+              t.done = action === 'done';
+              this._meAiUpdateBigWin(t);
+            });
+          }
+          this.meai.goalSelection = {};
+          this.meai.goalSelectionMode = false;
+          this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
+          await this.meAiPersistTodos();
+          const labels = { open: 'reopened', done: 'marked done', partial: 'marked as needing more time', missed: 'marked as not gotten to', remove: 'removed' };
+          this.showToast('Goals updated', rows.length + ' goal' + (rows.length === 1 ? ' was ' : 's were ') + labels[action] + '.', 'info');
+        },
         // Regular goals (non-big) filtered to the active tab. On Open, done goals stay
         // visible (checked) but sink to the bottom so the working list reads first.
         meAiRegularGoalsTab() {
@@ -46458,6 +46713,42 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             this.showToast('Couldn\u2019t realign goals', (err && err.message) || 'Please try again.', 'error');
           } finally {
             this.meai.goalsRegenerating = false;
+          }
+        },
+        // Replace the entire goals checklist with goals from today's CURRENT agenda. This is
+        // intentionally stronger than "Realign": stale handled/carried rows are discarded,
+        // while the separate plain To-dos list remains untouched. Agenda-backed work can
+        // return naturally whenever the current agenda still considers it important.
+        async meAiStartFreshGoals() {
+          if (this.meai.goalsRefreshing || this.meai.date !== this.meai.today) return;
+          const count = this.meAiChecklistItems().length;
+          const msg = 'Replace all ' + count + ' current goal' + (count === 1 ? '' : 's')
+            + ' with goals from today\u2019s agenda?\n\nDone, carried, and deferred goal statuses will be cleared. Your separate To-dos will stay.';
+          if (!confirm(msg)) return;
+          this.meai.goalsRefreshing = true;
+          try {
+            const r = await this.request('/api/me-ai/agenda/goals/start-fresh', {
+              method: 'POST', body: JSON.stringify({ date: this.meai.date }),
+            });
+            if (r && Array.isArray(r.todos)) {
+              this._meAiSyncTodos({ todos: r.todos });
+              this.meai.goalSelection = {};
+              this.meai.goalSelectionMode = false;
+              this.meai.goalsTab = 'open';
+              try { localStorage.removeItem(this._meAiBigPinKey()); } catch (_) {}
+              this._meAiSetBigAuto('');
+              this.meai.bigGoalNonce = (this.meai.bigGoalNonce || 0) + 1;
+            }
+            if (r && r.refreshed === false) {
+              this.showToast('No agenda yet', 'Generate today\u2019s agenda first, then start the goals list fresh.', 'warning');
+            } else {
+              const added = (r && r.added) || 0;
+              this.showToast('Goals started fresh', added + ' goal' + (added === 1 ? '' : 's') + ' loaded from today\u2019s agenda. Your To-dos were kept.', 'info');
+            }
+          } catch (err) {
+            this.showToast('Couldn\u2019t start fresh', (err && err.message) || 'Please try again.', 'error');
+          } finally {
+            this.meai.goalsRefreshing = false;
           }
         },
         // persisted todos (and their done/scope state) show up. Resets to [] for a day

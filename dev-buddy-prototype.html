@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TheOffice.AI Dev Buddy Prototype</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { cursor: pointer; }
+    .desktop {
+      height: 100%;
+      position: relative;
+      background:
+        radial-gradient(circle at 68% 20%, var(--cp-accent-soft), transparent 32%),
+        linear-gradient(135deg, var(--cp-bg-elevated), var(--cp-bg));
+    }
+    .desktop::before {
+      content:""; position:absolute; inset:0;
+      background:
+        linear-gradient(90deg, var(--cp-sheen) 1px, transparent 1px) 0 0 / 64px 64px,
+        linear-gradient(var(--cp-sheen) 1px, transparent 1px) 0 0 / 64px 64px;
+      opacity:.55;
+    }
+    .desktop-label {
+      position:absolute; left:32px; top:30px; color:var(--cp-text-muted);
+      font-size:12px; letter-spacing:.4px;
+    }
+    .desktop-icons { position:absolute; left:24px; top:72px; display:grid; gap:22px; }
+    .desktop-icon {
+      width:78px; text-align:center; border:0; background:transparent; color:var(--cp-text);
+      font-size:11px; padding:6px;
+    }
+    .desktop-icon:hover { background:var(--cp-accent-soft); border-radius:8px; }
+    .desktop-icon span {
+      display:grid; place-items:center; margin:auto auto 6px; width:42px; height:42px;
+      border-radius:10px; background:var(--cp-surface); border:1px solid var(--cp-border);
+      box-shadow:0 1px 2px var(--cp-border); font-size:20px;
+    }
+    .taskbar {
+      position:absolute; left:0; right:0; bottom:0; height:48px; background:var(--cp-panel-strong);
+      border-top:1px solid var(--cp-border); display:flex; align-items:center; justify-content:center;
+      gap:8px; z-index:2;
+    }
+    .taskbar button {
+      width:38px; height:36px; border:0; border-radius:8px; background:transparent;
+      color:var(--cp-text); font-size:17px;
+    }
+    .taskbar button:hover { background:var(--cp-surface-soft); }
+    .taskbar .office-task { border-bottom:2px solid var(--cp-accent); }
+    .desktop-caption {
+      position:absolute; left:50%; top:42%; transform:translate(-50%,-50%); text-align:center;
+      max-width:620px; color:var(--cp-text-muted);
+    }
+    .desktop-caption h1 { color:var(--cp-text); font-size:32px; margin:0 0 10px; }
+    .desktop-caption p { line-height:1.6; }
+    .desktop-caption strong { color:var(--cp-accent); }
+    .config-window {
+      position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) scale(.98);
+      width:min(760px,calc(100vw - 56px)); height:min(570px,calc(100vh - 90px));
+      background:var(--cp-panel-strong); border:1px solid var(--cp-border); border-radius:12px;
+      box-shadow:var(--cp-shadow); z-index:12; display:none; overflow:hidden;
+    }
+    .config-window.open { display:grid; grid-template-rows:42px 1fr; animation:windowIn .16s ease-out both; }
+    .window-title {
+      border-bottom:1px solid var(--cp-border); display:flex; align-items:center; gap:10px;
+      padding:0 12px; font-size:12px; font-weight:600;
+    }
+    .window-title .logo { width:24px; height:24px; font-size:12px; }
+    .window-title button { margin-left:auto; border:0; background:transparent; color:var(--cp-text-muted); font-size:18px; }
+    .config-content { display:grid; grid-template-columns:190px 1fr; min-height:0; }
+    .config-nav { border-right:1px solid var(--cp-border); padding:14px 10px; background:var(--cp-bg-elevated); }
+    .config-main { padding:28px 32px; overflow:auto; }
+    .config-main h2 { margin:0 0 6px; font-size:22px; }
+    .config-main .settings-list { max-width:480px; }
+    .launch-row {
+      margin:22px 0; padding:16px; border:1px solid var(--cp-border); border-radius:10px;
+      background:var(--cp-surface); display:flex; align-items:center; gap:14px;
+    }
+    .launch-row .mini-bot { flex:0 0 auto; }
+    .launch-copy { flex:1; }
+    .launch-copy strong { display:block; font-size:13px; }
+    .launch-copy span { color:var(--cp-text-muted); font-size:11px; }
+    .architecture-note {
+      margin-top:22px; padding-top:16px; border-top:1px solid var(--cp-border);
+      color:var(--cp-text-muted); font-size:11px; line-height:1.6;
+    }
+    .sidebar {
+      border-right: 1px solid var(--cp-border);
+      background: var(--cp-bg-elevated);
+      padding: 24px 18px;
+    }
+    .brand { display: flex; gap: 12px; align-items: center; font-weight: 700; margin-bottom: 32px; }
+    .logo {
+      width: 32px; height: 32px; display: grid; place-items: center;
+      border-radius: 8px; background: var(--cp-accent); color: var(--cp-accent-fg);
+    }
+    .nav-label { color: var(--cp-text-muted); font-size: 12px; margin: 20px 10px 8px; }
+    .nav-item {
+      display: flex; gap: 12px; align-items: center; padding: 10px 12px;
+      border-radius: 8px; color: var(--cp-text-muted); margin: 2px 0;
+    }
+    .nav-item.active { background: var(--cp-accent-soft); color: var(--cp-accent); font-weight: 600; }
+    .workspace { padding: 40px 44px; overflow: auto; }
+    .workspace header { max-width: 920px; }
+    .workspace h1 { font-size: 31px; margin: 0 0 8px; letter-spacing: -0.7px; }
+    .workspace .lede { max-width: 720px; color: var(--cp-text-muted); line-height: 1.6; margin: 0; }
+    .demo-note {
+      display: inline-block; margin-top: 20px; padding: 8px 0;
+      border-bottom: 1px solid var(--cp-accent); color: var(--cp-accent); font-weight: 600;
+    }
+    .canvas {
+      max-width: 920px; margin-top: 36px; display: grid; grid-template-columns: 1.2fr .8fr; gap: 18px;
+    }
+    .card {
+      background: var(--cp-surface); border: 1px solid var(--cp-border); border-radius: 16px;
+      padding: 22px; box-shadow: 0 0 2px var(--cp-border), 0 1px 2px var(--cp-border);
+    }
+    .card h2 { font-size: 17px; margin: 0 0 6px; }
+    .muted { color: var(--cp-text-muted); }
+    .timeline { margin-top: 20px; }
+    .timeline-row { display: grid; grid-template-columns: 72px 12px 1fr; gap: 10px; min-height: 62px; }
+    .timeline-row time { color: var(--cp-text-muted); font-size: 12px; padding-top: 2px; }
+    .line { position: relative; border-left: 1px solid var(--cp-border); }
+    .line::before {
+      content:""; position:absolute; width:7px; height:7px; border-radius:50%;
+      background:var(--cp-accent); left:-4px; top:5px;
+    }
+    .timeline-row strong { display: block; font-size: 13px; }
+    .timeline-row span { font-size: 12px; color: var(--cp-text-muted); }
+    .settings-list { display: grid; gap: 14px; margin-top: 18px; }
+    .setting { display:flex; justify-content:space-between; gap:16px; align-items:center; }
+    .switch {
+      width: 38px; height: 22px; border: 0; padding: 2px; border-radius: 999px;
+      background: var(--cp-border-strong); transition: .2s;
+    }
+    .switch::after {
+      content:""; display:block; width:18px; height:18px; border-radius:50%;
+      background:var(--cp-surface); transition:.2s;
+    }
+    .switch.on { background:var(--cp-accent); }
+    .switch.on::after { transform:translateX(16px); }
+
+    .buddy-shell {
+      position: fixed; top: 14px; right: 14px; z-index: 20;
+      width: 66px; height: 66px;
+    }
+    .buddy-orb {
+      position: absolute; top: 0; right: 0; width: 62px; height: 62px;
+      border: 1px solid var(--cp-border); border-radius: 50%;
+      background: var(--cp-panel-strong); box-shadow: var(--cp-shadow);
+      display: grid; place-items: center; transition: transform .18s ease, opacity .18s;
+      overflow: visible;
+    }
+    .buddy-shell.open .buddy-orb { transform: translateY(3px) scale(.82); opacity: 0; pointer-events:none; }
+    .attention-ring {
+      position:absolute; inset:-5px; border:2px solid var(--cp-accent); border-radius:50%;
+      animation: breathe 2.4s ease-in-out infinite;
+    }
+    .attention-count {
+      position:absolute; top:-5px; right:-5px; width:22px; height:22px; border-radius:50%;
+      background:var(--cp-accent); color:var(--cp-accent-fg); display:grid; place-items:center;
+      font-size:11px; font-weight:700; border:2px solid var(--cp-surface);
+    }
+    .bot { width: 46px; height: 46px; position: relative; animation: float 3s ease-in-out infinite; }
+    .antenna { position:absolute; width:2px; height:9px; background:var(--cp-accent); left:22px; top:0; }
+    .antenna::after { content:""; position:absolute; width:6px; height:6px; border-radius:50%; background:var(--cp-accent); left:-2px; top:-4px; }
+    .head {
+      position:absolute; left:5px; top:8px; width:36px; height:29px; border-radius:12px;
+      border:2px solid var(--cp-accent); background:var(--cp-surface);
+    }
+    .eye { position:absolute; width:5px; height:7px; border-radius:50%; background:var(--cp-accent); top:8px; animation: blink 5s infinite; }
+    .eye.left { left:8px; } .eye.right { right:8px; }
+    .mouth { position:absolute; width:10px; height:5px; border-bottom:2px solid var(--cp-accent); border-radius:50%; left:11px; top:16px; }
+    .body { position:absolute; left:12px; top:35px; width:22px; height:10px; border-radius:6px 6px 10px 10px; background:var(--cp-accent); }
+
+    .buddy-panel {
+      position: fixed; top: 12px; right: 12px; z-index: 21; width: 430px;
+      max-height: calc(100vh - 24px); overflow: hidden;
+      background: var(--cp-panel-strong); border: 1px solid var(--cp-border);
+      border-radius: 16px; box-shadow: var(--cp-shadow);
+      opacity: 0; transform: translateY(-8px) scale(.96); transform-origin: top right;
+      pointer-events: none; transition: opacity .2s, transform .2s;
+      display: flex; flex-direction: column;
+    }
+    .buddy-shell.open + .buddy-panel { opacity:1; transform:none; pointer-events:auto; }
+    .panel-head { padding: 16px 18px 12px; border-bottom:1px solid var(--cp-border); }
+    .buddy-title { display:flex; align-items:center; gap:12px; }
+    .mini-bot {
+      width:36px; height:36px; border:1px solid var(--cp-border); border-radius:10px;
+      background:var(--cp-accent-soft); display:grid; place-items:center; color:var(--cp-accent);
+      font-size:20px;
+    }
+    .buddy-title h2 { font-size:16px; margin:0; }
+    .buddy-title p { margin:2px 0 0; color:var(--cp-text-muted); font-size:12px; }
+    .close {
+      margin-left:auto; width:32px; height:32px; border:0; border-radius:8px;
+      background:transparent; color:var(--cp-text-muted);
+    }
+    .close:hover { background:var(--cp-surface-soft); color:var(--cp-text); }
+    .signal {
+      margin-top: 12px; padding: 10px 12px; border-left:3px solid var(--cp-warning);
+      background:var(--cp-surface-soft); border-radius:0 8px 8px 0; font-size:12px; line-height:1.45;
+    }
+    .tabs { display:flex; gap:20px; padding:0 18px; border-bottom:1px solid var(--cp-border); }
+    .tab {
+      border:0; background:transparent; color:var(--cp-text-muted); padding:11px 0 9px;
+      border-bottom:2px solid transparent; font-size:12px;
+    }
+    .tab.active { color:var(--cp-accent); border-bottom-color:var(--cp-accent); font-weight:600; }
+    .panel-body { overflow:auto; padding:16px 18px 18px; min-height:390px; }
+    .view { display:none; }
+    .view.active { display:block; }
+    .section-head { display:flex; align-items:end; justify-content:space-between; margin-bottom:10px; }
+    .section-head h3 { margin:0; font-size:13px; }
+    .section-head span { color:var(--cp-text-muted); font-size:11px; }
+    .focus-card {
+      border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent);
+      border-radius:10px; padding:12px; margin-bottom:9px; background:var(--cp-surface);
+    }
+    .focus-top { display:flex; gap:10px; align-items:flex-start; }
+    .source-icon {
+      flex:0 0 auto; width:28px; height:28px; border-radius:8px; background:var(--cp-surface-soft);
+      display:grid; place-items:center; font-size:13px;
+    }
+    .focus-copy { min-width:0; flex:1; }
+    .focus-copy strong { font-size:12px; display:block; }
+    .focus-copy p { font-size:11px; line-height:1.4; color:var(--cp-text-muted); margin:3px 0 0; }
+    .priority { font-size:10px; font-weight:700; color:var(--cp-accent); }
+    .card-actions { display:flex; gap:12px; margin-top:10px; padding-left:38px; }
+    .link-btn { border:0; background:transparent; padding:0; color:var(--cp-link); font-size:11px; }
+    .link-btn:hover { text-decoration:underline; }
+    .attention-card { border-left-color:var(--cp-warning); }
+    .done-card { opacity:.6; border-left-color:var(--cp-success); }
+    .quick-add { display:flex; gap:8px; margin-top:14px; }
+    .quick-add input {
+      flex:1; min-width:0; border:1px solid var(--cp-border); background:var(--cp-surface);
+      color:var(--cp-text); border-radius:8px; padding:9px 10px; outline:none;
+    }
+    .quick-add input:focus { border-color:var(--cp-accent); }
+    .primary {
+      border:0; border-radius:8px; background:var(--cp-accent); color:var(--cp-accent-fg);
+      padding:8px 12px; font-weight:600;
+    }
+    .quiet {
+      border:1px solid var(--cp-border); border-radius:8px; background:var(--cp-surface);
+      color:var(--cp-text); padding:8px 12px;
+    }
+    .chat { display:flex; flex-direction:column; gap:10px; }
+    .bubble { max-width:88%; padding:10px 12px; border-radius:10px; font-size:12px; line-height:1.5; }
+    .bubble.buddy { background:var(--cp-surface-soft); align-self:flex-start; }
+    .bubble.me { background:var(--cp-accent-soft); align-self:flex-end; }
+    .chat-compose { display:flex; gap:8px; margin-top:16px; }
+    .chat-compose textarea {
+      resize:none; height:58px; flex:1; border:1px solid var(--cp-border); border-radius:8px;
+      background:var(--cp-surface); color:var(--cp-text); padding:9px;
+    }
+    .map {
+      position:relative; height:300px; border:1px solid var(--cp-border);
+      border-radius:10px; background:var(--cp-surface-soft); overflow:hidden;
+    }
+    .map-line { position:absolute; height:1px; background:var(--cp-border-strong); transform-origin:left; }
+    .node {
+      position:absolute; width:88px; min-height:52px; padding:8px; text-align:center;
+      border:1px solid var(--cp-border); border-radius:10px; background:var(--cp-surface);
+      font-size:10px; display:grid; place-items:center; box-shadow:0 1px 2px var(--cp-border);
+    }
+    .node.center { border-color:var(--cp-accent); background:var(--cp-accent-soft); font-weight:700; }
+    .node.n1 {left:16px;top:24px}.node.n2{right:18px;top:34px}.node.n3{left:20px;bottom:24px}
+    .node.n4{right:20px;bottom:25px}.node.center{left:143px;top:118px}
+    .map-line.l1{width:140px;left:94px;top:77px;transform:rotate(25deg)}
+    .map-line.l2{width:130px;left:211px;top:142px;transform:rotate(-33deg)}
+    .map-line.l3{width:145px;left:92px;top:230px;transform:rotate(-35deg)}
+    .map-line.l4{width:133px;left:212px;top:169px;transform:rotate(34deg)}
+    .memory-row { display:grid; grid-template-columns:24px 1fr; gap:10px; margin:0 0 14px; font-size:12px; }
+    .memory-row small { display:block; color:var(--cp-text-muted); margin-top:2px; }
+    .panel-foot {
+      border-top:1px solid var(--cp-border); padding:10px 16px; display:flex; align-items:center; gap:12px;
+      color:var(--cp-text-muted); font-size:11px;
+    }
+    .panel-foot button { margin-left:auto; }
+    .toast {
+      position:fixed; right:18px; bottom:18px; z-index:30; max-width:340px;
+      background:var(--cp-panel-strong); border:1px solid var(--cp-border); border-left:3px solid var(--cp-accent);
+      box-shadow:var(--cp-shadow); border-radius:10px; padding:12px 14px; font-size:12px;
+      opacity:0; transform:translateY(12px); pointer-events:none; transition:.2s;
+    }
+    .toast.show { opacity:1; transform:none; }
+    @keyframes float { 0%,100%{transform:translateY(0) rotate(-1deg)}50%{transform:translateY(-3px) rotate(1deg)} }
+    @keyframes breathe { 0%,100%{transform:scale(.96);opacity:.35}50%{transform:scale(1.06);opacity:.8} }
+    @keyframes blink { 0%,46%,50%,100%{transform:scaleY(1)}48%{transform:scaleY(.15)} }
+    @keyframes windowIn { from{opacity:0;transform:translate(-50%,-48%) scale(.98)}to{opacity:1;transform:translate(-50%,-50%) scale(1)} }
+    @media (max-width: 760px) {
+      .sidebar { display:none; } .desktop{grid-template-columns:1fr}.workspace{padding:28px 20px}
+      .canvas{grid-template-columns:1fr}.buddy-panel{left:10px;right:10px;width:auto}
+    }
+  </style>
+</head>
+<body>
+  <main class="desktop">
+    <div class="desktop-label">DESKTOP PROTOTYPE · DEV BUDDY RUNS OUTSIDE THE SPA</div>
+    <div class="desktop-icons">
+      <button class="desktop-icon" id="officeDesktopIcon"><span>▦</span>TheOffice.AI</button>
+      <button class="desktop-icon"><span>⌘</span>Code</button>
+      <button class="desktop-icon"><span>◫</span>Terminal</button>
+    </div>
+    <div class="desktop-caption">
+      <h1>Your desktop, with a quiet companion</h1>
+      <p>Pixel is a separate transparent desktop window. It remains available while TheOffice.AI is minimized or closed. <strong>Hover over Pixel in the upper-right.</strong></p>
+    </div>
+    <div class="taskbar">
+      <button>⊞</button><button>⌕</button><button class="office-task" id="officeTask">▦</button><button>⌘</button><button>◫</button>
+    </div>
+
+    <section class="config-window" id="configWindow">
+      <div class="window-title"><div class="logo">▦</div><span>TheOffice.AI · Settings</span><button id="closeConfig">×</button></div>
+      <div class="config-content">
+        <nav class="config-nav">
+          <div class="nav-item">Appearance</div>
+          <div class="nav-item">AI models</div>
+          <div class="nav-item active">✦ Dev Buddy</div>
+          <div class="nav-item">Data & privacy</div>
+          <div class="nav-item">Desktop</div>
+        </nav>
+        <div class="config-main">
+          <h2>Dev Buddy</h2>
+          <div class="muted">Launch and configure your detached desktop companion.</div>
+          <div class="launch-row">
+            <div class="mini-bot">⌁</div>
+            <div class="launch-copy"><strong>Pixel is running</strong><span>Separate desktop window · starts when you sign in</span></div>
+            <button class="quiet" id="toggleBuddy">Hide</button>
+          </div>
+          <div class="settings-list">
+            <div class="setting"><span>Start with Windows</span><button class="switch on" aria-label="Start with Windows"></button></div>
+            <div class="setting"><span>Keep above other windows</span><button class="switch on" aria-label="Always on top"></button></div>
+            <div class="setting"><span>Code Flow & builds</span><button class="switch on" aria-label="Toggle Code Flow"></button></div>
+            <div class="setting"><span>Copilot sessions</span><button class="switch on" aria-label="Toggle Copilot"></button></div>
+            <div class="setting"><span>Meeting action items</span><button class="switch on" aria-label="Toggle meetings"></button></div>
+            <div class="setting"><span>Email and Teams commitments</span><button class="switch on" aria-label="Toggle M365"></button></div>
+            <div class="setting"><span>Diary and Agenda context</span><button class="switch on" aria-label="Toggle diary"></button></div>
+          </div>
+          <div class="architecture-note"><strong>Runtime model:</strong> TheOffice.AI’s existing local sidecar owns memory, source collection, prioritization, and APIs. The detached companion is a second Tauri window that subscribes to that service. It does not require another background service for the first version.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div class="buddy-shell" id="buddyShell" aria-label="Open Dev Buddy">
+    <button class="buddy-orb" id="buddyOrb" aria-label="Open Dev Buddy">
+      <span class="attention-ring"></span>
+      <span class="attention-count" id="attentionCount">2</span>
+      <span class="bot" aria-hidden="true">
+        <span class="antenna"></span><span class="head"><span class="eye left"></span><span class="eye right"></span><span class="mouth"></span></span><span class="body"></span>
+      </span>
+    </button>
+  </div>
+
+  <section class="buddy-panel" id="buddyPanel" aria-label="Dev Buddy panel">
+    <div class="panel-head">
+      <div class="buddy-title">
+        <div class="mini-bot">⌁</div>
+        <div><h2>Pixel</h2><p id="buddyMood">Keeping an eye on 5 open loops</p></div>
+        <button class="close" id="closeBuddy" aria-label="Close">×</button>
+      </div>
+      <div class="signal" id="signal"><strong>Two things need you:</strong> a build failed and a reviewer asked a question. Nothing else is urgent.</div>
+    </div>
+    <nav class="tabs" aria-label="Dev Buddy views">
+      <button class="tab active" data-view="focus">Now</button>
+      <button class="tab" data-view="talk">Talk</button>
+      <button class="tab" data-view="map">Map</button>
+      <button class="tab" data-view="memory">Memory</button>
+    </nav>
+    <div class="panel-body">
+      <div class="view active" id="view-focus">
+        <div class="section-head"><h3>Your best next move</h3><span>Based on urgency · impact · promises</span></div>
+        <div class="focus-card attention-card" data-item="build">
+          <div class="focus-top"><div class="source-icon">⚠</div><div class="focus-copy"><strong>Fix the authentication test failure</strong><p>Build 20260922.4 failed 18 minutes ago. This blocks PR #65066 and today’s rollout.</p></div><span class="priority">NOW</span></div>
+          <div class="card-actions"><button class="link-btn" data-action="open">Open build</button><button class="link-btn" data-action="done">Mark handled</button><button class="link-btn" data-action="later">Later today</button></div>
+        </div>
+        <div class="focus-card attention-card" data-item="review">
+          <div class="focus-top"><div class="source-icon">⌘</div><div class="focus-copy"><strong>Answer Jordan’s question on PR #65066</strong><p>New review comment: “Should rejected Entra credentials be terminal?” Related to the failed test.</p></div><span class="priority">NOW</span></div>
+          <div class="card-actions"><button class="link-btn" data-action="open">Jump to thread</button><button class="link-btn" data-action="done">Done</button><button class="link-btn" data-action="later">Snooze</button></div>
+        </div>
+        <div class="section-head" style="margin-top:18px"><h3>Then</h3><span>3 open loops</span></div>
+        <div class="focus-card" data-item="summary">
+          <div class="focus-top"><div class="source-icon">◫</div><div class="focus-copy"><strong>Send rollout summary</strong><p>You committed to this in Teams. No deadline was stated; Pixel inferred end of day.</p></div><span class="priority">TODAY</span></div>
+          <div class="card-actions"><button class="link-btn" data-action="raise">Move up</button><button class="link-btn" data-action="done">Done</button><button class="link-btn" data-action="later">Tomorrow</button></div>
+        </div>
+        <div class="focus-card" data-item="session">
+          <div class="focus-top"><div class="source-icon">✦</div><div class="focus-copy"><strong>Resume Copilot investigation</strong><p>Paused at: verifying retry classification in dotnet-helix-machines.</p></div><span class="priority">AFTER</span></div>
+          <div class="card-actions"><button class="link-btn" data-action="open">Resume session</button><button class="link-btn" data-action="done">Not needed</button></div>
+        </div>
+        <div class="quick-add"><input id="quickAdd" placeholder="Tell Pixel something else you’re working on…"><button class="primary" id="addWork">Add</button></div>
+      </div>
+
+      <div class="view" id="view-talk">
+        <div class="chat" id="chat">
+          <div class="bubble buddy">You have two connected blockers on PR #65066. I’d fix the failed build first, then answer Jordan with what you learned. Want me to keep everything else quiet until noon?</div>
+          <div class="bubble me">Yes, and remind me about the rollout summary at 2.</div>
+          <div class="bubble buddy">Done. I’ll stay quiet unless the PR changes or something becomes more urgent.</div>
+        </div>
+        <div class="chat-compose"><textarea id="chatInput" placeholder="Ask what you were doing, reprioritize, mark something done…"></textarea><button class="primary" id="sendChat">Send</button></div>
+      </div>
+
+      <div class="view" id="view-map">
+        <div class="section-head"><h3>How today’s work connects</h3><span>Live relationship map</span></div>
+        <div class="map">
+          <div class="map-line l1"></div><div class="map-line l2"></div><div class="map-line l3"></div><div class="map-line l4"></div>
+          <div class="node n1">Failed build<br><span class="muted">blocks</span></div>
+          <div class="node n2">Jordan’s comment<br><span class="muted">questions</span></div>
+          <div class="node center">PR #65066<br>Auth handling</div>
+          <div class="node n3">Copilot session<br><span class="muted">investigates</span></div>
+          <div class="node n4">Rollout summary<br><span class="muted">depends on</span></div>
+        </div>
+        <p class="muted" style="font-size:11px;line-height:1.5">Pixel can generate this view when a list hides the relationship between tasks. Select any node to open its source in TheOffice.AI.</p>
+      </div>
+
+      <div class="view" id="view-memory">
+        <div class="section-head"><h3>What Pixel remembers</h3><span>Editable · source-linked</span></div>
+        <div class="memory-row"><span>◎</span><div><strong>Current focus</strong><small>Credential failure classification for PR #65066</small></div></div>
+        <div class="memory-row"><span>↗</span><div><strong>Your priority pattern</strong><small>Unblock teammates and builds before writing status updates</small></div></div>
+        <div class="memory-row"><span>◫</span><div><strong>Open commitment</strong><small>Send rollout summary today · detected in Teams</small></div></div>
+        <div class="memory-row"><span>⌁</span><div><strong>Working preference</strong><small>Bundle related alerts; don’t interrupt during active coding</small></div></div>
+        <div class="memory-row"><span>✓</span><div><strong>Recently completed</strong><small>Review timeout resilience · database recovery</small></div></div>
+        <button class="quiet" id="editMemory">Review and correct memory</button>
+      </div>
+    </div>
+    <footer class="panel-foot"><span id="listenState">Quiet mode · watching for meaningful changes</span><button class="link-btn" id="silence">Silence until tomorrow</button></footer>
+  </section>
+
+  <div class="toast" id="toast"></div>
+
+  <script>
+    const shell = document.getElementById("buddyShell");
+    const orb = document.getElementById("buddyOrb");
+    const panel = document.getElementById("buddyPanel");
+    const toast = document.getElementById("toast");
+    let closeTimer;
+
+    function openBuddy() {
+      clearTimeout(closeTimer);
+      shell.classList.add("open");
+    }
+    function closeBuddy() {
+      shell.classList.remove("open");
+    }
+    function notify(message) {
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(notify.timer);
+      notify.timer = setTimeout(() => toast.classList.remove("show"), 2600);
+    }
+    orb.addEventListener("mouseenter", openBuddy);
+    orb.addEventListener("click", openBuddy);
+    panel.addEventListener("mouseenter", () => clearTimeout(closeTimer));
+    panel.addEventListener("mouseleave", () => { closeTimer = setTimeout(closeBuddy, 650); });
+    document.getElementById("closeBuddy").addEventListener("click", closeBuddy);
+
+    document.querySelectorAll(".tab").forEach(tab => tab.addEventListener("click", () => {
+      document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+      document.querySelectorAll(".view").forEach(v => v.classList.remove("active"));
+      tab.classList.add("active");
+      document.getElementById("view-" + tab.dataset.view).classList.add("active");
+    }));
+
+    document.querySelectorAll(".switch").forEach(sw => sw.addEventListener("click", () => {
+      sw.classList.toggle("on");
+      notify(sw.classList.contains("on") ? "Source enabled. Pixel will suggest—not assume—new work." : "Source disabled. Pixel will stop observing it.");
+    }));
+
+    document.querySelectorAll(".card-actions .link-btn").forEach(btn => btn.addEventListener("click", () => {
+      const card = btn.closest(".focus-card");
+      const action = btn.dataset.action;
+      if (action === "done") {
+        card.classList.add("done-card");
+        card.querySelector(".priority").textContent = "DONE";
+        notify("Marked handled. Pixel will remember this outcome.");
+        updateCount(-1);
+      } else if (action === "later") {
+        card.style.display = "none";
+        notify("Snoozed. Pixel will bring it back at a useful time.");
+        updateCount(-1);
+      } else if (action === "raise") {
+        card.querySelector(".priority").textContent = "NEXT";
+        notify("Priority updated. Pixel will adjust the rest of your plan.");
+      } else {
+        notify("Prototype: this opens the exact build, thread, or Copilot session.");
+      }
+    }));
+
+    function updateCount(delta) {
+      const count = document.getElementById("attentionCount");
+      const n = Math.max(0, parseInt(count.textContent, 10) + delta);
+      count.textContent = n;
+      if (!n) {
+        count.style.display = "none";
+        document.querySelector(".attention-ring").style.display = "none";
+        document.getElementById("signal").innerHTML = "<strong>You’re clear.</strong> Pixel is quietly tracking your remaining work.";
+      }
+    }
+
+    document.getElementById("addWork").addEventListener("click", () => {
+      const input = document.getElementById("quickAdd");
+      const text = input.value.trim();
+      if (!text) return;
+      const card = document.createElement("div");
+      card.className = "focus-card";
+      card.innerHTML = '<div class="focus-top"><div class="source-icon">＋</div><div class="focus-copy"><strong></strong><p>Added directly by you. Pixel will ask before inferring a deadline.</p></div><span class="priority">NEW</span></div><div class="card-actions"><button class="link-btn" data-action="raise">Move up</button><button class="link-btn" data-action="done">Done</button></div>';
+      card.querySelector("strong").textContent = text;
+      document.querySelector(".quick-add").before(card);
+      card.querySelectorAll(".link-btn").forEach(btn => btn.addEventListener("click", () => {
+        if (btn.dataset.action === "done") { card.classList.add("done-card"); card.querySelector(".priority").textContent = "DONE"; }
+        else { card.querySelector(".priority").textContent = "NEXT"; }
+      }));
+      input.value = "";
+      notify("Added to Pixel’s working memory.");
+    });
+
+    document.getElementById("sendChat").addEventListener("click", () => {
+      const input = document.getElementById("chatInput");
+      const text = input.value.trim();
+      if (!text) return;
+      const me = document.createElement("div");
+      me.className = "bubble me"; me.textContent = text;
+      document.getElementById("chat").appendChild(me);
+      input.value = "";
+      setTimeout(() => {
+        const reply = document.createElement("div");
+        reply.className = "bubble buddy";
+        reply.textContent = "Got it. I’ve updated your working plan and will keep the change in memory. I’ll only interrupt if something becomes time-sensitive.";
+        document.getElementById("chat").appendChild(reply);
+        reply.scrollIntoView({ behavior: "smooth" });
+      }, 450);
+    });
+
+    document.getElementById("silence").addEventListener("click", () => {
+      document.getElementById("listenState").textContent = "Silent until tomorrow · still remembering";
+      document.getElementById("buddyMood").textContent = "Resting quietly until tomorrow";
+      document.getElementById("attentionCount").style.display = "none";
+      document.querySelector(".attention-ring").style.display = "none";
+      notify("Pixel is silent until tomorrow. Critical alerts stay in your inbox.");
+    });
+    document.getElementById("editMemory").addEventListener("click", () => notify("Prototype: opens a source-linked memory editor with forget and correct controls."));
+
+    const configWindow = document.getElementById("configWindow");
+    const openConfig = () => configWindow.classList.add("open");
+    document.getElementById("officeDesktopIcon").addEventListener("click", openConfig);
+    document.getElementById("officeTask").addEventListener("click", () => configWindow.classList.toggle("open"));
+    document.getElementById("closeConfig").addEventListener("click", () => configWindow.classList.remove("open"));
+    document.getElementById("toggleBuddy").addEventListener("click", (event) => {
+      const hidden = shell.style.display === "none";
+      shell.style.display = hidden ? "" : "none";
+      panel.style.display = hidden ? "" : "none";
+      event.currentTarget.textContent = hidden ? "Hide" : "Launch";
+      event.currentTarget.previousElementSibling.querySelector("strong").textContent =
+        hidden ? "Pixel is running" : "Pixel is not running";
+      notify(hidden ? "Detached companion launched." : "Companion hidden. Memory and tracking remain active.");
+    });
+  </script>
+</body>
+</html>

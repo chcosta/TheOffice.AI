@@ -1282,6 +1282,17 @@ await t.test('_meAiDirectorSweep re-arms a bounded follow-up so newly-surfaced p
     t.ok(/if \(date === _meAiLocalDay\(\)\) \{[\s\S]{0,160}_meAiSeedCarryOver\(_meAiConfig\(\), date, todos\);/.test(blk), 'carry seeded, gated to today');
     t.ok(blk.indexOf('_meAiSeedCarryOver') < blk.indexOf('saveMeAiTodoStore(date, todos)'), 'seed runs before the store save');
   });
+
+  await t.test('start-fresh goals replaces checklist rows while preserving plain todos', () => {
+    const src = readFileSync(SERVER, 'utf8');
+    const i = src.indexOf("app.post('/api/me-ai/agenda/goals/start-fresh'");
+    t.ok(i > 0, 'start-fresh endpoint present');
+    const blk = src.slice(i, i + 2200);
+    t.ok(/normed\.filter\(t => !\(t && t\.kind === 'checklist'\)\)/.test(blk), 'plain todos are retained');
+    t.ok(/_meAiSeedChecklist\(snap, kept, date, \{ force: true \}\)/.test(blk), 'fresh goals come from the current agenda');
+    t.ok(!/saveMeAiTodoTomb/.test(blk), 'cleared goals are not tombstoned and may return when important');
+    t.ok(/saveMeAiTodoStore\(date, next\)/.test(blk), 'replacement is durable');
+  });
 }
 
 

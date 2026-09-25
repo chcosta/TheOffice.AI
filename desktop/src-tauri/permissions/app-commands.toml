@@ -1,0 +1,16 @@
+[[permission]]
+identifier = "allow-app-commands"
+description = "Allows TheOffice.AI windows to invoke the desktop shell commands."
+commands.allow = [
+  "restart_sidecar",
+  "quit_and_update",
+  "open_logs_dir",
+  "get_diagnostics",
+  "read_log_tail",
+  "show_dev_buddy",
+  "hide_dev_buddy",
+  "set_dev_buddy_mode",
+  "start_dev_buddy_drag",
+  "hide_dev_buddy_alert",
+  "open_main_window",
+]

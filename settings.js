@@ -104,6 +104,20 @@ const DEFAULTS = {
   // created. Empty = a short auto-chosen default (e.g. C:\a) to maximize Windows
   // MAX_PATH headroom. Set to any short directory to relocate all new worktrees.
   worktreeRoot: '',
+  // Detached desktop companion. The Tauri shell owns the transparent window;
+  // the existing sidecar remains the single source of truth for memory and
+  // attention signals. Browser builds retain the settings but cannot show it.
+  devBuddy: {
+    enabled: false,
+    name: 'Pixel',
+    launchAtStartup: true,
+    alwaysOnTop: true,
+    remindersEnabled: true,
+    reminderIntervalMinutes: 30,
+    trackBuilds: true,
+    trackSessions: true,
+    trackCommitments: true,
+  },
   // Code Flow: reviewer GROUPS the user belongs to (Azure DevOps groups / GitHub
   // teams that appear as a named reviewer on a PR, e.g. "Dotnet-Core-Engineering").
   // When a PR lists one of these groups as a reviewer, Code Flow surfaces it under

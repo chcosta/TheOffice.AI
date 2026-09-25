@@ -1425,6 +1425,31 @@ async function getBuild(org, project, buildId) {
   };
 }
 
+async function listRecentBuilds(org, project, { top = 25, minTime, requestedFor } = {}) {
+  const query = [
+    `api-version=${API_VERSION}`,
+    `queryOrder=queueTimeDescending`,
+    `$top=${Math.max(1, Math.min(100, Number(top) || 25))}`,
+  ];
+  if (minTime) query.push(`minTime=${encodeURIComponent(new Date(minTime).toISOString())}`);
+  if (requestedFor) query.push(`requestedFor=${encodeURIComponent(requestedFor)}`);
+  const data = await apiSend(org, `${seg(project)}/_apis/build/builds?${query.join('&')}`);
+  return (data.value || []).map(build => ({
+    id: build.id,
+    buildNumber: build.buildNumber || '',
+    status: build.status || '',
+    result: build.result || '',
+    definitionName: (build.definition && build.definition.name) || '',
+    repository: (build.repository && build.repository.name) || '',
+    sourceBranch: build.sourceBranch || '',
+    queueTime: build.queueTime || '',
+    startTime: build.startTime || '',
+    finishTime: build.finishTime || '',
+    requestedFor: (build.requestedFor && (build.requestedFor.displayName || build.requestedFor.uniqueName)) || '',
+    url: (build._links && build._links.web && build._links.web.href) || '',
+  }));
+}
+
 // ---- Reviewer / area-expert intelligence (deterministic, no AI) -----------
 // Tally git commit authors over a recent window, optionally scoped to a single
 // file path. Returns [{ name, email, count }] sorted by count desc. Best-effort:
@@ -1517,6 +1542,7 @@ module.exports = {
   getPrStatuses,
   getPrPolicyEvaluations,
   getBuild,
+  listRecentBuilds,
   listRepos,
   listBranches,
   discover,

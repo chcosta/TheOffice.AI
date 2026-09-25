@@ -90,6 +90,7 @@ const INSIGHTS_PATH = dataPath('insights.json');
 const CODEFLOW_PATH = dataPath('codeflow-repos.json');
 const CODEFLOW_WT_PATH = dataPath('codeflow-worktrees.json');
 const CODEFLOW_CHECKPOINTS_PATH = dataPath('codeflow-pr-checkpoints.json');
+const devBuddy = require('./dev-buddy');
 
 // ---- Atomic + resilient agents.json IO ----
 // agents.json is user-global (shared by the desktop sidecar AND a dev server, and
@@ -3103,6 +3104,1000 @@ app.get('/api/codeflow/attention', async (req, res) => {
     out.total = out.mine + out.reviews;
     res.json(out);
   } catch (e) { res.status(502).json({ error: e.message }); }
+});
+
+function _devBuddyPrSignal(pr, view) {
+  if (!pr) return null;
+  const comments = pr.comments || {};
+  const failed = Number(pr.failedChecks) || 0;
+  const activeComments = Number(comments.activeComments) || 0;
+  const title = String(pr.title || `Pull request #${pr.id}`);
+  let detail = '';
+  let priority = 'normal';
+  if (failed) {
+    detail = `${failed} required ${failed === 1 ? 'check is' : 'checks are'} failing.`;
+    priority = 'high';
+  } else if (activeComments) {
+    detail = `${activeComments} open ${activeComments === 1 ? 'thread needs' : 'threads need'} attention.`;
+    priority = 'high';
+  } else if (pr.readyToMerge) {
+    detail = 'Checks and approvals look ready for merge.';
+  } else if (view === 'reviews') {
+    detail = pr.attentionReason ? `Waiting on you: ${String(pr.attentionReason).replace(/-/g, ' ')}.` : 'This pull request is waiting for your review.';
+  } else if (pr.attentionReason) {
+    detail = `Needs attention: ${String(pr.attentionReason).replace(/-/g, ' ')}.`;
+  } else {
+    return null;
+  }
+  const provider = String(pr.provider || '').toLowerCase();
+  const org = pr.org || pr.owner || '';
+  const project = pr.project || '';
+  const repo = pr.repo || '';
+  const repository = provider === 'github'
+    ? [org, repo].filter(Boolean).join('/')
+    : [project, repo].filter(Boolean).join('/');
+  const source = [
+    `PR #${pr.id}`,
+    repository,
+    view === 'reviews' ? 'review requested' : 'your PR',
+  ].filter(Boolean).join(' · ');
+  const fingerprint = ['pr', provider, org, project, repo, pr.id, failed, activeComments, pr.attentionReason || '', !!pr.readyToMerge].join('|').toLowerCase();
+  const reminderKey = ['pr-reminder', provider, org, project, repo, pr.id].join('|').toLowerCase();
+  return {
+    id: fingerprint,
+    kind: 'pull-request',
+    title,
+    detail,
+    priority,
+    source,
+    link: pr.url || '',
+    route: '#/codeflow',
+    trackedAt: pr.creationDate || null,
+    slaBusinessHours: view === 'reviews' ? 24 : null,
+    fingerprint,
+    reminderKey,
+  };
+}
+
+function _devBuddyDecorateItem(item) {
+  const trackedAt = item.trackedAt || item.createdAt || item.updatedAt || null;
+  const signalState = item.fingerprint ? devBuddy.getSignalState(item.fingerprint) : {};
+  const priority = signalState.priority || item.priority;
+  return {
+    ...item,
+    priority,
+    kind: item.kind || 'memory',
+    trackedAt,
+    trackedFor: devBuddy.describeAge(trackedAt),
+    urgency: devBuddy.deriveUrgency({ ...item, priority, trackedAt }),
+  };
+}
+
+const _devBuddySemanticCache = new Map();
+let _devBuddySemanticRefresh = null;
+let _devBuddySemanticLastAttempt = { signature: '', at: 0 };
+
+function _devBuddySemanticHash(item) {
+  return require('crypto').createHash('sha1').update(JSON.stringify([
+    item.id,
+    item.title,
+    item.detail,
+    item.kind,
+    item.source,
+    item.priority,
+    item.dueAt,
+    item.trackedAt,
+    item.urgency && item.urgency.level,
+    item.urgency && item.urgency.reason,
+  ])).digest('hex');
+}
+
+function _devBuddyAttentionBlurb(item, semantic) {
+  const action = String(semantic && semantic.action || item.detail || ({
+    'pull-request': 'Review the pull request state and respond if needed.',
+    build: 'Check the build state and unblock failures.',
+    session: 'Decide whether to resume or close out this work.',
+    'agent-run': 'Monitor the running agent and review its result.',
+    agenda: 'Review the agenda item and resolve the scheduling pressure.',
+    email: 'Respond to the commitment or record the next step.',
+    teams: 'Follow up on the Teams request or commitment.',
+    meeting: 'Complete the meeting follow-up.',
+    calendar: 'Prepare for or act on the calendar commitment.',
+    memory: 'Complete the reminder you asked Pixel to track.',
+  }[item.kind] || 'Review this item and decide the next action.')).trim();
+  const why = String(semantic && semantic.why || item.urgency && item.urgency.reason || 'It remains open.').trim();
+  return `Required: ${action} Why now: ${why}`;
+}
+
+function _devBuddyApplySemantic(item) {
+  const hash = _devBuddySemanticHash(item);
+  const cached = _devBuddySemanticCache.get(item.id);
+  const semantic = cached && cached.hash === hash && Date.now() - cached.at < 30 * 60 * 1000
+    ? cached.value
+    : null;
+  if (!semantic) return {
+    ...item,
+    attentionBlurb: _devBuddyAttentionBlurb(item, null),
+    semanticPending: true,
+  };
+  const semanticScore = { low: 0, medium: 1, high: 2, critical: 3 }[semantic.importance];
+  const deterministicScore = Number(item.urgency && item.urgency.score) || 0;
+  const safetyFloor = deterministicScore >= 2 ? deterministicScore : 0;
+  const score = Number.isFinite(semanticScore)
+    ? Math.max(safetyFloor, semanticScore)
+    : deterministicScore;
+  const level = ['low', 'medium', 'high', 'critical'][Math.max(0, Math.min(3, score))];
+  const explicitWork = !item.fingerprint || item.completable === true;
+  return {
+    ...item,
+    urgency: {
+      ...item.urgency,
+      score,
+      level,
+      label: level.charAt(0).toUpperCase() + level.slice(1),
+      reason: semantic.why || item.urgency.reason,
+    },
+    attentionBlurb: _devBuddyAttentionBlurb(item, semantic),
+    semanticComment: semantic.comment || '',
+    semanticAttention: semantic.requiresAttention !== false,
+    semanticSurface: explicitWork || safetyFloor >= 2 || semantic.requiresAttention !== false,
+    semanticPending: false,
+  };
+}
+
+function _devBuddyQueueSemanticRefresh(items) {
+  const missing = (Array.isArray(items) ? items : []).filter(item => {
+    const cached = _devBuddySemanticCache.get(item.id);
+    return !cached || cached.hash !== _devBuddySemanticHash(item) || Date.now() - cached.at >= 30 * 60 * 1000;
+  }).slice(0, 30);
+  if (!missing.length || _devBuddySemanticRefresh) return;
+  const signature = require('crypto').createHash('sha1')
+    .update(JSON.stringify(missing.map(item => [item.id, _devBuddySemanticHash(item)])))
+    .digest('hex');
+  if (_devBuddySemanticLastAttempt.signature === signature &&
+      Date.now() - _devBuddySemanticLastAttempt.at < 2 * 60 * 1000) return;
+  _devBuddySemanticLastAttempt = { signature, at: Date.now() };
+  const facts = missing.map(item => ({
+    id: item.id,
+    title: item.title,
+    detail: item.detail || '',
+    kind: item.kind,
+    source: item.source || '',
+    priority: item.priority,
+    dueAt: item.dueAt || null,
+    trackedFor: item.trackedFor,
+    deterministicUrgency: item.urgency,
+    reviewResponseTargetHours: item.slaBusinessHours || null,
+  }));
+  const prompt = [
+    'You are Pixel’s semantic attention engine. Assess each work item using only the supplied facts.',
+    'For every item, determine whether it deserves the user’s attention now, its semantic importance, the concrete next action, why timing matters, and a short natural comment Pixel could say.',
+    'Treat direct mentions or requests, rejected/changes-requested reviews, failing required checks, blockers, security risk, overdue work, and due-within-24-hours work as high or critical.',
+    'Treat resolved comments with no remaining request as lower importance. Running healthy builds and passive sessions are usually watch/low unless they block another outcome.',
+    'For email, Teams, meetings, and calendar commitments, distinguish a direct commitment or dated request from FYI material. Do not invent people, deadlines, failures, mentions, or dependencies.',
+    'Every supplied id must appear exactly once.',
+    'Return ONLY JSON: {"analyses":[{"id":"exact id","importance":"low|medium|high|critical","requiresAttention":true,"action":"brief concrete requirement","why":"brief timing/impact reason","comment":"one short useful Pixel comment"}]}.',
+    JSON.stringify(facts),
+  ].join('\n\n');
+  let acc = '';
+  _devBuddySemanticRefresh = sdkRunner.runChat({
+    config: null,
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    availableTools: [],
+    timeoutMs: 90 * 1000,
+    modelCategory: 'execution',
+    meta: { source: 'dev-buddy', category: 'semantic-attention', record: false },
+    onChunk: chunk => { acc += chunk; },
+  }).then(result => {
+    const parsed = _connectExtractJson(acc.trim() || result.output || '');
+    const analyses = parsed && Array.isArray(parsed.analyses) ? parsed.analyses : [];
+    const byId = new Map(missing.map(item => [String(item.id), item]));
+    let updated = 0;
+    for (const analysis of analyses) {
+      const id = String(analysis && analysis.id || '');
+      const item = byId.get(id);
+      if (!item || !['low', 'medium', 'high', 'critical'].includes(analysis.importance)) continue;
+      _devBuddySemanticCache.set(id, {
+        hash: _devBuddySemanticHash(item),
+        at: Date.now(),
+        value: {
+          importance: analysis.importance,
+          requiresAttention: analysis.requiresAttention !== false,
+          action: String(analysis.action || '').trim().slice(0, 240),
+          why: String(analysis.why || '').trim().slice(0, 240),
+          comment: String(analysis.comment || '').trim().slice(0, 300),
+        },
+      });
+      updated++;
+    }
+    if (_devBuddySemanticCache.size > 500) {
+      const oldest = [..._devBuddySemanticCache.entries()]
+        .sort((a, b) => a[1].at - b[1].at)
+        .slice(0, _devBuddySemanticCache.size - 500);
+      for (const [id] of oldest) _devBuddySemanticCache.delete(id);
+    }
+    if (updated) broadcastSSE('dev-buddy-changed', { action: 'semantic-attention-refreshed', updated });
+  }).catch(error => {
+    console.warn('[dev-buddy] semantic attention refresh failed:', error.message);
+  }).finally(() => {
+    _devBuddySemanticRefresh = null;
+  });
+}
+
+let _devBuddyBuildCache = { at: 0, signals: [], errors: [] };
+let _devBuddyBuildRefresh = null;
+async function _refreshDevBuddyBuildSignals() {
+  const repos = loadCodeflowRepos();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const signals = [];
+  const errors = [];
+  const azdoProjects = [...new Map(
+    repos
+      .filter(repo => providerOf(repo) === 'azdo' && repo.org && repo.project)
+      .map(repo => [`${repo.org}|${repo.project}`.toLowerCase(), repo])
+  ).values()];
+  const githubRepos = repos.filter(repo => providerOf(repo) === 'github' && repo.org && repo.repo);
+
+  await Promise.all([
+    ...azdoProjects.map(async repo => {
+      try {
+        const me = await azdo.getCurrentUser(repo.org);
+        const builds = await azdo.listRecentBuilds(repo.org, repo.project, {
+          top: 25,
+          minTime: since,
+          requestedFor: me && me.id,
+        });
+        const seenRuns = new Set();
+        for (const build of builds) {
+          const runKey = [build.definitionName, build.repository, build.sourceBranch].join('|').toLowerCase();
+          if (seenRuns.has(runKey)) continue;
+          seenRuns.add(runKey);
+          const state = String(build.status || '').toLowerCase();
+          const result = String(build.result || '').toLowerCase();
+          const active = state && state !== 'completed';
+          const failed = ['failed', 'partiallysucceeded'].includes(result);
+          const canceled = result === 'canceled';
+          if (!active && !failed && !canceled) continue;
+          const fingerprint = `build|azdo|${repo.org}|${repo.project}|${build.id}|${state}|${result}`.toLowerCase();
+          if (devBuddy.isSignalDismissed(fingerprint)) continue;
+          signals.push({
+            id: fingerprint,
+            fingerprint,
+            reminderKey: `build-reminder|azdo|${repo.org}|${repo.project}|${build.id}`.toLowerCase(),
+            kind: 'build',
+            title: `${build.definitionName || 'Build'} ${active ? 'is running' : result === 'canceled' ? 'was canceled' : 'failed'}`,
+            detail: [
+              build.buildNumber ? `Build ${build.buildNumber}` : '',
+              build.repository || '',
+              build.sourceBranch ? String(build.sourceBranch).replace('refs/heads/', '') : '',
+            ].filter(Boolean).join(' · '),
+            priority: failed ? 'high' : 'normal',
+            source: `Azure Pipelines · ${repo.org}/${repo.project}`,
+            link: build.url || '',
+            route: '#/codeflow',
+            trackedAt: build.startTime || build.queueTime || since,
+            repository: build.repository || '',
+          });
+        }
+      } catch (error) {
+        errors.push(`Azure Pipelines ${repo.org}/${repo.project}: ${error.message}`);
+      }
+    }),
+    ...githubRepos.map(async repo => {
+      try {
+        const me = await github.getCurrentUser(repo.org);
+        const runs = await github.listWorkflowRuns(repo.org, '', repo.repo, {
+          actor: me && (me.login || me.id),
+          perPage: 25,
+        });
+        const seenRuns = new Set();
+        for (const run of runs) {
+          if (Date.parse(run.createdAt || '') < Date.parse(since)) continue;
+          const runKey = [run.name, run.branch].join('|').toLowerCase();
+          if (seenRuns.has(runKey)) continue;
+          seenRuns.add(runKey);
+          const active = !['completed'].includes(String(run.status || '').toLowerCase());
+          const conclusion = String(run.conclusion || '').toLowerCase();
+          const failed = ['failure', 'timed_out', 'action_required', 'startup_failure'].includes(conclusion);
+          const canceled = conclusion === 'cancelled';
+          if (!active && !failed && !canceled) continue;
+          const fingerprint = `build|github|${repo.org}|${repo.repo}|${run.id}|${run.status}|${run.conclusion}`.toLowerCase();
+          if (devBuddy.isSignalDismissed(fingerprint)) continue;
+          signals.push({
+            id: fingerprint,
+            fingerprint,
+            reminderKey: `build-reminder|github|${repo.org}|${repo.repo}|${run.id}`.toLowerCase(),
+            kind: 'build',
+            title: `${run.name || 'Workflow'} ${active ? 'is running' : canceled ? 'was canceled' : 'failed'}`,
+            detail: [run.displayTitle, run.branch, run.event].filter(Boolean).join(' · '),
+            priority: failed ? 'high' : 'normal',
+            source: `GitHub Actions · ${repo.org}/${repo.repo}`,
+            link: run.url || '',
+            route: '#/codeflow',
+            trackedAt: run.createdAt || since,
+            repository: `${repo.org}/${repo.repo}`,
+          });
+        }
+      } catch (error) {
+        errors.push(`GitHub Actions ${repo.org}/${repo.repo}: ${error.message}`);
+      }
+    }),
+  ]);
+  _devBuddyBuildCache = { at: Date.now(), signals, errors };
+  return _devBuddyBuildCache;
+}
+
+function _devBuddyBuildSignals(refresh = false) {
+  const stale = Date.now() - _devBuddyBuildCache.at >= CODEFLOW_TTL_MS;
+  if ((refresh || stale) && !_devBuddyBuildRefresh) {
+    _devBuddyBuildRefresh = _refreshDevBuddyBuildSignals()
+      .then(result => {
+        broadcastSSE('dev-buddy-changed', { action: 'builds-refreshed', count: result.signals.length });
+        return result;
+      })
+      .catch(error => {
+        _devBuddyBuildCache = { ..._devBuddyBuildCache, at: Date.now(), errors: [error.message] };
+        return _devBuddyBuildCache;
+      })
+      .finally(() => { _devBuddyBuildRefresh = null; });
+  }
+  return { ..._devBuddyBuildCache, refreshing: !!_devBuddyBuildRefresh };
+}
+
+function _devBuddySessionSignals() {
+  const now = Date.now();
+  let candidates = [];
+  try {
+    if (!fs.existsSync(SESSION_STATE_DIR)) return [];
+    for (const entry of fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const dir = path.join(SESSION_STATE_DIR, entry.name);
+      const eventsPath = path.join(dir, 'events.jsonl');
+      let stat;
+      try { stat = fs.statSync(eventsPath); } catch { continue; }
+      const age = now - stat.mtimeMs;
+      if (age < 0 || age > 8 * 60 * 60 * 1000) continue;
+      candidates.push({ id: entry.name, dir, eventsPath, stat });
+    }
+  } catch { return []; }
+  candidates.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
+  return candidates.slice(0, 8).map(candidate => {
+      const meta = readSessionMeta(candidate.dir);
+      if (!meta) return null;
+      let ended = false;
+      let proactivelyInteractive = String(meta.client || '').toLowerCase() === 'github/autopilot';
+      try {
+        const size = candidate.stat.size;
+        const length = Math.min(size, 512 * 1024);
+        const fd = fs.openSync(candidate.eventsPath, 'r');
+        const buffer = Buffer.alloc(length);
+        fs.readSync(fd, buffer, 0, length, Math.max(0, size - length));
+        fs.closeSync(fd);
+        const events = buffer.toString('utf8').split('\n').slice(1).map(line => {
+          try { return JSON.parse(line); } catch { return null; }
+        }).filter(Boolean);
+        const decisive = [...events].reverse()
+          .find(event => ['session.shutdown', 'session.resume', 'user.message', 'assistant.message'].includes(event.type));
+        proactivelyInteractive = proactivelyInteractive || events.some(event =>
+          event.type === 'user.message' &&
+          event.data &&
+          (event.data.messageId || event.data.delivery || event.data.turnId)
+        );
+        ended = decisive && decisive.type === 'session.shutdown';
+      } catch {}
+      if (ended || !proactivelyInteractive) return null;
+      const lastModified = candidate.stat.mtime.toISOString();
+      const age = now - candidate.stat.mtimeMs;
+      const active = age <= 10 * 60 * 1000;
+      const fingerprint = `session|${meta.id || candidate.id}`;
+      if (devBuddy.isSignalDismissed(fingerprint)) return null;
+      const repository = meta.repository || (meta.cwd ? path.basename(meta.cwd) : '');
+      const sessionName = String(meta.name || '').trim();
+      const title = sessionName && sessionName !== '(unnamed)' && !/^\|[-+>]?$/.test(sessionName)
+        ? sessionName
+        : [repository, meta.branch].filter(Boolean).join(' · ') || 'Copilot work';
+      return {
+        id: fingerprint,
+        fingerprint,
+        reminderKey: fingerprint,
+        kind: 'session',
+        title: active ? `${title} is active` : `Continue ${title}`,
+        detail: active ? 'Pixel is following this Copilot session.' : 'This session was active recently and may be worth resuming.',
+        priority: active ? 'normal' : 'low',
+        source: ['Copilot session', repository, meta.branch].filter(Boolean).join(' · '),
+        route: '#/sessions',
+        trackedAt: lastModified,
+        repository,
+        sessionId: meta.id || candidate.id,
+      };
+    })
+    .filter(Boolean);
+}
+
+function _devBuddyCommitmentSignals() {
+  return devBuddy.listCommitments().map(item => {
+    const fingerprint = `commitment|${item.externalId}`.toLowerCase();
+    if (devBuddy.isSignalDismissed(fingerprint)) return null;
+    const sourceLabels = [...new Set([
+      item.source,
+      ...(Array.isArray(item.sources) ? item.sources : []),
+    ])].map(source => ({ email: 'Email', teams: 'Teams', meeting: 'Meeting', calendar: 'Calendar' }[source] || 'Commitment'));
+    const label = sourceLabels.join(' + ');
+    return {
+      ...item,
+      fingerprint,
+      kind: item.source,
+      detail: item.detail || 'A commitment Pixel is keeping on your radar.',
+      priority: item.priority || (item.dueAt || item.confidence === 'high' ? 'normal' : 'low'),
+      source: `${label} · commitment${sourceLabels.length > 1 ? ' · merged' : ''}`,
+      trackedAt: item.observedAt || item.createdAt,
+      completable: true,
+    };
+  }).filter(Boolean);
+}
+
+function _devBuddyRelationships(items, mode = 'context', aiGroups = []) {
+  const visible = (Array.isArray(items) ? items : []).slice(0, 18);
+  const groups = new Map();
+  const aiByItem = new Map();
+  for (const group of (Array.isArray(aiGroups) ? aiGroups : [])) {
+    const label = String(group && group.label || '').trim().slice(0, 80);
+    if (!label) continue;
+    for (const itemId of (Array.isArray(group.itemIds) ? group.itemIds : [])) {
+      if (!aiByItem.has(String(itemId))) aiByItem.set(String(itemId), label);
+    }
+  }
+  const groupKey = item => {
+    if (mode === 'urgency') return `${item.urgency && item.urgency.label || 'Medium'} urgency`;
+    if (mode === 'source') return item.kind || 'Other';
+    if (mode.startsWith('ai-')) return aiByItem.get(String(item.id)) || 'Other work';
+    return item.repository || item.sessionId || item.kind || 'work';
+  };
+  for (const item of visible) {
+    const key = groupKey(item);
+    if (!groups.has(key)) groups.set(key, {
+      id: `group-${require('crypto').createHash('sha1').update(String(key)).digest('hex').slice(0, 10)}`,
+      label: String(key),
+      kind: mode === 'context' && item.repository ? 'repository' : 'source',
+    });
+  }
+  const nodes = [
+    { id: 'pixel', label: 'Pixel', kind: 'center' },
+    ...groups.values(),
+    ...visible.map(item => ({ id: item.id, label: item.title, kind: item.kind, itemId: item.id })),
+  ];
+  const edges = [];
+  for (const group of groups.values()) edges.push({ from: 'pixel', to: group.id });
+  for (const item of visible) {
+    const key = groupKey(item);
+    edges.push({ from: groups.get(key).id, to: item.id });
+  }
+  return { mode, nodes, edges };
+}
+
+const _devBuddyCodeflowRefresh = new Map();
+
+function _devBuddyDayContext() {
+  const date = _meAiLocalDay();
+  const agenda = loadAgendaForDate(date);
+  if (!agenda) {
+    return {
+      date,
+      hasAgenda: false,
+      label: 'No agenda context',
+      pressure: 0,
+      remainingBlocks: 0,
+      meetings: 0,
+      conflicts: 0,
+      needsAttention: 0,
+      openTodos: 0,
+    };
+  }
+  const now = new Date();
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const remaining = (Array.isArray(agenda.blocks) ? agenda.blocks : []).filter(block => {
+    const end = _hmToMin(block && block.end);
+    return end == null || end > nowMinutes;
+  });
+  const meetings = remaining.filter(block => block && block.type === 'meeting').length;
+  const conflicts = Array.isArray(agenda.meta && agenda.meta.conflicts) ? agenda.meta.conflicts.length : 0;
+  const needsAttention = Array.isArray(agenda.needsAttention) ? agenda.needsAttention.length : 0;
+  const openTodos = (Array.isArray(agenda.todos) ? agenda.todos : []).filter(todo => todo && !todo.done).length;
+  const pressure = Math.min(20,
+    remaining.length +
+    meetings * 2 +
+    conflicts * 5 +
+    Math.min(needsAttention, 5) * 2 +
+    Math.min(openTodos, 5)
+  );
+  const label = conflicts
+    ? `${conflicts} agenda ${conflicts === 1 ? 'conflict' : 'conflicts'}`
+    : remaining.length === 0 && (needsAttention || openTodos)
+      ? 'Loose ends remain'
+      : remaining.length === 0
+        ? 'Day winding down'
+        : pressure >= 12
+      ? 'Packed day'
+      : pressure >= 6
+        ? 'Busy day'
+        : 'Steady day';
+  return {
+    date,
+    hasAgenda: true,
+    label,
+    pressure,
+    remainingBlocks: remaining.length,
+    meetings,
+    conflicts,
+    needsAttention,
+    openTodos,
+  };
+}
+
+async function _devBuddyStatus({ refresh = false } = {}) {
+  const signals = [];
+  const devBuddySettings = settings.getSettings().devBuddy;
+  const buildState = devBuddySettings.trackBuilds
+    ? _devBuddyBuildSignals(refresh)
+    : { signals: [], errors: [], refreshing: false };
+  const views = ['mine', 'reviews'].map(view => {
+    const cached = _codeflowCache.get(view);
+    const stale = !cached || Date.now() - cached.at >= CODEFLOW_TTL_MS;
+    if ((refresh || stale) && !_devBuddyCodeflowRefresh.has(view)) {
+      const task = _gatherCodeflow(view)
+        .then(data => {
+          _codeflowCache.set(view, { at: Date.now(), data });
+          broadcastSSE('dev-buddy-changed', { action: 'codeflow-refreshed', view });
+        })
+        .catch(error => console.warn(`[dev-buddy] Code Flow ${view} refresh failed:`, error.message))
+        .finally(() => _devBuddyCodeflowRefresh.delete(view));
+      _devBuddyCodeflowRefresh.set(view, task);
+    }
+    return { view, data: cached && cached.data, refreshing: _devBuddyCodeflowRefresh.has(view) };
+  });
+  for (const { view, data } of views) {
+    for (const pr of ((data && data.pullRequests) || [])) {
+      const signal = _devBuddyPrSignal(pr, view);
+      if (signal && !devBuddy.isSignalDismissed(signal.fingerprint)) signals.push(signal);
+    }
+  }
+  signals.push(...(buildState.signals || []));
+
+  for (const rec of Object.values(loadCodeflowWorktrees())) {
+    if (!rec || rec.reviewStatus !== 'reviewing') continue;
+    const fingerprint = ['review', rec.provider || 'azdo', rec.org, rec.project || '', rec.repo, rec.prId, rec.reviewStartedAt || ''].join('|').toLowerCase();
+    signals.push({
+      id: fingerprint,
+      kind: 'agent-run',
+      title: `Reviewing ${rec.prTitle || `PR #${rec.prId}`}`,
+      detail: 'The AI review is still working. I will keep an eye on it.',
+      priority: 'normal',
+      source: 'Code Flow · AI review',
+      link: rec.prUrl || '',
+      route: '#/codeflow',
+      trackedAt: rec.reviewStartedAt || null,
+      fingerprint,
+      reminderKey: ['review-reminder', rec.provider || 'azdo', rec.org, rec.project || '', rec.repo, rec.prId].join('|').toLowerCase(),
+    });
+  }
+
+  for (const [id, entry] of supervisor.agents.entries()) {
+    if (!entry || !entry.running) continue;
+    const name = (entry.config && (entry.config.name || entry.config.title)) || id;
+    const fingerprint = `agent|${id}|${entry._taskId || ''}|${entry._triggerMode || ''}`;
+    signals.push({
+      id: fingerprint,
+      kind: 'agent-run',
+      title: `${name} is working`,
+      detail: entry._trigger && entry._trigger.label ? `Running ${entry._trigger.label}.` : 'An agent run is in progress.',
+      priority: 'normal',
+      source: 'Agents',
+      route: '#/activity',
+      trackedAt: entry._live && entry._live.startedAt
+        ? new Date(entry._live.startedAt).toISOString()
+        : null,
+      fingerprint,
+      reminderKey: fingerprint,
+    });
+  }
+  if (devBuddySettings.trackSessions) signals.push(..._devBuddySessionSignals());
+  if (devBuddySettings.trackCommitments) signals.push(..._devBuddyCommitmentSignals());
+
+  const day = _devBuddyDayContext();
+  if (day.conflicts || day.needsAttention) {
+    const count = day.conflicts || day.needsAttention;
+    const kind = day.conflicts ? 'schedule conflicts' : 'items waiting for triage';
+    const fingerprint = `agenda|${day.date}|${day.conflicts}|${day.needsAttention}`;
+    if (!devBuddy.isSignalDismissed(fingerprint)) {
+      signals.push({
+        id: fingerprint,
+        kind: 'agenda',
+        title: day.conflicts ? 'Your agenda has a conflict' : 'Your agenda needs a pass',
+        detail: `${count} ${kind}.`,
+        priority: day.conflicts || day.needsAttention >= 4 ? 'high' : 'normal',
+        source: 'Agenda.AI',
+        route: '#/me-ai',
+        trackedAt: `${day.date}T00:00:00`,
+        dueAt: `${day.date}T23:59:59`,
+        fingerprint,
+        reminderKey: `agenda-reminder|${day.date}`,
+      });
+    }
+  }
+
+  const undismissedSignals = signals.filter(signal =>
+    !devBuddy.isSignalDismissed(signal.reminderKey || signal.fingerprint) &&
+    (!signal.reminderKey || signal.reminderKey === signal.fingerprint || !devBuddy.isSignalDismissed(signal.fingerprint))
+  );
+  signals.splice(0, signals.length, ...undismissedSignals);
+  for (let i = 0; i < signals.length; i++) signals[i] = _devBuddyDecorateItem(signals[i]);
+  const items = devBuddy.listItems().map(_devBuddyDecorateItem);
+  const activeItems = items.filter(item => !item.snoozed);
+  const deterministicList = [...signals, ...activeItems];
+  _devBuddyQueueSemanticRefresh(deterministicList);
+  const list = devBuddy.applyManualOrder(deterministicList
+    .map(_devBuddyApplySemantic)
+    .filter(item => item.semanticSurface !== false));
+  const visibleSignals = list.filter(item => item.fingerprint);
+  const counts = {
+    attention: list.filter(item => item.urgency && item.urgency.score >= 2).length,
+    tracking: list.filter(item => ['agent-run', 'build', 'session'].includes(item.kind)).length,
+    remembered: list.filter(item => !item.fingerprint || item.completable).length,
+  };
+  const progress = devBuddy.getProgress(list.length);
+  const firstItem = [...list]
+    .filter(item => item.semanticAttention !== false)
+    .sort((a, b) =>
+      (b.urgency && b.urgency.score || 0) - (a.urgency && a.urgency.score || 0) ||
+      Date.parse(a.dueAt || a.trackedAt || 0) - Date.parse(b.dueAt || b.trackedAt || 0)
+    )[0] || null;
+  const suggestedReminder = firstItem && firstItem.kind === 'memory'
+    ? {
+        ...firstItem,
+        detail: firstItem.detail || 'You asked me to keep this on your radar.',
+        fingerprint: `memory|${firstItem.id}|${firstItem.updatedAt}`,
+      }
+    : firstItem;
+  return {
+    settings: devBuddySettings,
+    signals: visibleSignals,
+    items,
+    day,
+    mood: devBuddy.deriveMood({ ...counts, ...progress, day }),
+    progress,
+    recentActivity: devBuddy.listRecentActivity(24),
+    list,
+    relationships: _devBuddyRelationships(list),
+    memories: connect.listMemories(),
+    sources: {
+      builds: {
+        enabled: devBuddySettings.trackBuilds === true,
+        configured: loadCodeflowRepos().length > 0,
+        errors: buildState.errors || [],
+        refreshing: buildState.refreshing === true,
+      },
+      sessions: { enabled: devBuddySettings.trackSessions === true },
+      commitments: {
+        enabled: devBuddySettings.trackCommitments === true,
+        consent: settings.getSettings().connectConsent === true,
+        collectionEnabled: settings.getSettings().connectCollectionEnabled === true,
+        sync: devBuddy.getCommitmentSync(),
+      },
+    },
+    suggestedReminder,
+    counts,
+    refreshedAt: new Date().toISOString(),
+  };
+}
+
+app.get('/api/dev-buddy/status', async (req, res) => {
+  try { res.json(await _devBuddyStatus({ refresh: req.query.refresh === '1' })); }
+  catch (e) { res.status(500).json({ error: e.message || 'Could not load Dev Buddy status.' }); }
+});
+
+const _devBuddyMapGroupingCache = new Map();
+async function _devBuddyAiRelationships(items, mode) {
+  const visible = (Array.isArray(items) ? items : []).slice(0, 18);
+  const criterion = mode === 'ai-effort'
+    ? 'estimated work effort and execution shape (for example quick wins, focused work, and multi-step projects)'
+    : 'shared workstream, objective, system, or outcome';
+  const signature = require('crypto').createHash('sha1')
+    .update(JSON.stringify(visible.map(item => [item.id, item.title, item.detail, item.urgency && item.urgency.level])))
+    .digest('hex');
+  const cacheKey = `${mode}|${signature}`;
+  const cached = _devBuddyMapGroupingCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.relationships;
+  const compact = visible.map(item => ({
+    id: item.id,
+    title: item.title,
+    detail: item.detail || '',
+    kind: item.kind,
+    source: item.source || '',
+    repository: item.repository || '',
+    urgency: item.urgency && item.urgency.label || 'Medium',
+  }));
+  const prompt = [
+    `Organize these Dev Buddy work items into 2-8 useful groups based on ${criterion}.`,
+    'Every supplied item id must appear exactly once. Use concise group labels. Do not invent items.',
+    'Return ONLY JSON shaped {"groups":[{"label":"...","itemIds":["..."]}]}.',
+    JSON.stringify(compact),
+  ].join('\n');
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null,
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    availableTools: [],
+    timeoutMs: 90 * 1000,
+    modelCategory: 'execution',
+    meta: { source: 'dev-buddy', category: 'chat', record: false },
+    onChunk: chunk => { acc += chunk; },
+  });
+  const parsed = _connectExtractJson(acc.trim() || result.output || '');
+  const groups = parsed && Array.isArray(parsed.groups) ? parsed.groups : [];
+  const relationships = _devBuddyRelationships(visible, mode, groups);
+  _devBuddyMapGroupingCache.clear();
+  _devBuddyMapGroupingCache.set(cacheKey, { at: Date.now(), relationships });
+  return relationships;
+}
+
+app.post('/api/dev-buddy/map-groupings', async (req, res) => {
+  try {
+    const mode = ['context', 'urgency', 'source', 'ai-workstream', 'ai-effort'].includes(req.body && req.body.mode)
+      ? req.body.mode
+      : 'context';
+    const status = await _devBuddyStatus();
+    const relationships = mode.startsWith('ai-')
+      ? await _devBuddyAiRelationships(status.list, mode)
+      : _devBuddyRelationships(status.list, mode);
+    res.json({ ok: true, relationships });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Pixel could not organize the map.' });
+  }
+});
+
+async function _devBuddyChat(message, history) {
+  const status = await _devBuddyStatus();
+  const work = status.list.slice(0, 30).map(item => ({
+    id: item.id,
+    title: item.title,
+    detail: item.detail || '',
+    kind: item.kind,
+    source: item.source || '',
+    urgency: item.urgency && item.urgency.label || '',
+    link: item.link || '',
+    route: item.route || '',
+  }));
+  const recentHistory = (Array.isArray(history) ? history : []).slice(-8).map(entry => ({
+    role: entry && entry.role === 'assistant' ? 'assistant' : 'user',
+    content: String(entry && entry.content || '').slice(0, 1200),
+  }));
+  const wi = _meAiConfig(settings.getSettings()).workItem;
+  const prompt = [
+    'You are Pixel, a concise, practical development companion inside TheOffice.AI.',
+    'Help the user reason, prioritize, find tracked work, and prepare useful artifacts.',
+    'You may select exactly one supported action when it directly satisfies the request:',
+    '- open_item: open a listed PR, build, session, or other tracked item. Use its exact id.',
+    '- draft_email: produce a complete email draft. Include a short title/subject and body.',
+    '- create_work_item: prepare an Azure DevOps work item for explicit user confirmation. Include title and description.',
+    '- remember: add a durable reminder. Include title, optional detail, and low|normal|high priority.',
+    '- none: answer conversationally without an action.',
+    'Never claim an action happened unless you select it. Never send email; draft_email only creates an editable local draft.',
+    'Return ONLY JSON: {"reply":"...","action":{"type":"none|open_item|draft_email|create_work_item|remember","itemId":"","title":"","body":"","description":"","detail":"","priority":"normal"}}.',
+    `Configured work item target: ${wi.org}/${wi.project} (${wi.type}).`,
+    `Tracked work:\n${JSON.stringify(work)}`,
+    `Recent conversation:\n${JSON.stringify(recentHistory)}`,
+    `User message:\n${String(message).slice(0, 4000)}`,
+  ].join('\n\n');
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null,
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    availableTools: [],
+    timeoutMs: 90 * 1000,
+    modelCategory: 'chat',
+    meta: { source: 'dev-buddy', category: 'chat', record: false },
+    onChunk: chunk => { acc += chunk; },
+  });
+  const parsed = _connectExtractJson(acc.trim() || result.output || '');
+  if (!parsed || typeof parsed !== 'object') throw new Error('Pixel returned an unreadable response.');
+  const reply = String(parsed.reply || '').trim().slice(0, 5000) || 'I could not turn that into a useful response.';
+  const proposed = parsed.action && typeof parsed.action === 'object' ? parsed.action : { type: 'none' };
+  const type = String(proposed.type || 'none');
+  let action = null;
+  if (type === 'open_item') {
+    const item = status.list.find(entry => entry.id === proposed.itemId);
+    if (item && (item.link || item.route)) {
+      action = {
+        type: 'open',
+        label: item.kind === 'pull-request' ? 'Open PR' : item.kind === 'build' ? 'Open build' : 'Open item',
+        item: { id: item.id, title: item.title, link: item.link || '', route: item.route || '' },
+      };
+    }
+  } else if (type === 'draft_email') {
+    const title = String(proposed.title || 'Email draft').trim().slice(0, 200);
+    const body = String(proposed.body || proposed.description || '').trim().slice(0, 50000);
+    if (body) {
+      const composition = compose.createComposition({
+        purpose: 'message',
+        format: 'email',
+        title,
+        brief: `Drafted with Pixel from: ${String(message).slice(0, 1000)}`,
+        content: body,
+      });
+      action = {
+        type: 'open',
+        label: 'Open email draft',
+        item: { id: composition.id, title: composition.title, route: `#/compose/${encodeURIComponent(composition.id)}` },
+      };
+    }
+  } else if (type === 'remember') {
+    const title = String(proposed.title || '').trim().slice(0, 160);
+    if (title) {
+      const item = devBuddy.addItem({
+        title,
+        detail: String(proposed.detail || '').slice(0, 500),
+        priority: ['low', 'normal', 'high'].includes(proposed.priority) ? proposed.priority : 'normal',
+        source: 'Pixel chat',
+      });
+      broadcastSSE('dev-buddy-changed', { action: 'added', item });
+      action = { type: 'created', label: 'Added to work list', item: { id: item.id, title: item.title } };
+    }
+  } else if (type === 'create_work_item') {
+    const title = String(proposed.title || '').trim().slice(0, 250);
+    if (title) {
+      action = {
+        type: 'confirm-work-item',
+        label: `Create ${wi.type}`,
+        title,
+        description: String(proposed.description || proposed.body || '').trim().slice(0, 4000),
+      };
+    }
+  }
+  return { reply, action };
+}
+
+app.post('/api/dev-buddy/chat', async (req, res) => {
+  const message = String(req.body && req.body.message || '').trim();
+  if (!message) return res.status(400).json({ error: 'message is required' });
+  try {
+    res.json({ ok: true, ...(await _devBuddyChat(message, req.body && req.body.history)) });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Pixel could not respond.' });
+  }
+});
+
+app.post('/api/dev-buddy/actions/work-item', async (req, res) => {
+  try {
+    const cfg = _meAiConfig(settings.getSettings()).workItem;
+    const title = String(req.body && req.body.title || '').trim().slice(0, 250);
+    if (!title) return res.status(400).json({ error: 'title is required' });
+    const created = await azdo.createWorkItem(cfg.org, cfg.project, cfg.type, {
+      title,
+      description: String(req.body && req.body.description || '').slice(0, 4000),
+      areaPath: cfg.areaPath || undefined,
+      iterationPath: cfg.iterationPath || undefined,
+      state: cfg.state || undefined,
+      tags: cfg.tags || undefined,
+    });
+    res.json({ ok: true, workItem: created });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not create the work item.' });
+  }
+});
+
+app.post('/api/dev-buddy/items', (req, res) => {
+  try {
+    const item = devBuddy.addItem(req.body || {});
+    broadcastSSE('dev-buddy-changed', { action: 'added', item });
+    res.status(201).json({ item });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/dev-buddy/items/:id', (req, res) => {
+  try {
+    const item = devBuddy.updateItem(req.params.id, req.body || {});
+    if (!item) return res.status(404).json({ error: 'Reminder not found.' });
+    broadcastSSE('dev-buddy-changed', { action: 'updated', item });
+    res.json({ item });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/dev-buddy/order', (req, res) => {
+  const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : null;
+  if (!ids) return res.status(400).json({ error: 'ids must be an array' });
+  const order = devBuddy.setManualOrder(ids);
+  broadcastSSE('dev-buddy-changed', { action: 'reordered', order });
+  res.json({ ok: true, order });
+});
+
+app.post('/api/dev-buddy/activity/:id/restore', (req, res) => {
+  try {
+    const restored = devBuddy.restoreRecentActivity(req.params.id, req.body && req.body.action);
+    if (!restored) return res.status(404).json({ error: 'Recent activity was not found.' });
+    broadcastSSE('dev-buddy-changed', { action: 'activity-restored', restored });
+    res.json({ ok: true, restored });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not restore this item.' });
+  }
+});
+
+app.put('/api/dev-buddy/commitments/:id', (req, res) => {
+  const patch = req.body || {};
+  if (patch.status && !['done', 'dismissed', 'open'].includes(patch.status)) {
+    return res.status(400).json({ error: 'Unsupported commitment status.' });
+  }
+  const item = devBuddy.updateCommitment(req.params.id, patch);
+  if (!item) return res.status(404).json({ error: 'Commitment not found.' });
+  broadcastSSE('dev-buddy-changed', { action: patch.status === 'done' ? 'commitment-completed' : 'commitment-updated', item });
+  res.json({ item });
+});
+
+app.get('/api/dev-buddy/memories', (_req, res) => {
+  res.json({ items: connect.listMemories() });
+});
+
+app.post('/api/dev-buddy/memories', (req, res) => {
+  const item = connect.addMemory(req.body && req.body.text, { source: 'dev-buddy' });
+  if (!item) return res.status(400).json({ error: 'Memory text is required.' });
+  broadcastSSE('dev-buddy-changed', { action: 'memory-added', item });
+  res.status(201).json({ item });
+});
+
+app.put('/api/dev-buddy/memories/:id', (req, res) => {
+  const item = connect.updateMemory(req.params.id, req.body || {});
+  if (!item) return res.status(404).json({ error: 'Memory not found.' });
+  broadcastSSE('dev-buddy-changed', { action: 'memory-updated', item });
+  res.json({ item });
+});
+
+app.delete('/api/dev-buddy/memories/:id', (req, res) => {
+  if (!connect.deleteMemory(req.params.id)) return res.status(404).json({ error: 'Memory not found.' });
+  broadcastSSE('dev-buddy-changed', { action: 'memory-deleted', id: req.params.id });
+  res.json({ ok: true });
+});
+
+app.post('/api/dev-buddy/refresh-commitments', async (_req, res) => {
+  try {
+    const result = await _devBuddyCollectCommitments({ manual: true, force: true });
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/dev-buddy/signals/dismiss', (req, res) => {
+  const fingerprint = String((req.body && req.body.fingerprint) || '').trim();
+  if (!fingerprint) return res.status(400).json({ error: 'fingerprint is required' });
+  devBuddy.dismissSignal(fingerprint, req.body && req.body.until);
+  broadcastSSE('dev-buddy-changed', { action: 'dismissed', fingerprint });
+  res.json({ ok: true });
+});
+
+app.put('/api/dev-buddy/signals/:fingerprint', (req, res) => {
+  const fingerprint = String(req.params.fingerprint || '').trim();
+  const patch = req.body || {};
+  if (!fingerprint) return res.status(400).json({ error: 'fingerprint is required' });
+  if (patch.status && !['done', 'dismissed', 'open'].includes(patch.status)) {
+    return res.status(400).json({ error: 'Unsupported signal status.' });
+  }
+  const state = devBuddy.updateSignal(fingerprint, patch, {
+    title: patch.title,
+    source: patch.source,
+  });
+  broadcastSSE('dev-buddy-changed', {
+    action: patch.status === 'done' ? 'signal-completed' : 'signal-updated',
+    fingerprint,
+  });
+  res.json({ state });
 });
 
 // --- Code Flow AI insights: per-PR summaries + urgency scores. ---
@@ -10172,7 +11167,7 @@ function _listCliSessions() {
     if (cached && cached.sig === sig) { out.push(cached.entry); continue; }
     const meta = readSessionMeta(full);
     if (!meta) continue; // require workspace.yaml
-    let turnCount = 0, agentName = '', lastUser = '';
+    let turnCount = 0, agentName = '', lastUser = '', endedAt = '';
     const promptSet = new Set();
     if (epm) {
       try {
@@ -10180,11 +11175,16 @@ function _listCliSessions() {
           if (!line) continue;
           const ev = JSON.parse(line);
           if (ev.type === 'user.message') {
+            endedAt = '';
             turnCount++;
             if (ev.data && ev.data.content) {
               lastUser = String(ev.data.content);
               promptSet.add(lastUser.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 200));
             }
+          }
+          else if (ev.type === 'session.resume') endedAt = '';
+          else if (ev.type === 'session.shutdown') {
+            endedAt = ev.timestamp || (ev.data && (ev.data.timestamp || ev.data.endedAt)) || stat.mtime.toISOString();
           }
           else if (ev.type === 'subagent.selected' && ev.data && ev.data.agentDisplayName) agentName = ev.data.agentDisplayName;
           else if (ev.type === 'session.start' && ev.data && ev.data.context && ev.data.context.agentName && !agentName) agentName = ev.data.context.agentName;
@@ -10208,6 +11208,7 @@ function _listCliSessions() {
       lastModified: stat.mtime.toISOString(),
       summary,
       summaryAt,
+      endedAt,
       contentSig: sig
     };
     _cliSessCache.set(d.name, { sig, entry });
@@ -12357,7 +13358,7 @@ function _connectExtractJson(text) {
 
 // Run one of the Connect plugin agents (collector|profiler|writer) as a one-off
 // SDK chat and return the accumulated text output.
-async function _connectRunAgent(agentName, prompt) {
+async function _connectRunAgent(agentName, prompt, { timeoutMs } = {}) {
   if (!connectPluginDir || !fs.existsSync(connectPluginDir)) {
     throw new Error('Connect plugin is not available yet — restart the server.');
   }
@@ -12371,12 +13372,99 @@ async function _connectRunAgent(agentName, prompt) {
     sessionId: require('crypto').randomUUID(),
     resume: false,
     modelCategory: 'execution',
+    ...(timeoutMs ? { timeoutMs } : {}),
     cwd: __dirname,
     meta: { source: 'connect', category: cat },
     onChunk: (c) => { acc += c; },
   });
   if (result && result.fallback) throw new Error(result.error || 'Connect agent runtime unavailable');
   return acc.trim() ? acc : ((result && result.output) || '');
+}
+
+let _devBuddyCommitmentRun = null;
+async function _devBuddyCollectCommitments({ manual = false, force = false } = {}) {
+  if (_devBuddyCommitmentRun) return _devBuddyCommitmentRun;
+  const s = settings.getSettings();
+  if (!s.devBuddy || s.devBuddy.enabled !== true || s.devBuddy.trackCommitments !== true) return { skipped: 'disabled' };
+  if (!s.connectConsent || !s.connectCollectionEnabled) return { skipped: 'consent-required' };
+  if (!manual) {
+    if (!leaderCheck()) return { skipped: 'not-leader' };
+    if (_anyAgentBusy()) return { skipped: 'busy' };
+  }
+  const sync = devBuddy.getCommitmentSync();
+  const lastAttempt = Date.parse(sync.lastAttemptAt || '');
+  if (!force && Number.isFinite(lastAttempt) && Date.now() - lastAttempt < 30 * 60 * 1000) {
+    return { skipped: 'fresh', sync };
+  }
+
+  _devBuddyCommitmentRun = (async () => {
+    const attemptedAt = new Date().toISOString();
+    devBuddy.setCommitmentSync({ lastAttemptAt: attemptedAt, error: '' });
+    const recent = _connectDateWindow(3);
+    const meetingWindow = _connectDateWindow(7);
+    const memories = _connectMemoryLines();
+    const preferenceText = memories
+      ? `\n\nUse these user-edited preferences only to rank genuinely supported work; never use them to invent a task:\n${memories}`
+      : '';
+    const now = new Date().toISOString();
+    const scopes = [
+      {
+        name: 'email',
+        prompt: `Source scope: email only. Find credible still-open requests directed to me and commitments I made from ${recent.start} through ${recent.end}. Current datetime: ${now}.`,
+      },
+      {
+        name: 'teams',
+        prompt: `Source scope: Teams channels and group chats only; never inspect one-on-one/private chats. Find credible still-open requests directed to me and commitments I made from ${recent.start} through ${recent.end}. Current datetime: ${now}.`,
+      },
+      {
+        name: 'meeting-calendar',
+        prompt: `Source scope: past meeting recaps from ${meetingWindow.start} through ${meetingWindow.end}, plus the next two business days of calendar. Return only action items assigned to me or concrete preparation tasks. Current datetime: ${now}.`,
+      },
+    ];
+    try {
+      const results = await Promise.all(scopes.map(async scope => {
+        try {
+          const text = await _connectRunAgent(
+            'dev-buddy-collector',
+            scope.prompt + '\nFollow the agent strict relevance and privacy rules.' + preferenceText,
+            { timeoutMs: 3 * 60 * 1000 }
+          );
+          const parsed = _connectExtractJson(text);
+          return { source: scope.name, items: Array.isArray(parsed) ? parsed : [] };
+        } catch (error) {
+          return { source: scope.name, items: [], error: error.message };
+        }
+      }));
+      const items = results.flatMap(result => result.items);
+      const errors = results.filter(result => result.error).map(result => `${result.source}: ${result.error}`);
+      if (errors.length === results.length) throw new Error(errors.join(' | '));
+      const result = devBuddy.upsertCommitments(items);
+      const completedAt = new Date().toISOString();
+      const nextSync = devBuddy.setCommitmentSync({
+        lastAttemptAt: attemptedAt,
+        lastSuccessAt: completedAt,
+        error: errors.join(' | '),
+      });
+      broadcastSSE('dev-buddy-changed', { action: 'commitments-collected', ...result });
+      return { ran: true, found: items.length, ...result, sources: results.map(result => ({
+        source: result.source,
+        found: result.items.length,
+        error: result.error || '',
+      })), sync: nextSync };
+    } catch (error) {
+      const nextSync = devBuddy.setCommitmentSync({
+        lastAttemptAt: attemptedAt,
+        error: error.message,
+      });
+      console.warn('[dev-buddy] commitment collection failed:', error.message);
+      return { error: error.message, sync: nextSync };
+    }
+  })();
+  try {
+    return await _devBuddyCommitmentRun;
+  } finally {
+    _devBuddyCommitmentRun = null;
+  }
 }
 
 function _connectDateWindow(days) {
@@ -13493,6 +14581,14 @@ function connectCatchUpCheck() {
 }
 
 scheduleConnectCollection();
+const devBuddyCommitmentTimer = setInterval(() => {
+  _devBuddyCollectCommitments().catch(error => console.warn('[dev-buddy] commitment poll failed:', error.message));
+}, 30 * 60 * 1000);
+if (typeof devBuddyCommitmentTimer.unref === 'function') devBuddyCommitmentTimer.unref();
+const devBuddyCommitmentStartupTimer = setTimeout(() => {
+  _devBuddyCollectCommitments().catch(error => console.warn('[dev-buddy] initial commitment poll failed:', error.message));
+}, 2 * 60 * 1000);
+if (typeof devBuddyCommitmentStartupTimer.unref === 'function') devBuddyCommitmentStartupTimer.unref();
 // Give the app ~90s to settle (leader election, WorkIQ auth) before any catch-up.
 setTimeout(connectCatchUpCheck, 90_000);
 
@@ -23237,6 +24333,34 @@ app.post('/api/me-ai/agenda/goals/regenerate', (req, res) => {
     saveMeAiTodoStore(date, next);
     snap.todos = next; _meAiCleanSnapshotBlocks(snap); saveAgendaForDate(date, snap);
     res.json({ ok: true, date, todos: next, regenerated: true, added, dropped });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// POST /api/me-ai/agenda/goals/start-fresh { date? } → replace the viewed day's goal
+// checklist with goals derived from that day's CURRENT agenda. Unlike "regenerate", this
+// intentionally drops every prior checklist row regardless of status/carry-over. Plain
+// To-dos are a separate list and are preserved. We do not tombstone the removed goals:
+// if the agenda still considers one important it is allowed to come back in the fresh set.
+app.post('/api/me-ai/agenda/goals/start-fresh', (req, res) => {
+  try {
+    const b = req.body || {};
+    const date = String(b.date || '').slice(0, 10) || _meAiLocalDay();
+    const snap = loadAgendaForDate(date);
+    const store = loadMeAiTodoStore(date) || (snap && Array.isArray(snap.todos) ? snap.todos : []) || [];
+    if (!snap || !Array.isArray(snap.blocks) || !snap.blocks.length) {
+      return res.json({ ok: true, date, todos: _meAiNormTodos(store), refreshed: false, added: 0, dropped: 0, reason: 'no-agenda' });
+    }
+    const normed = _meAiNormTodos(store);
+    const dropped = normed.filter(t => t && t.kind === 'checklist').length;
+    const kept = normed.filter(t => !(t && t.kind === 'checklist'));
+    _meAiSeedChecklist(snap, kept, date, { force: true });
+    const next = _meAiNormTodos(kept);
+    const added = next.filter(t => t && t.kind === 'checklist').length;
+    saveMeAiTodoStore(date, next);
+    snap.todos = next;
+    _meAiCleanSnapshotBlocks(snap);
+    saveAgendaForDate(date, snap);
+    res.json({ ok: true, date, todos: next, refreshed: true, added, dropped });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
