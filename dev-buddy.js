@@ -396,6 +396,10 @@ function upsertCommitments(list) {
       store.commitments[index] = {
         ...current,
         ...normalized,
+        // A weaker later collection must never erase a source link that made
+        // the item actionable. Prefer the newest exact link, then the existing
+        // primary link, then any previously merged source link.
+        link: normalized.link || current.link || (links[0] && links[0].url) || '',
         externalId: current.externalId || externalId,
         externalIds,
         sources,
@@ -419,6 +423,14 @@ function listCommitments() {
   return readStore().commitments
     .filter(item => item && item.status !== 'done' && item.status !== 'dismissed')
     .filter(item => !(item.snoozedUntil && Date.parse(item.snoozedUntil) > now))
+    .map(item => ({
+      ...item,
+      link: item.link || (
+        Array.isArray(item.links) &&
+        item.links.find(entry => entry && entry.url) &&
+        item.links.find(entry => entry && entry.url).url
+      ) || '',
+    }))
     .sort((a, b) => {
       const aDue = Date.parse(a.dueAt || '');
       const bDue = Date.parse(b.dueAt || '');

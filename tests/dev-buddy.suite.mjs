@@ -119,6 +119,27 @@ await t.test('cross-source versions of one commitment are merged', () => {
   t.eq(result.deduplicated, 1, 'the duplicate is reported');
 });
 
+await t.test('commitment source links survive weaker collection refreshes', () => {
+  const externalId = 'email:message-99:reply';
+  const outlookUrl = 'https://outlook.office365.com/owa/?ItemID=message-99&viewmodel=ReadMessageItem';
+  buddy.upsertCommitments([{
+    externalId,
+    source: 'email',
+    title: 'Reply to the launch question',
+    link: outlookUrl,
+    observedAt: '2026-09-25T10:00:00Z',
+  }]);
+  buddy.upsertCommitments([{
+    externalId,
+    source: 'email',
+    title: 'Reply to the launch question',
+    link: '',
+    observedAt: '2026-09-25T11:00:00Z',
+  }]);
+  const item = buddy.listCommitments().find(entry => entry.externalId === externalId);
+  t.eq(item.link, outlookUrl, 'an empty refresh cannot erase the direct Outlook link');
+});
+
 await t.test('signals support lower priority, dismissal, and completion rewards', () => {
   const before = buddy.getProgress(2);
   const snoozed = 'pr-reminder|github|owner|repo|42';

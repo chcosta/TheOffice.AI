@@ -35,14 +35,19 @@ exhaustive mailbox, chat, transcript, or calendar enumeration.
 - Preserve uncertainty: use `confidence: "normal"` unless the source explicitly
   assigns the task to the user or records the user's commitment; then use
   `confidence: "high"`.
-- Use a source URL when WorkIQ provides one.
+- Every returned item MUST include the exact navigable URL of the source email,
+  Teams message, meeting, or calendar event. Use the WorkIQ retrieval hit's
+  citation/reference `webUrl`, not a URL merely mentioned inside the message.
+  For email this must be the Outlook message URL so clicking the Pixel row opens
+  that email directly. If you cannot obtain a source URL, do not return the item.
 - Use an ISO 8601 due time only when the source states one. Do not invent dates.
 - Keep each task atomic and concise.
 
 ## Stable identity
 
-`externalId` must remain stable across runs. Base it on the source entity and the
-specific action, for example:
+`externalId` must remain stable across runs. Base it on the REAL source entity ID
+returned by WorkIQ and the specific action; never invent a semantic placeholder
+such as `email:survey:complete`. Examples:
 
 - `email:<message-or-thread-id>:<short-action-key>`
 - `teams:<message-id>:<short-action-key>`
