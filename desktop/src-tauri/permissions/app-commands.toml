@@ -9,6 +9,7 @@ commands.allow = [
   "read_log_tail",
   "show_dev_buddy",
   "hide_dev_buddy",
+  "plan_dev_buddy_mode",
   "set_dev_buddy_mode",
   "start_dev_buddy_drag",
   "hide_dev_buddy_alert",

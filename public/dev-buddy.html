@@ -1080,7 +1080,23 @@
       async function setMode(mode) {
         const fn = invoke();
         if (!fn) return;
-        try { applyWindowPlacement(await fn('set_dev_buddy_mode', { mode })); } catch (_) {}
+        try {
+          const plan = await fn('plan_dev_buddy_mode', {
+            mode,
+            buddyLeft: windowPlacement.buddyLeft,
+            buddyTop: windowPlacement.buddyTop,
+          });
+          // Move Pixel to his final in-window anchor before the native window
+          // changes bounds, so WebView never paints an intermediate location.
+          applyWindowPlacement(plan);
+          applyWindowPlacement(await fn('set_dev_buddy_mode', {
+            mode,
+            anchorX: plan.anchorPhysicalX,
+            anchorY: plan.anchorPhysicalY,
+          }));
+        } catch (_) {
+          try { applyWindowPlacement(await fn('set_dev_buddy_mode', { mode })); } catch (_) {}
+        }
       }
 
       async function request(url, options = {}) {

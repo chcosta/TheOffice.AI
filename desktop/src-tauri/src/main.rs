@@ -277,14 +277,16 @@ fn position_dev_buddy(
     window: &tauri::WebviewWindow,
     requested_width: u32,
     requested_height: u32,
+    anchor_override: Option<tauri::PhysicalPosition<i32>>,
+    apply_bounds: bool,
 ) -> Result<serde_json::Value, String> {
     const IDLE_WIDTH: f64 = 160.0;
     const IDLE_HEIGHT: f64 = 180.0;
     const BUDDY_LEFT: f64 = 14.0;
     const BUDDY_TOP: f64 = 8.0;
 
-    let saved_anchor = read_dev_buddy_anchor();
-    let monitor = if let Some(anchor) = saved_anchor {
+    let selected_anchor = anchor_override.or_else(read_dev_buddy_anchor);
+    let monitor = if let Some(anchor) = selected_anchor {
         monitor_containing_anchor(window, anchor)?
     } else {
         None
@@ -320,7 +322,7 @@ fn position_dev_buddy(
         monitor_right - idle_width - margin,
         origin.y + margin,
     );
-    let mut anchor = saved_anchor.unwrap_or(default_anchor);
+    let mut anchor = selected_anchor.unwrap_or(default_anchor);
     anchor.x = anchor
         .x
         .clamp(origin.x + margin, monitor_right - idle_width - margin);
@@ -348,7 +350,12 @@ fn position_dev_buddy(
     let x = desired_x.clamp(origin.x + margin, monitor_right - physical_width - margin);
     let y = desired_y.clamp(origin.y + margin, monitor_bottom - physical_height - margin);
 
-    set_dev_buddy_bounds(window, x, y, physical_width, physical_height)?;
+    if apply_bounds {
+        set_dev_buddy_bounds(window, x, y, physical_width, physical_height)?;
+        if anchor_override.is_some() {
+            save_dev_buddy_anchor(anchor)?;
+        }
+    }
 
     let buddy_left =
         (anchor.x + (BUDDY_LEFT * scale_factor).round() as i32 - x) as f64 / scale_factor;
@@ -359,6 +366,8 @@ fn position_dev_buddy(
         "anchorY": if grow_down { "top" } else { "bottom" },
         "buddyLeft": buddy_left,
         "buddyTop": buddy_top,
+        "anchorPhysicalX": anchor.x,
+        "anchorPhysicalY": anchor.y,
     }))
 }
 
@@ -444,7 +453,7 @@ fn ensure_dev_buddy_window(app: &tauri::AppHandle, base_url: &str) -> Result<tau
     .shadow(false)
     .build()
     .map_err(|e| e.to_string())?;
-    position_dev_buddy(&window, 160, 180)?;
+    position_dev_buddy(&window, 160, 180, None, true)?;
     Ok(window)
 }
 
@@ -509,7 +518,7 @@ fn ensure_dev_buddy_alert_window(
 #[tauri::command]
 fn show_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
-    position_dev_buddy(&window, 160, 180)?;
+    position_dev_buddy(&window, 160, 180, None, true)?;
     window.show().map_err(|e| e.to_string())?;
     window.eval("location.reload()").map_err(|e| e.to_string())
 }
@@ -517,23 +526,56 @@ fn show_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn hide_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("dev-buddy") {
-        position_dev_buddy(&window, 160, 180)?;
+        position_dev_buddy(&window, 160, 180, None, true)?;
         window.hide().map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
-fn set_dev_buddy_mode(app: tauri::AppHandle, mode: String) -> Result<serde_json::Value, String> {
+fn plan_dev_buddy_mode(
+    app: tauri::AppHandle,
+    mode: String,
+    buddy_left: f64,
+    buddy_top: f64,
+) -> Result<serde_json::Value, String> {
+    const BUDDY_LEFT: f64 = 14.0;
+    const BUDDY_TOP: f64 = 8.0;
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
-    let (width, height) = match mode.as_str() {
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
+    let anchor = tauri::PhysicalPosition::new(
+        position.x + ((buddy_left - BUDDY_LEFT) * scale_factor).round() as i32,
+        position.y + ((buddy_top - BUDDY_TOP) * scale_factor).round() as i32,
+    );
+    let (width, height) = dev_buddy_mode_size(&mode);
+    position_dev_buddy(&window, width, height, Some(anchor), false)
+}
+
+fn dev_buddy_mode_size(mode: &str) -> (u32, u32) {
+    match mode {
         "expanded" => (440, 900),
         "wide" => (680, 900),
         "ultra" => (u32::MAX, 900),
         "bubble" => (380, 250),
         _ => (160, 180),
+    }
+}
+
+#[tauri::command]
+fn set_dev_buddy_mode(
+    app: tauri::AppHandle,
+    mode: String,
+    anchor_x: Option<i32>,
+    anchor_y: Option<i32>,
+) -> Result<serde_json::Value, String> {
+    let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
+    let (width, height) = dev_buddy_mode_size(&mode);
+    let anchor = match (anchor_x, anchor_y) {
+        (Some(x), Some(y)) => Some(tauri::PhysicalPosition::new(x, y)),
+        _ => None,
     };
-    let placement = position_dev_buddy(&window, width, height)?;
+    let placement = position_dev_buddy(&window, width, height, anchor, true)?;
     window.show().map_err(|e| e.to_string())?;
     Ok(placement)
 }
@@ -1477,6 +1519,7 @@ fn main() {
             read_log_tail,
             show_dev_buddy,
             hide_dev_buddy,
+            plan_dev_buddy_mode,
             set_dev_buddy_mode,
             start_dev_buddy_drag,
             hide_dev_buddy_alert,
