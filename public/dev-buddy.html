@@ -188,29 +188,37 @@
     .buddy[data-mood="overloaded"] .eye { height: 15px; top: 16px; }
     .buddy[data-mood="overloaded"] .attention-dot { background: var(--cp-danger); }
     .body {
+      --tummy-urgency: var(--cp-border-strong);
       position: absolute;
       left: 35px;
       top: 101px;
       width: 66px;
       height: 42px;
-      border: 3px solid var(--cp-border-strong);
+      border: 3px solid var(--tummy-urgency);
       border-radius: 16px 16px 20px 20px;
       background: var(--cp-bg-elevated);
+      transition: border-color .25s ease;
     }
+    .buddy[data-work-urgency="critical"] .body { --tummy-urgency: var(--cp-danger); }
+    .buddy[data-work-urgency="high"] .body { --tummy-urgency: var(--cp-warning); }
+    .buddy[data-work-urgency="medium"] .body { --tummy-urgency: var(--cp-link); }
+    .buddy[data-work-urgency="low"] .body { --tummy-urgency: var(--cp-success); }
     .body-count {
       position: absolute;
-      left: 19px;
-      top: 8px;
+      left: 18px;
+      top: 7px;
       width: 22px;
       min-height: 18px;
       padding: 1px 2px;
+      border: 2px solid var(--tummy-urgency);
       border-radius: 5px;
-      background: var(--cp-accent);
-      color: var(--cp-accent-fg);
+      background: var(--cp-panel-strong);
+      color: var(--tummy-urgency);
       font-size: 10px;
       font-weight: 700;
-      line-height: 16px;
+      line-height: 12px;
       text-align: center;
+      transition: border-color .25s ease, color .25s ease;
     }
     .work-bars {
       position: absolute;
@@ -1200,6 +1208,18 @@
         ` : '<div class="empty">You’re caught up. Nothing currently on your list has changed since your last look.</div>';
       }
 
+      function refreshBuddyUrgency(items) {
+        const rank = { critical: 4, high: 3, medium: 2, low: 1 };
+        const highest = (items || []).reduce((current, item) => {
+          const level = item?.urgency?.level;
+          return (rank[level] || 0) > (rank[current] || 0) ? level : current;
+        }, '');
+        $('buddy').dataset.workUrgency = highest || 'none';
+        $('bodyCount').title = highest
+          ? `Highest work-list urgency: ${highest}`
+          : 'No work-list urgency';
+      }
+
       function render() {
         const settings = status?.settings || {};
         const mood = status?.mood || { id: 'calm', label: 'Calm', detail: 'Keeping the loose ends together.' };
@@ -1216,6 +1236,7 @@
         $('pinPanel').textContent = panelPinned ? 'Unpin' : 'Pin';
         $('attentionDot').classList.toggle('on', (status?.counts?.attention || 0) > 0);
         const combined = status?.list || [...(status?.signals || []), ...(status?.items || []).filter(item => !item.snoozed)];
+        refreshBuddyUrgency(combined);
         $('buddy').classList.toggle('critical-work', combined.some(item => item.urgency?.level === 'critical'));
         const relationshipSignature = combined.map(item => `${item.id}:${item.urgency?.level || ''}`).join('|');
         if (mapMode !== 'context' && mapRelationshipSignature && relationshipSignature !== mapRelationshipSignature) {
@@ -1941,6 +1962,7 @@
         $('attentionCount').textContent = status.counts.attention;
         $('trackingCount').textContent = status.counts.tracking;
         $('memoryCount').textContent = status.counts.remembered;
+        refreshBuddyUrgency(list);
         refreshProgressIndicators();
         if (!$('itemList').querySelector('.item')) {
           $('itemList').innerHTML = '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
@@ -1971,6 +1993,7 @@
         row.querySelector('.priority')?.classList.toggle('high', priority === 'high');
         const button = row.querySelector('[data-action="priority-down"]');
         if (button && priority === 'low') button.remove();
+        refreshBuddyUrgency(status.list);
         refreshProgressIndicators();
         return () => {
           status = previousStatus;
