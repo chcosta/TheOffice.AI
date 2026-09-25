@@ -2792,6 +2792,22 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   // My own vote (for the reviews view).
   const myReviewer = viewerId ? (pr.reviewers || []).find(r => r.id === viewerId) : null;
   const myVote = myReviewer ? myReviewer.voteLabel : null;
+  // Thread ownership matters for attention, not just the raw unresolved count.
+  // If I wrote the latest comment, the thread is waiting on somebody else and
+  // must not make Pixel nag me. Keep the raw counts for the Code Flow UI, while
+  // exposing an actionable count for personal attention surfaces.
+  const rawComments = threads || { activeComments: 0, resolvedComments: 0, totalThreads: 0, items: [] };
+  const activeThreadItems = Array.isArray(rawComments.items)
+    ? rawComments.items.filter(t => t && t.active)
+    : [];
+  const viewerKey = String(viewerId || '').toLowerCase();
+  const viewerLastActiveThreads = viewerKey
+    ? activeThreadItems.filter(t => String(t.lastAuthorId || '').toLowerCase() === viewerKey).length
+    : 0;
+  const actionableActiveComments = activeThreadItems.length
+    ? activeThreadItems.filter(t => !viewerKey || String(t.lastAuthorId || '').toLowerCase() !== viewerKey).length
+    : (Number(rawComments.activeComments) || 0);
+  const comments = { ...rawComments, viewerLastActiveThreads, actionableActiveComments };
 
   // Group review: a PR can list an AzDO group / GitHub team as a reviewer (it shows
   // up as a named reviewer entry). If one of MY configured groups (opts.myGroups) is a
@@ -2928,7 +2944,7 @@ async function _enrichCodeflowPr(pr, viewerId, opts = {}) {
   return {
     ...pr,
     ageHours, ageDays,
-    comments: threads || { activeComments: 0, resolvedComments: 0, totalThreads: 0 },
+    comments,
     validation,
     failedChecks, pendingChecks, failedOptionalChecks,
     proofOfPresencePending, proofOfPresenceOnly,
@@ -2959,7 +2975,14 @@ function _codeflowAttention(pr, view) {
     if (!pr.amReviewer && pr.amGroupReviewer)
       return pr.groupVoted ? { attention: false, reason: '' } : { attention: true, reason: 'group-review-requested' };
     // Awaiting my review (I haven't voted) or I asked for changes and it moved on.
-    if (!pr.myVote || pr.myVote === 'no-vote') return { attention: true, reason: 'awaiting-your-review' };
+    if (!pr.myVote || pr.myVote === 'no-vote') {
+      // Leaving the latest unresolved feedback is itself a review action. Until
+      // somebody replies or updates the PR, that conversation is waiting on them.
+      if (Number(pr.comments && pr.comments.viewerLastActiveThreads) > 0) {
+        return { attention: false, reason: '' };
+      }
+      return { attention: true, reason: 'awaiting-your-review' };
+    }
     if (pr.myVote === 'waiting-for-author' && pr.approvalState !== 'waiting-for-author')
       return { attention: true, reason: 'updated-since-your-review' };
     return { attention: false, reason: '' };
@@ -3122,11 +3145,21 @@ function _devBuddyPrSignal(pr, view) {
   if (!pr) return null;
   const comments = pr.comments || {};
   const failed = Number(pr.failedChecks) || 0;
-  const activeComments = Number(comments.activeComments) || 0;
+  // On PRs I review, thread counts are context for the author—not an independent
+  // reason to track the PR. The review-state decision above is authoritative.
+  // On my own PRs, only unresolved threads whose latest reply is somebody else's
+  // are actionable; my own latest comments are waiting on them.
+  const activeComments = view === 'reviews'
+    ? 0
+    : Number(comments.actionableActiveComments ?? comments.activeComments) || 0;
   const title = String(pr.title || `Pull request #${pr.id}`);
   let detail = '';
   let priority = 'normal';
-  if (failed) {
+  if (view === 'reviews' && !pr.attention) {
+    return null;
+  } else if (view === 'reviews') {
+    detail = pr.attentionReason ? `Waiting on you: ${String(pr.attentionReason).replace(/-/g, ' ')}.` : 'This pull request is waiting for your review.';
+  } else if (failed) {
     detail = `${failed} required ${failed === 1 ? 'check is' : 'checks are'} failing.`;
     priority = 'high';
   } else if (activeComments) {
@@ -3134,8 +3167,6 @@ function _devBuddyPrSignal(pr, view) {
     priority = 'high';
   } else if (pr.readyToMerge) {
     detail = 'Checks and approvals look ready for merge.';
-  } else if (view === 'reviews') {
-    detail = pr.attentionReason ? `Waiting on you: ${String(pr.attentionReason).replace(/-/g, ' ')}.` : 'This pull request is waiting for your review.';
   } else if (pr.attentionReason) {
     detail = `Needs attention: ${String(pr.attentionReason).replace(/-/g, ' ')}.`;
   } else {
@@ -3153,7 +3184,10 @@ function _devBuddyPrSignal(pr, view) {
     repository,
     view === 'reviews' ? 'review requested' : 'your PR',
   ].filter(Boolean).join(' · ');
-  const fingerprint = ['pr', provider, org, project, repo, pr.id, failed, activeComments, pr.attentionReason || '', !!pr.readyToMerge].join('|').toLowerCase();
+  const fingerprint = (view === 'reviews'
+    ? ['pr', provider, org, project, repo, pr.id, 'review', pr.sourceHead || '', pr.attentionReason || '']
+    : ['pr', provider, org, project, repo, pr.id, failed, activeComments, pr.attentionReason || '', !!pr.readyToMerge]
+  ).join('|').toLowerCase();
   const reminderKey = ['pr-reminder', provider, org, project, repo, pr.id].join('|').toLowerCase();
   return {
     id: fingerprint,

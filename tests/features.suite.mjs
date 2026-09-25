@@ -141,6 +141,42 @@ await t.test('Code Flow: PR tabs swap per-view data immediately and sequence in-
     'the active tab shows an updating state and never renders cards owned by another view');
 });
 
+await t.test('Pixel ignores my own latest PR comments and follows review attention state', () => {
+  const { _codeflowAttention, _devBuddyPrSignal } = extractFns(SERVER, ['_codeflowAttention', '_devBuddyPrSignal']);
+  const base = {
+    id: 65749,
+    provider: 'azdo',
+    org: 'dnceng',
+    project: 'internal',
+    repo: 'dotnet-helix-service',
+    title: 'Reject duplicate JSON properties',
+    sourceHead: 'abc123',
+    myVote: 'no-vote',
+    amReviewer: true,
+    comments: { activeComments: 1, actionableActiveComments: 0, viewerLastActiveThreads: 1 },
+  };
+  const handled = _codeflowAttention(base, 'reviews');
+  t.eq(handled.attention, false, 'my latest unresolved feedback means the PR is waiting on somebody else');
+  t.eq(_devBuddyPrSignal({ ...base, ...handled }, 'reviews'), null, 'Pixel does not track a handled review because of my own thread');
+
+  const replied = {
+    ...base,
+    comments: { activeComments: 1, actionableActiveComments: 1, viewerLastActiveThreads: 0 },
+  };
+  const needsReview = _codeflowAttention(replied, 'reviews');
+  t.eq(needsReview.attention, true, 'an external reply can make the review actionable again');
+  t.ok(_devBuddyPrSignal({ ...replied, ...needsReview, attentionReason: needsReview.reason }, 'reviews'), 'Pixel may track genuinely renewed review work');
+
+  const mine = {
+    ...base,
+    attention: false,
+    attentionReason: '',
+    failedChecks: 0,
+    readyToMerge: false,
+  };
+  t.eq(_devBuddyPrSignal(mine, 'mine'), null, 'my own latest comment does not raise my authored PR either');
+});
+
 await t.test('Code Flow: You are here rows use a gold rail border', () => {
   const html = readFileSync(APP_HTML, 'utf8');
   t.ok(/here: yahIsOn\('dev:' \+ card\.id\)/.test(html) &&
