@@ -348,15 +348,7 @@ fn position_dev_buddy(
     let x = desired_x.clamp(origin.x + margin, monitor_right - physical_width - margin);
     let y = desired_y.clamp(origin.y + margin, monitor_bottom - physical_height - margin);
 
-    window
-        .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)))
-        .map_err(|e| e.to_string())?;
-    window
-        .set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
-            physical_width as u32,
-            physical_height as u32,
-        )))
-        .map_err(|e| e.to_string())?;
+    set_dev_buddy_bounds(window, x, y, physical_width, physical_height)?;
 
     let buddy_left =
         (anchor.x + (BUDDY_LEFT * scale_factor).round() as i32 - x) as f64 / scale_factor;
@@ -368,6 +360,67 @@ fn position_dev_buddy(
         "buddyLeft": buddy_left,
         "buddyTop": buddy_top,
     }))
+}
+
+#[cfg(windows)]
+fn set_dev_buddy_bounds(
+    window: &tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    use std::ffi::c_void;
+
+    unsafe extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            hwnd_insert_after: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    const SWP_NOZORDER: u32 = 0x0004;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let result = unsafe {
+        SetWindowPos(
+            hwnd.0,
+            std::ptr::null_mut(),
+            x,
+            y,
+            width,
+            height,
+            SWP_NOZORDER | SWP_NOACTIVATE,
+        )
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_dev_buddy_bounds(
+    window: &tauri::WebviewWindow,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    window
+        .set_position(tauri::Position::Physical(tauri::PhysicalPosition::new(x, y)))
+        .map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::Size::Physical(tauri::PhysicalSize::new(
+            width as u32,
+            height as u32,
+        )))
+        .map_err(|e| e.to_string())
 }
 
 fn ensure_dev_buddy_window(app: &tauri::AppHandle, base_url: &str) -> Result<tauri::WebviewWindow, String> {
