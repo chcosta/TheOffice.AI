@@ -188,16 +188,15 @@
     .buddy[data-mood="overloaded"] .eye { height: 15px; top: 16px; }
     .buddy[data-mood="overloaded"] .attention-dot { background: var(--cp-danger); }
     .body {
-      --tummy-urgency: var(--cp-border-strong);
+      --tummy-urgency: var(--cp-accent);
       position: absolute;
       left: 35px;
       top: 101px;
       width: 66px;
       height: 42px;
-      border: 3px solid var(--tummy-urgency);
+      border: 3px solid var(--cp-border-strong);
       border-radius: 16px 16px 20px 20px;
       background: var(--cp-bg-elevated);
-      transition: border-color .25s ease;
     }
     .buddy[data-work-urgency="critical"] .body { --tummy-urgency: var(--cp-danger); }
     .buddy[data-work-urgency="high"] .body { --tummy-urgency: var(--cp-warning); }
@@ -205,20 +204,19 @@
     .buddy[data-work-urgency="low"] .body { --tummy-urgency: var(--cp-success); }
     .body-count {
       position: absolute;
-      left: 18px;
-      top: 7px;
+      left: 19px;
+      top: 8px;
       width: 22px;
       min-height: 18px;
       padding: 1px 2px;
-      border: 2px solid var(--tummy-urgency);
       border-radius: 5px;
-      background: var(--cp-panel-strong);
-      color: var(--tummy-urgency);
+      background: var(--tummy-urgency);
+      color: var(--cp-accent-fg);
       font-size: 10px;
       font-weight: 700;
-      line-height: 12px;
+      line-height: 16px;
       text-align: center;
-      transition: border-color .25s ease, color .25s ease;
+      transition: background-color .25s ease;
     }
     .work-bars {
       position: absolute;
