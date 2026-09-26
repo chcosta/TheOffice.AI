@@ -619,6 +619,10 @@
       outline: none;
     }
     .item.selected { border-left-color: var(--category-color); }
+    .item.starred {
+      background: var(--cp-highlight);
+      border-left-color: var(--cp-warning);
+    }
     .item.dragging { opacity: .38; }
     .item.drag-target { border-top: 2px solid var(--cp-accent); }
     .item[data-kind="pull-request"] { --category-color: var(--cp-link); }
@@ -691,6 +695,14 @@
       color: var(--cp-success);
       font-size: 15px;
       font-weight: 700;
+    }
+    .quick-star {
+      color: var(--cp-text-muted);
+      font-size: 16px;
+    }
+    .quick-star[aria-pressed="true"] {
+      border-color: var(--cp-warning);
+      color: var(--cp-warning);
     }
     .reminder-controls {
       display: flex;
@@ -794,27 +806,56 @@
     .hover-preview.show { display: block; animation: panel-in .16s ease-out; }
     .hover-preview-head {
       display: flex;
-      align-items: baseline;
+      align-items: center;
       gap: 8px;
       padding: 10px 12px;
       border-bottom: 1px solid var(--cp-border);
       font-size: 12px;
       font-weight: 650;
     }
-    .hover-preview-head span {
+    .hover-preview-head label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
       margin-left: auto;
       color: var(--cp-text-muted);
       font-size: 10px;
       font-weight: 400;
     }
+    .hover-preview-head select {
+      max-width: 112px;
+      min-height: 26px;
+      padding: 2px 5px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font: inherit;
+    }
+    .preview-list {
+      max-height: calc(100vh - var(--buddy-top) - 208px);
+      overflow-y: auto;
+      scrollbar-width: none;
+    }
+    .preview-list::-webkit-scrollbar { display: none; }
+    .stage[data-anchor-y="bottom"] .preview-list {
+      max-height: calc(var(--buddy-top) - 60px);
+    }
     .preview-item {
+      --urgency-color: var(--cp-text-muted);
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-columns: minmax(0, 1fr) auto auto;
       gap: 8px;
       align-items: center;
       padding: 8px 10px;
       border-bottom: 1px solid var(--cp-border);
+      border-left: 4px solid var(--urgency-color);
     }
+    .preview-item[data-urgency="critical"] { --urgency-color: var(--cp-danger); }
+    .preview-item[data-urgency="high"] { --urgency-color: var(--cp-warning); }
+    .preview-item[data-urgency="medium"] { --urgency-color: var(--cp-link); }
+    .preview-item[data-urgency="low"] { --urgency-color: var(--cp-success); }
+    .preview-item.starred { background: var(--cp-highlight); }
     .preview-item:last-child { border-bottom: 0; }
     .preview-read {
       min-width: 0;
@@ -833,7 +874,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .preview-meta { margin-top: 2px; color: var(--cp-text-muted); font-size: 10px; }
+    .preview-meta { margin-top: 2px; color: var(--urgency-color); font-size: 10px; font-weight: 600; }
     .source-status {
       padding: 7px 14px;
       border-bottom: 1px solid var(--cp-border);
@@ -1167,8 +1208,16 @@
       </section>
     </section>
     <aside class="hover-preview" id="hoverPreview" aria-label="Top work items">
-      <div class="hover-preview-head">Up next <span>Read or mark done</span></div>
-      <div id="previewList"></div>
+      <div class="hover-preview-head">Work
+        <label>Sort
+          <select id="previewSort" aria-label="Sort hover work list">
+            <option value="urgency">Urgency</option>
+            <option value="arrival">Arrival time</option>
+            <option value="manual">My order</option>
+          </select>
+        </label>
+      </div>
+      <div class="preview-list" id="previewList"></div>
     </aside>
 
     <aside class="bubble" id="bubble" aria-live="polite" data-kind="memory">
@@ -1231,6 +1280,7 @@
       let knownItemIds = null;
       let loadSequence = 0;
       const pendingHiddenIds = new Set();
+      const pendingStarStates = new Map();
       let mapTransform = { x: 24, y: 24, scale: 1 };
       let mapExtent = { width: 980, height: 600 };
       let mapPointer = null;
@@ -1353,6 +1403,7 @@
           ${selected.attentionBlurb && selected.detail ? `<div class="detail-description">${escapeHtml(selected.detail)}</div>` : ''}
           <div class="detail-actions" data-detail-id="${escapeHtml(selected.id)}">
             <button class="detail-primary" type="button" data-action="done">Done</button>
+            <button class="text-action" type="button" data-action="star" aria-pressed="${selected.starred ? 'true' : 'false'}">${selected.starred ? '★ Starred' : '☆ Star'}</button>
             ${openable ? '<button class="text-action" type="button" data-action="open">Open source</button>' : ''}
             ${selected.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
             <label class="reminder-control">Remind me in
@@ -1379,7 +1430,7 @@
         if (!sorted.some(item => item.id === selectedItemId)) selectedItemId = sorted[0]?.id || '';
         $('workSort').value = workSort;
         $('itemList').innerHTML = sorted.length ? sorted.map(item => `
-          <article class="item ${item.id === selectedItemId ? 'selected' : ''}" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" role="button" tabindex="0" aria-selected="${item.id === selectedItemId ? 'true' : 'false'}">
+          <article class="item ${item.id === selectedItemId ? 'selected' : ''} ${item.starred ? 'starred' : ''}" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" role="button" tabindex="0" aria-selected="${item.id === selectedItemId ? 'true' : 'false'}">
             <div class="item-top">
               ${workSort === 'manual' ? '<button class="drag-handle" type="button" title="Drag to reorder" aria-label="Drag to reorder">↕</button>' : ''}
               <div class="item-copy">
@@ -1391,6 +1442,7 @@
                 </div>
               </div>
               <div class="item-quick-actions">
+                <button class="quick-action quick-star" type="button" data-action="star" aria-label="${item.starred ? 'Remove star' : 'Star item'}" aria-pressed="${item.starred ? 'true' : 'false'}" title="${item.starred ? 'Remove star' : 'Star item'}">${item.starred ? '★' : '☆'}</button>
                 ${item.link || item.route ? '<button class="quick-action" type="button" data-action="open" aria-label="Open source" title="Open source">↗</button>' : ''}
                 <button class="quick-action quick-done" type="button" data-action="done" aria-label="Mark done" title="Mark done">✓</button>
               </div>
@@ -1401,13 +1453,15 @@
       }
 
       function renderPreview(items) {
-        const top = sortedWorkItems(items).slice(0, 5);
-        $('previewList').innerHTML = top.length ? top.map(item => `
-          <div class="preview-item" data-preview-id="${escapeHtml(item.id)}">
+        const sorted = sortedWorkItems(items);
+        $('previewSort').value = workSort;
+        $('previewList').innerHTML = sorted.length ? sorted.map(item => `
+          <div class="preview-item ${item.starred ? 'starred' : ''}" data-preview-id="${escapeHtml(item.id)}" data-urgency="${escapeHtml(item.urgency?.level || 'medium')}">
             <button class="preview-read" type="button" data-preview-action="read">
               <div class="preview-title">${escapeHtml(item.title)}</div>
               <div class="preview-meta">${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))} · ${escapeHtml(formatArrivalTime(item))}</div>
             </button>
+            <button class="quick-action quick-star" type="button" data-preview-action="star" aria-label="${item.starred ? 'Remove star' : 'Star item'}" aria-pressed="${item.starred ? 'true' : 'false'}" title="${item.starred ? 'Remove star' : 'Star item'}">${item.starred ? '★' : '☆'}</button>
             <button class="quick-action quick-done" type="button" data-preview-action="done" aria-label="Mark done" title="Mark done">✓</button>
           </div>`).join('') : '<div class="empty">Nothing needs you right now.</div>';
       }
@@ -1707,11 +1761,24 @@
             if (!returnedIds.has(id)) pendingHiddenIds.delete(id);
           }
           const hidePending = entries => (entries || []).filter(item => !pendingHiddenIds.has(item.id));
+          const returnedItems = [
+            ...(nextStatus.list || []),
+            ...(nextStatus.signals || []),
+            ...(nextStatus.items || []),
+          ];
+          for (const [id, starred] of pendingStarStates) {
+            const returned = returnedItems.find(item => item.id === id);
+            if (returned && returned.starred === starred) pendingStarStates.delete(id);
+          }
+          const preservePendingStars = entries => (entries || []).map(item =>
+            pendingStarStates.has(item.id)
+              ? { ...item, starred: pendingStarStates.get(item.id) }
+              : item);
           nextStatus = {
             ...nextStatus,
-            list: hidePending(nextStatus.list),
-            signals: hidePending(nextStatus.signals),
-            items: hidePending(nextStatus.items),
+            list: preservePendingStars(hidePending(nextStatus.list)),
+            signals: preservePendingStars(hidePending(nextStatus.signals)),
+            items: preservePendingStars(hidePending(nextStatus.items)),
           };
           status = nextStatus;
           for (const item of (status.items || [])) {
@@ -2235,6 +2302,27 @@
         };
       }
 
+      function toggleStarLocally(item, starred) {
+        const previousStatus = status;
+        loadSequence++;
+        pendingStarStates.set(item.id, starred);
+        const update = entries => (entries || []).map(entry =>
+          entry.id === item.id ? { ...entry, starred } : entry);
+        status = {
+          ...status,
+          list: update(status?.list),
+          signals: update(status?.signals),
+          items: update(status?.items),
+        };
+        renderWorkItems(status.list);
+        return () => {
+          if (pendingStarStates.get(item.id) === starred) pendingStarStates.delete(item.id);
+          loadSequence++;
+          status = previousStatus;
+          renderWorkItems(status?.list || []);
+        };
+      }
+
       async function updateListItem(item, body, reload = true) {
         if (item.completable) {
           await request('/api/dev-buddy/commitments/' + encodeURIComponent(item.id), {
@@ -2242,7 +2330,9 @@
             body: JSON.stringify(body),
           });
         } else if (item.fingerprint) {
-          const signalKey = body.snoozedUntil ? (item.reminderKey || item.fingerprint) : item.fingerprint;
+          const signalKey = Object.prototype.hasOwnProperty.call(body, 'starred') || body.snoozedUntil
+            ? (item.reminderKey || item.fingerprint)
+            : item.fingerprint;
           await request('/api/dev-buddy/signals/' + encodeURIComponent(signalKey), {
             method: 'PUT',
             body: JSON.stringify({ ...body, title: item.title, source: item.source }),
@@ -2277,6 +2367,17 @@
       async function handleWorkAction(action, item, row, scope) {
         if (!action || !item) return;
         if (action === 'open') return openItem(item);
+        if (action === 'star') {
+          const starred = item.starred !== true;
+          const restore = toggleStarLocally(item, starred);
+          try {
+            await updateListItem(item, { starred }, false);
+            void load();
+          } catch (error) {
+            restore();
+          }
+          return;
+        }
         if (action === 'remind-at') {
           const input = scope.querySelector('[data-reminder-at]');
           const reminderAt = new Date(input.value).getTime();
@@ -2322,13 +2423,16 @@
         }
       }
 
-      $('workSort').addEventListener('change', event => {
-        workSort = ['urgency', 'arrival', 'manual'].includes(event.target.value)
-          ? event.target.value
+      function changeWorkSort(value) {
+        workSort = ['urgency', 'arrival', 'manual'].includes(value)
+          ? value
           : 'urgency';
         localStorage.setItem('dev-buddy-work-sort', workSort);
         renderWorkItems(status?.list || []);
-      });
+      }
+
+      $('workSort').addEventListener('change', event => changeWorkSort(event.target.value));
+      $('previewSort').addEventListener('change', event => changeWorkSort(event.target.value));
 
       $('itemList').addEventListener('click', async event => {
         const row = event.target.closest('.item');
@@ -2381,9 +2485,9 @@
           renderWorkItems(status?.list || []);
           return;
         }
-        if (action === 'done') {
+        if (action === 'done' || action === 'star') {
           const listRow = $('itemList').querySelector(`[data-id="${CSS.escape(item.id)}"]`);
-          await handleWorkAction('done', item, listRow, row);
+          await handleWorkAction(action, item, listRow, row);
         }
       });
 

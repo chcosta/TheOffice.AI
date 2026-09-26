@@ -297,6 +297,7 @@ function updateItem(id, patch = {}) {
     item.title = title;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'detail')) item.detail = cleanText(patch.detail, 500);
+  if (Object.prototype.hasOwnProperty.call(patch, 'starred')) item.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
     if (priority !== item.priority) recordActivity(store, 'reprioritized', item.id, item.title, item.source);
@@ -451,6 +452,7 @@ function updateCommitment(id, patch = {}) {
   const store = readStore();
   const item = store.commitments.find(entry => entry && entry.id === id);
   if (!item) return null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'starred')) item.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
     if (priority !== item.priority) {
@@ -532,6 +534,7 @@ function updateSignal(fingerprint, patch = {}, item = {}) {
     if (priority !== current.priority) recordActivity(store, 'reprioritized', key, item.title, item.source);
     next.priority = priority;
   }
+  if (Object.prototype.hasOwnProperty.call(patch, 'starred')) next.starred = patch.starred === true;
   if (['done', 'dismissed', 'open'].includes(patch.status)) {
     if (patch.status === 'done' && current.status !== 'done') {
       recordCompletion(store, key, item.title, item.source);

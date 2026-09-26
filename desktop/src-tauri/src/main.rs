@@ -556,7 +556,7 @@ fn plan_dev_buddy_mode(
 fn dev_buddy_mode_size(mode: &str) -> (u32, u32) {
     match mode {
         "workspace" => (u32::MAX, u32::MAX),
-        "peek" => (400, 620),
+        "peek" => (400, u32::MAX),
         "expanded" => (440, 900),
         "wide" => (680, 900),
         "ultra" => (u32::MAX, 900),

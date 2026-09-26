@@ -12,12 +12,19 @@ const buddy = require(path.join(process.cwd(), 'dev-buddy.js'));
 
 await t.test('work UI uses a compact list-detail workspace and one completion action', () => {
   const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
+  const desktop = readFileSync(path.join(process.cwd(), 'desktop', 'src-tauri', 'src', 'main.rs'), 'utf8');
   t.ok(/class="work-layout"/.test(html) && /id="itemDetail"/.test(html),
     'work items use navigation and detail panes');
   t.ok(/id="workSort"/.test(html) && /value="urgency"/.test(html) && /value="arrival"/.test(html),
     'work list exposes urgency and arrival sorting');
-  t.ok(/id="hoverPreview"/.test(html) && /slice\(0, 5\)/.test(html),
-    'hover preview is limited to the next five items');
+  t.ok(/id="hoverPreview"/.test(html) && /class="preview-list"/.test(html),
+    'hover preview exposes the complete scrollable list');
+  t.ok(/"peek"\s*=>\s*\(400,\s*u32::MAX\)/.test(desktop) &&
+    /max-height:\s*calc\(100vh - var\(--buddy-top\) - 208px\)/.test(html),
+  'hover preview uses the available monitor height');
+  t.ok(/const pendingStarStates = new Map\(\)/.test(html) &&
+    /preservePendingStars/.test(html),
+  'status refreshes preserve optimistic stars until persistence is confirmed');
   t.ok(!/data-view-target="catchup"/.test(html) && !/data-action="dismiss"/.test(html),
     'Catch up and work-item dismissal are removed');
 });
@@ -25,9 +32,10 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
   const item = buddy.addItem({ title: 'Finish the review', detail: 'Two threads remain', priority: 'high' });
   t.eq(buddy.listItems()[0].title, 'Finish the review', 'new memory is returned from durable storage');
-  buddy.updateItem(item.id, { priority: 'low', snoozedUntil: new Date(Date.now() + 60_000).toISOString() });
+  buddy.updateItem(item.id, { priority: 'low', starred: true, snoozedUntil: new Date(Date.now() + 60_000).toISOString() });
   const snoozed = buddy.listItems().find(entry => entry.id === item.id);
   t.eq(snoozed.priority, 'low', 'priority update persists');
+  t.ok(snoozed.starred, 'starred state persists');
   t.ok(snoozed.snoozed, 'future snooze is active');
   buddy.updateItem(item.id, { status: 'done' });
   t.ok(!buddy.listItems().some(entry => entry.id === item.id), 'completed memory leaves the open list');
@@ -159,6 +167,7 @@ await t.test('signals support lower priority, dismissal, and completion rewards'
     title: 'Review the change later',
     source: 'Code Flow',
   });
+
   t.ok(buddy.isSignalDismissed(snoozed), 'reminded-later signal leaves the list until its deadline');
 
   const dismissed = 'build|dismiss-me';
@@ -179,6 +188,29 @@ await t.test('signals support lower priority, dismissal, and completion rewards'
   const repeated = buddy.getProgress(2);
   t.eq(repeated.addressedToday, progress.addressedToday, 'repeated actions do not double-count addressed items');
   t.eq(repeated.deferredToday, progress.deferredToday, 'repeated actions do not double-count deferred items');
+});
+
+await t.test('signals and commitments preserve starred state', () => {
+  const signal = 'starred-signal';
+  buddy.updateSignal(signal, { starred: true }, { title: 'Starred signal', source: 'Test' });
+  t.ok(buddy.getSignalState(signal).starred, 'signal star persists');
+
+  buddy.upsertCommitments([{
+    externalId: 'starred-commitment',
+    source: 'email',
+    title: 'Starred commitment',
+    observedAt: '2026-09-25T12:00:00Z',
+  }]);
+  const commitment = buddy.listCommitments().find(entry => entry.externalId === 'starred-commitment');
+  buddy.updateCommitment(commitment.id, { starred: true });
+  buddy.upsertCommitments([{
+    externalId: 'starred-commitment',
+    source: 'email',
+    title: 'Starred commitment updated',
+    observedAt: '2026-09-25T13:00:00Z',
+  }]);
+  t.ok(buddy.listCommitments().find(entry => entry.id === commitment.id).starred,
+    'commitment star survives collection refreshes');
 });
 
 await t.test('daily progress uses unique tracked work as its denominator', () => {

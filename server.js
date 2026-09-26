@@ -3208,10 +3208,14 @@ function _devBuddyPrSignal(pr, view) {
 function _devBuddyDecorateItem(item) {
   const trackedAt = item.trackedAt || item.createdAt || item.updatedAt || null;
   const signalState = item.fingerprint ? devBuddy.getSignalState(item.fingerprint) : {};
+  const starState = item.fingerprint
+    ? devBuddy.getSignalState(item.reminderKey || item.fingerprint)
+    : {};
   const priority = signalState.priority || item.priority;
   return {
     ...item,
     priority,
+    starred: item.fingerprint ? starState.starred === true : item.starred === true,
     kind: item.kind || 'memory',
     trackedAt,
     trackedFor: devBuddy.describeAge(trackedAt),
