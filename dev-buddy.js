@@ -568,12 +568,18 @@ function getProgress(open = 0) {
     const parsed = Date.parse(entry.at || '');
     return Number.isFinite(parsed) ? Math.max(value, parsed) : value;
   }, 0);
-  const openCount = Math.max(0, Number(open) || 0);
+  const openItems = Array.isArray(open) ? open.filter(Boolean) : null;
+  const openCount = openItems ? openItems.length : Math.max(0, Number(open) || 0);
   const addressedCount = uniqueCount(['completed', 'dismissed']);
   const deferredCount = uniqueCount(['deferred', 'reprioritized']);
-  const total = openCount + addressedCount;
+  const activityIds = new Set(today.map(entry => entry.id).filter(Boolean));
+  const trackedIds = openItems
+    ? new Set([...openItems.map(item => item && item.id).filter(Boolean), ...activityIds])
+    : null;
+  const total = trackedIds ? trackedIds.size : openCount + activityIds.size;
   return {
     open: openCount,
+    totalTrackedToday: total,
     addressedToday: addressedCount,
     deferredToday: deferredCount,
     completedToday: addressedCount,

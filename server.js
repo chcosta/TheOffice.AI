@@ -3793,7 +3793,7 @@ async function _devBuddyStatus({ refresh = false } = {}) {
     tracking: list.filter(item => ['agent-run', 'build', 'session'].includes(item.kind)).length,
     remembered: list.filter(item => !item.fingerprint || item.completable).length,
   };
-  const progress = devBuddy.getProgress(list.length);
+  const progress = devBuddy.getProgress(list);
   const firstItem = [...list]
     .filter(item => item.semanticAttention !== false)
     .sort((a, b) =>

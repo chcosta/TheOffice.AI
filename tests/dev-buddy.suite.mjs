@@ -169,6 +169,24 @@ await t.test('signals support lower priority, dismissal, and completion rewards'
   t.eq(repeated.deferredToday, progress.deferredToday, 'repeated actions do not double-count deferred items');
 });
 
+await t.test('daily progress uses unique tracked work as its denominator', () => {
+  const id = 'daily-progress-union';
+  buddy.updateSignal(id, { priority: 'low' }, { title: 'Daily denominator item', source: 'Test' });
+  const withoutOpen = buddy.getProgress([]);
+  const withSameItemOpen = buddy.getProgress([{ id }]);
+  t.eq(
+    withSameItemOpen.totalTrackedToday,
+    withoutOpen.totalTrackedToday,
+    'an acted-on item still open is counted only once'
+  );
+  const withNewOpen = buddy.getProgress([{ id }, { id: 'new-open-item' }]);
+  t.eq(
+    withNewOpen.totalTrackedToday,
+    withSameItemOpen.totalTrackedToday + 1,
+    'new open work increases the daily denominator'
+  );
+});
+
 await t.test('recent activity can restore hidden work and priority', () => {
   const item = buddy.addItem({ title: 'Accidentally completed task', priority: 'high' });
   buddy.updateItem(item.id, { priority: 'low', status: 'done' });
