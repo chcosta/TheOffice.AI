@@ -515,6 +515,7 @@
     }
     .item.dragging { opacity: .38; }
     .item.drag-target { border-top: 2px solid var(--cp-accent); }
+    .item.focused-from-catch-up { animation: item-focus 1.6s ease-out; }
     .item[data-kind="pull-request"] { --category-color: var(--cp-link); }
     .item[data-kind="agent-run"] { --category-color: var(--cp-success); }
     .item[data-kind="build"] { --category-color: var(--cp-success); }
@@ -530,12 +531,17 @@
     .drag-handle {
       flex: none;
       width: 14px;
+      border: 0;
+      padding: 0;
       margin-top: 1px;
+      background: var(--cp-clear);
       color: var(--cp-text-muted);
       cursor: grab;
       font-size: 13px;
       line-height: 18px;
       text-align: center;
+      touch-action: none;
+      user-select: none;
     }
     .drag-handle:active { cursor: grabbing; }
     .priority {
@@ -920,6 +926,10 @@
       100% { opacity: 0; transform: translateY(-7px) scale(.98); }
     }
     @keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+    @keyframes item-focus {
+      0%, 35% { background: var(--cp-highlight); border-left-color: var(--cp-accent); }
+      100% { background: var(--cp-clear); }
+    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
     }
@@ -1061,6 +1071,7 @@
       let controlFocused = false;
       let controlInteractionUntil = 0;
       let draggedId = '';
+      let dragPointer = null;
       let suppressItemOpenUntil = 0;
       let currentView = localStorage.getItem('dev-buddy-view') || 'work';
       let startupLaunch = new URLSearchParams(location.search).get('startup') === '1';
@@ -1220,11 +1231,11 @@
         $('catchUpList').innerHTML = catchUpItems.length ? `
           <div class="catch-up-intro">New and changed work since your last Catch up view. Items stay here while you review them.</div>
           ${catchUpItems.map(item => `
-            <article class="catch-up-item" data-catch-up-id="${escapeHtml(item.id)}" data-openable="${item.link || item.route ? '1' : '0'}" ${item.link || item.route ? 'role="link" tabindex="0"' : ''}>
+            <article class="catch-up-item" data-catch-up-id="${escapeHtml(item.id)}" role="button" tabindex="0">
               <div class="catch-up-change">${escapeHtml(item.catchUpSummary)}</div>
               <div class="catch-up-title">${escapeHtml(item.title)}</div>
               <div class="catch-up-detail">${escapeHtml(item.attentionBlurb || item.detail || '')}</div>
-              <div class="catch-up-meta">${escapeHtml(item.urgency?.label || 'Medium')} urgency · ${escapeHtml(item.source || 'Pixel')} · tracked ${escapeHtml(item.trackedFor || 'just now')}</div>
+              <div class="catch-up-meta">${escapeHtml(item.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(item))} · ${escapeHtml(formatWorkItemDate(item))} · ${escapeHtml(item.source || 'Pixel')}</div>
             </article>`).join('')}
         ` : '<div class="empty">You’re caught up. Nothing currently on your list has changed since your last look.</div>';
       }
@@ -1295,19 +1306,19 @@
         $('sourceStatus').textContent = sourceBits.join(' · ') || 'No automatic sources enabled';
         $('bodyCount').textContent = combined.length > 99 ? '99+' : String(combined.length);
         $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${combined.length} tracked items · ${mood.label}. ${mood.detail || ''}`);
-        $('itemList').innerHTML = combined.length ? combined.slice(0, 24).map(item => `
-          <article class="item" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" ${item.link || item.route ? 'role="link" tabindex="0"' : ''}>
+        $('itemList').innerHTML = combined.length ? combined.map(item => `
+          <article class="item" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" ${item.link || item.route ? 'role="link" tabindex="0"' : 'tabindex="-1"'}>
             <div class="item-top">
-              <span class="drag-handle" draggable="true" title="Drag to reprioritize">↕</span>
+              <button class="drag-handle" type="button" title="Drag to reorder" aria-label="Drag to reorder">↕</button>
               <span class="priority ${item.priority === 'high' ? 'high' : ''}"></span>
               <div>
                 <div class="item-title">${escapeHtml(item.title)}</div>
                 <div class="item-detail">${escapeHtml(item.detail || '')}</div>
                 <div class="item-blurb">${escapeHtml(item.attentionBlurb || '')}</div>
                 <div class="item-meta">
-                  <span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}" title="${escapeHtml(item.urgency?.reason || '')}">${escapeHtml(item.urgency?.label || 'Medium')} urgency</span>
+                  <span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}" title="${escapeHtml(item.urgency?.reason || '')}">${escapeHtml(item.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(item))}</span>
                   <span>·</span>
-                  <span>Tracked ${escapeHtml(item.trackedFor || 'just now')}</span>
+                  <span>${escapeHtml(formatWorkItemDate(item))}</span>
                 </div>
                 <div class="item-source">${escapeHtml(item.source || 'Dev Buddy')}</div>
               </div>
@@ -1376,6 +1387,26 @@
         if (minutes < 60) return `${minutes}m ago`;
         const hours = Math.floor(minutes / 60);
         return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`;
+      }
+
+      function urgencyScore(item) {
+        const score = Number(item?.urgency?.score);
+        return Number.isFinite(score) ? String(score) : '0';
+      }
+
+      function formatWorkItemDate(item) {
+        const value = item?.trackedAt || item?.observedAt || item?.createdAt ||
+          item?.updatedAt || item?.dueAt;
+        const timestamp = Date.parse(value || '');
+        if (!Number.isFinite(timestamp)) return 'Tracked date unavailable';
+        const date = new Intl.DateTimeFormat(undefined, {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        }).format(new Date(timestamp));
+        const age = item?.trackedFor || formatRelative(value);
+        const ageLabel = age === 'just now' ? age : (String(age).endsWith('ago') ? age : `${age} old`);
+        return `Tracked ${date} · ${ageLabel}`;
       }
 
       function localDateTimeValue(value) {
@@ -2233,60 +2264,128 @@
         }
       });
 
-      $('itemList').addEventListener('dragstart', event => {
-        const row = event.target.closest('.item');
-        if (!row) return;
-        draggedId = row.dataset.id;
-        suppressItemOpenUntil = Date.now() + 10000;
-        row.classList.add('dragging');
-        event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('text/plain', draggedId);
-      });
-      $('itemList').addEventListener('dragover', event => {
-        const row = event.target.closest('.item');
-        if (!row || row.dataset.id === draggedId) return;
-        event.preventDefault();
-        for (const item of $('itemList').querySelectorAll('.drag-target')) item.classList.remove('drag-target');
-        row.classList.add('drag-target');
-      });
-      $('itemList').addEventListener('drop', async event => {
-        const target = event.target.closest('.item');
-        const source = [...$('itemList').querySelectorAll('.item')].find(row => row.dataset.id === draggedId);
-        if (!target || !source || target === source) return;
-        event.preventDefault();
-        const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
-        target.parentNode.insertBefore(source, after ? target.nextSibling : target);
+      async function persistWorkItemOrder() {
         const ids = [...$('itemList').querySelectorAll('.item')].map(row => row.dataset.id);
+        loadSequence++;
+        showOperationStatus('Saving the work-list order…');
         try {
           await request('/api/dev-buddy/order', {
             method: 'PUT',
             body: JSON.stringify({ ids }),
           });
           await load();
-        } catch (_) {}
-      });
-      $('itemList').addEventListener('dragend', () => {
+          showOperationStatus('I saved the new work-list order.', 'done', 1400);
+        } catch (_) {
+          showOperationStatus('I couldn’t save that work-list order.', 'error', 3500);
+          await load();
+        }
+      }
+
+      function clearItemDrag() {
         draggedId = '';
         suppressItemOpenUntil = Date.now() + 350;
         for (const item of $('itemList').querySelectorAll('.dragging, .drag-target')) {
           item.classList.remove('dragging', 'drag-target');
         }
+      }
+
+      $('itemList').addEventListener('pointerdown', event => {
+        const handle = event.target.closest('.drag-handle');
+        const row = handle?.closest('.item');
+        if (!handle || !row || event.button !== 0) return;
+        event.preventDefault();
+        event.stopPropagation();
+        draggedId = row.dataset.id;
+        suppressItemOpenUntil = Date.now() + 10000;
+        dragPointer = {
+          id: event.pointerId,
+          handle,
+          row,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+        };
+        try { handle.setPointerCapture(event.pointerId); } catch (_) {}
       });
+
+      $('itemList').addEventListener('pointermove', event => {
+        const drag = dragPointer;
+        if (!drag || drag.id !== event.pointerId) return;
+        if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+        drag.moved = true;
+        drag.row.classList.add('dragging');
+        const listBounds = $('itemList').getBoundingClientRect();
+        if (event.clientY < listBounds.top + 36) $('itemList').scrollTop -= 14;
+        else if (event.clientY > listBounds.bottom - 36) $('itemList').scrollTop += 14;
+        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.item');
+        if (!target || target === drag.row || target.parentNode !== $('itemList')) return;
+        for (const item of $('itemList').querySelectorAll('.drag-target')) {
+          item.classList.remove('drag-target');
+        }
+        target.classList.add('drag-target');
+        const after = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+        target.parentNode.insertBefore(drag.row, after ? target.nextSibling : target);
+      });
+
+      $('itemList').addEventListener('pointerup', async event => {
+        const drag = dragPointer;
+        if (!drag || drag.id !== event.pointerId) return;
+        dragPointer = null;
+        try { drag.handle.releasePointerCapture(event.pointerId); } catch (_) {}
+        const moved = drag.moved;
+        clearItemDrag();
+        if (moved) await persistWorkItemOrder();
+      });
+
+      $('itemList').addEventListener('pointercancel', () => {
+        if (!dragPointer) return;
+        dragPointer = null;
+        clearItemDrag();
+        render();
+      });
+
+      $('itemList').addEventListener('keydown', async event => {
+        const handle = event.target.closest('.drag-handle');
+        if (!handle || !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
+        const row = handle.closest('.item');
+        const sibling = event.key === 'ArrowUp'
+          ? row.previousElementSibling
+          : row.nextElementSibling;
+        if (!sibling?.classList.contains('item')) return;
+        event.preventDefault();
+        if (event.key === 'ArrowUp') row.parentNode.insertBefore(row, sibling);
+        else row.parentNode.insertBefore(sibling, row);
+        handle.focus();
+        await persistWorkItemOrder();
+      });
+
+      async function focusCatchUpItem(id) {
+        await setView('work');
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        const row = [...$('itemList').querySelectorAll('.item')]
+          .find(entry => entry.dataset.id === id);
+        if (!row) {
+          showOperationStatus('That item is no longer on the active work list.', 'error', 2500);
+          return;
+        }
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.focus({ preventScroll: true });
+        row.classList.remove('focused-from-catch-up');
+        void row.offsetWidth;
+        row.classList.add('focused-from-catch-up');
+        setTimeout(() => row.classList.remove('focused-from-catch-up'), 1700);
+      }
 
       $('catchUpList').addEventListener('click', event => {
         const row = event.target.closest('[data-catch-up-id]');
-        if (!row || row.dataset.openable !== '1') return;
-        const item = catchUpItems.find(entry => entry.id === row.dataset.catchUpId);
-        if (item) openItem(item);
+        if (row) focusCatchUpItem(row.dataset.catchUpId);
       });
       $('catchUpList').addEventListener('keydown', event => {
         if (!['Enter', ' '].includes(event.key)) return;
         const row = event.target.closest('[data-catch-up-id]');
-        if (!row || row.dataset.openable !== '1') return;
-        const item = catchUpItems.find(entry => entry.id === row.dataset.catchUpId);
-        if (!item) return;
+        if (!row) return;
         event.preventDefault();
-        openItem(item);
+        focusCatchUpItem(row.dataset.catchUpId);
       });
 
       $('mapWrap').addEventListener('click', event => {
