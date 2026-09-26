@@ -13,6 +13,9 @@ const buddy = require(path.join(process.cwd(), 'dev-buddy.js'));
 await t.test('work UI uses a compact list-detail workspace and one completion action', () => {
   const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
   const desktop = readFileSync(path.join(process.cwd(), 'desktop', 'src-tauri', 'src', 'main.rs'), 'utf8');
+  const desktopPermissions = readFileSync(
+    path.join(process.cwd(), 'desktop', 'src-tauri', 'permissions', 'app-commands.toml'),
+    'utf8');
   t.ok(/class="work-layout"/.test(html) && /id="itemDetail"/.test(html),
     'work items use navigation and detail panes');
   t.ok(/id="workSort"/.test(html) && /value="urgency"/.test(html) && /value="arrival"/.test(html),
@@ -27,10 +30,12 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
   'status refreshes preserve optimistic stars until persistence is confirmed');
   t.ok(/id="minimizePixel"/.test(html) &&
     /minimize_dev_buddy/.test(desktop) &&
+    /"minimize_dev_buddy"/.test(desktopPermissions) &&
     /set_skip_taskbar\(false\)/.test(desktop),
   'Pixel can be minimized to the taskbar');
   t.ok(/contextmenu/.test(html) &&
     /move_dev_buddy_aside/.test(desktop) &&
+    /"move_dev_buddy_aside"/.test(desktopPermissions) &&
     /monitor_containing_anchor/.test(desktop),
   'right-click moves Pixel aside without leaving the current monitor');
   t.ok(!/data-view-target="catchup"/.test(html) && !/data-action="dismiss"/.test(html),

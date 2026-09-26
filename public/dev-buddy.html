@@ -2706,7 +2706,12 @@
         $('hoverPreview').classList.remove('show');
         hideBubble();
         await setMode('idle');
-        try { await fn('minimize_dev_buddy'); } catch (_) {}
+        try {
+          await fn('minimize_dev_buddy');
+        } catch (error) {
+          await openPanel();
+          showOperationStatus(`I couldn't minimize: ${error?.message || error || 'desktop command failed'}`, 'error', 5000);
+        }
       }
 
       async function movePixelAside() {
@@ -2727,7 +2732,10 @@
             buddyLeft: windowPlacement.buddyLeft,
             buddyTop: windowPlacement.buddyTop,
           }));
-        } catch (_) {}
+        } catch (error) {
+          await openPanel();
+          showOperationStatus(`I couldn't move aside: ${error?.message || error || 'desktop command failed'}`, 'error', 5000);
+        }
         setTimeout(() => { manipulatingWindow = false; }, 300);
       }
 
