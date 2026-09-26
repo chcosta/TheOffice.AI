@@ -383,6 +383,24 @@
     }
     .panel-title { font-weight: 700; }
     .panel-sub { color: var(--cp-text-muted); font-size: 12px; }
+    .operation-status {
+      margin: 0 18px 10px;
+      padding: 8px 10px;
+      border-left: 3px solid var(--cp-link);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+      font-size: 12px;
+      line-height: 1.35;
+    }
+    .operation-status[hidden] { display: none; }
+    .operation-status[data-state="done"] { border-left-color: var(--cp-success); }
+    .operation-status[data-state="error"] { border-left-color: var(--cp-danger); }
+    .buddy.working .attention-dot {
+      display: block;
+      background: var(--cp-link);
+      filter: drop-shadow(0 0 7px var(--cp-link));
+      animation: antenna-new-item 1.2s ease-in-out infinite;
+    }
     .view-nav {
       display: flex;
       gap: 18px;
@@ -925,6 +943,7 @@
           <button class="panel-close" id="closePanel" type="button" aria-label="Close">×</button>
         </div>
       </header>
+      <div class="operation-status" id="operationStatus" role="status" aria-live="polite" hidden></div>
       <nav class="view-nav" aria-label="Dev Buddy views">
         <button class="view-link active" type="button" data-view-target="work">Work</button>
         <button class="view-link" type="button" data-view-target="catchup">Catch up <span class="view-count" id="catchUpCount">0</span></button>
@@ -1027,6 +1046,8 @@
       let bubbleTimer = null;
       let reminderTimer = null;
       let newWorkTimer = null;
+      let operationStatusTimer = null;
+      let operationSequence = 0;
       let snoozeWakeTimer = null;
       let snoozeWakeAt = 0;
       let closeTimer = null;
@@ -1702,14 +1723,76 @@
         setTimeout(() => $('stage').classList.remove('celebrating'), 3000);
       }
 
-      async function openItem(item) {
-        if (item.link) {
-          await request('/api/open-external', { method: 'POST', body: JSON.stringify({ url: item.link }) });
-          return;
+      function openItemMessages(item) {
+        const type = `${item?.kind || ''} ${item?.source || ''}`.toLowerCase();
+        if (type.includes('email')) {
+          return {
+            opening: 'Opening the source email in Outlook…',
+            done: 'I sent the email to Outlook.',
+            error: 'I couldn’t open that email.',
+          };
         }
-        const fn = invoke();
-        if (fn && item.route) {
-          try { await fn('open_main_window', { target: item.route }); } catch (_) {}
+        if (type.includes('teams')) {
+          return {
+            opening: 'Opening the source message in Teams…',
+            done: 'I sent the message to Teams.',
+            error: 'I couldn’t open that Teams message.',
+          };
+        }
+        if (item?.kind === 'pull-request' || /\b(?:pull request|pr)\b/.test(type)) {
+          return {
+            opening: 'Opening the pull request…',
+            done: 'I opened the pull request.',
+            error: 'I couldn’t open that pull request.',
+          };
+        }
+        if (item?.route) {
+          return {
+            opening: 'Opening this in TheOffice.AI…',
+            done: 'I opened it in TheOffice.AI.',
+            error: 'I couldn’t open that view.',
+          };
+        }
+        return {
+          opening: 'Opening the source…',
+          done: 'I opened the source.',
+          error: 'I couldn’t open that source.',
+        };
+      }
+
+      function showOperationStatus(message, state = 'working', duration = 0) {
+        clearTimeout(operationStatusTimer);
+        const element = $('operationStatus');
+        element.textContent = message;
+        element.dataset.state = state;
+        element.hidden = false;
+        $('buddy').classList.toggle('working', state === 'working');
+        if (duration > 0) {
+          operationStatusTimer = setTimeout(() => {
+            element.hidden = true;
+            $('buddy').classList.remove('working');
+          }, duration);
+        }
+      }
+
+      async function openItem(item) {
+        const operation = ++operationSequence;
+        const messages = openItemMessages(item);
+        const startedAt = Date.now();
+        showOperationStatus(messages.opening);
+        try {
+          if (item.link) {
+            await request('/api/open-external', { method: 'POST', body: JSON.stringify({ url: item.link }) });
+          } else {
+            const fn = invoke();
+            if (!fn || !item.route) throw new Error('No navigation target is available.');
+            await fn('open_main_window', { target: item.route });
+          }
+          const remaining = 400 - (Date.now() - startedAt);
+          if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+          if (operation === operationSequence) showOperationStatus(messages.done, 'done', 1800);
+        } catch (_) {
+          if (operation === operationSequence) showOperationStatus(messages.error, 'error', 3500);
         }
       }
 
