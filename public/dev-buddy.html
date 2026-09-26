@@ -1044,6 +1044,8 @@
       let currentView = localStorage.getItem('dev-buddy-view') || 'work';
       let startupLaunch = new URLSearchParams(location.search).get('startup') === '1';
       let knownItemIds = null;
+      let loadSequence = 0;
+      const pendingHiddenIds = new Set();
       let catchUpSeen = {};
       let catchUpItems = [];
       let catchUpViewing = false;
@@ -1535,8 +1537,22 @@
       }
 
       async function load(refresh = false) {
+        const sequence = ++loadSequence;
         try {
-          status = await request('/api/dev-buddy/status' + (refresh ? '?refresh=1' : ''));
+          let nextStatus = await request('/api/dev-buddy/status' + (refresh ? '?refresh=1' : ''));
+          if (sequence !== loadSequence) return;
+          const returnedIds = new Set((nextStatus.list || []).map(item => item.id));
+          for (const id of pendingHiddenIds) {
+            if (!returnedIds.has(id)) pendingHiddenIds.delete(id);
+          }
+          const hidePending = entries => (entries || []).filter(item => !pendingHiddenIds.has(item.id));
+          nextStatus = {
+            ...nextStatus,
+            list: hidePending(nextStatus.list),
+            signals: hidePending(nextStatus.signals),
+            items: hidePending(nextStatus.items),
+          };
+          status = nextStatus;
           updateCatchUp(status.list || []);
           for (const item of (status.items || [])) {
             if (item.snoozedUntil) scheduleSnoozeWake(item.snoozedUntil);
@@ -1562,6 +1578,7 @@
           if (panelPinned && !panelOpen) await openPanel();
           scheduleReminder();
         } catch (error) {
+          if (sequence !== loadSequence) return;
           $('panelSub').textContent = 'Reconnecting to TheOffice.AI…';
         }
       }
@@ -1928,6 +1945,8 @@
 
       function removeListItemLocally(row, item, actionType = 'completed') {
         const previousStatus = status;
+        loadSequence++;
+        pendingHiddenIds.add(item.id);
         row.remove();
         const remove = entries => (entries || []).filter(entry => entry.id !== item.id);
         const list = remove(status?.list);
@@ -1966,6 +1985,8 @@
           $('itemList').innerHTML = '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
         }
         return () => {
+          loadSequence++;
+          pendingHiddenIds.delete(item.id);
           status = previousStatus;
           render();
         };
@@ -2116,6 +2137,8 @@
         button.disabled = true;
         button.textContent = 'Restoring…';
         try {
+          loadSequence++;
+          pendingHiddenIds.delete(button.dataset.recentId);
           await request('/api/dev-buddy/activity/' + encodeURIComponent(button.dataset.recentId) + '/restore', {
             method: 'POST',
             body: JSON.stringify({ action: button.dataset.recentAction }),
