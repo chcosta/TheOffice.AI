@@ -253,6 +253,21 @@ fn save_dev_buddy_anchor(position: tauri::PhysicalPosition<i32>) -> Result<(), S
     .map_err(|e| e.to_string())
 }
 
+fn current_dev_buddy_anchor(
+    window: &tauri::WebviewWindow,
+    buddy_left: f64,
+    buddy_top: f64,
+) -> Result<tauri::PhysicalPosition<i32>, String> {
+    const BUDDY_LEFT: f64 = 14.0;
+    const BUDDY_TOP: f64 = 8.0;
+    let position = window.outer_position().map_err(|e| e.to_string())?;
+    let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
+    Ok(tauri::PhysicalPosition::new(
+        position.x + ((buddy_left - BUDDY_LEFT) * scale_factor).round() as i32,
+        position.y + ((buddy_top - BUDDY_TOP) * scale_factor).round() as i32,
+    ))
+}
+
 fn monitor_containing_anchor(
     window: &tauri::WebviewWindow,
     anchor: tauri::PhysicalPosition<i32>,
@@ -540,15 +555,8 @@ fn plan_dev_buddy_mode(
     buddy_left: f64,
     buddy_top: f64,
 ) -> Result<serde_json::Value, String> {
-    const BUDDY_LEFT: f64 = 14.0;
-    const BUDDY_TOP: f64 = 8.0;
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
-    let position = window.outer_position().map_err(|e| e.to_string())?;
-    let scale_factor = window.scale_factor().map_err(|e| e.to_string())?;
-    let anchor = tauri::PhysicalPosition::new(
-        position.x + ((buddy_left - BUDDY_LEFT) * scale_factor).round() as i32,
-        position.y + ((buddy_top - BUDDY_TOP) * scale_factor).round() as i32,
-    );
+    let anchor = current_dev_buddy_anchor(&window, buddy_left, buddy_top)?;
     let (width, height) = dev_buddy_mode_size(&mode);
     position_dev_buddy(&window, width, height, Some(anchor), false)
 }
@@ -581,6 +589,55 @@ fn set_dev_buddy_mode(
     let placement = position_dev_buddy(&window, width, height, anchor, true)?;
     window.show().map_err(|e| e.to_string())?;
     Ok(placement)
+}
+
+#[tauri::command]
+fn minimize_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("dev-buddy")
+        .ok_or_else(|| "Dev Buddy window is unavailable.".to_string())?;
+    window.set_skip_taskbar(false).map_err(|e| e.to_string())?;
+    window.minimize().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn restore_dev_buddy_floating(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("dev-buddy") {
+        window.set_skip_taskbar(true).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn move_dev_buddy_aside(
+    app: tauri::AppHandle,
+    buddy_left: f64,
+    buddy_top: f64,
+) -> Result<serde_json::Value, String> {
+    const IDLE_WIDTH: f64 = 160.0;
+    const IDLE_HEIGHT: f64 = 180.0;
+    let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
+    let anchor = current_dev_buddy_anchor(&window, buddy_left, buddy_top)?;
+    let monitor = monitor_containing_anchor(&window, anchor)?
+        .or(window.current_monitor().map_err(|e| e.to_string())?)
+        .or(window.primary_monitor().map_err(|e| e.to_string())?)
+        .ok_or_else(|| "No monitor is available for Pixel.".to_string())?;
+    let scale_factor = monitor.scale_factor();
+    let work_area = monitor.work_area();
+    let origin = work_area.position;
+    let area = work_area.size;
+    let margin = (16.0 * scale_factor).round() as i32;
+    let idle_width = (IDLE_WIDTH * scale_factor).round() as i32;
+    let idle_height = (IDLE_HEIGHT * scale_factor).round() as i32;
+    let right = origin.x + area.width as i32 - idle_width - margin;
+    let bottom = origin.y + area.height as i32 - idle_height - margin;
+    let center_x = origin.x + area.width as i32 / 2;
+    let center_y = origin.y + area.height as i32 / 2;
+    let target = tauri::PhysicalPosition::new(
+        if anchor.x + idle_width / 2 <= center_x { right } else { origin.x + margin },
+        if anchor.y + idle_height / 2 <= center_y { bottom } else { origin.y + margin },
+    );
+    position_dev_buddy(&window, 160, 180, Some(target), true)
 }
 
 #[tauri::command]
@@ -1524,6 +1581,9 @@ fn main() {
             hide_dev_buddy,
             plan_dev_buddy_mode,
             set_dev_buddy_mode,
+            minimize_dev_buddy,
+            restore_dev_buddy_floating,
+            move_dev_buddy_aside,
             start_dev_buddy_drag,
             hide_dev_buddy_alert,
             open_main_window

@@ -433,6 +433,7 @@
     }
     .panel-pin,
     .panel-size,
+    .panel-minimize,
     .panel-close {
       width: 30px;
       height: 30px;
@@ -1544,6 +1545,7 @@
           <div class="panel-sub" id="panelSub">Keeping the loose ends together</div>
         </div>
         <div class="panel-tools">
+          <button class="panel-minimize" id="minimizePixel" type="button" aria-label="Minimize Pixel to taskbar" title="Minimize Pixel to taskbar">−</button>
           <button class="panel-close" id="closePanel" type="button" aria-label="Close">×</button>
         </div>
       </header>
@@ -2692,6 +2694,43 @@
         setTimeout(() => { manipulatingWindow = false; }, 500);
       }
 
+      async function minimizePixel() {
+        const fn = invoke();
+        if (!fn) return;
+        clearTimeout(closeTimer);
+        clearTimeout(peekTimer);
+        panelOpen = false;
+        peekOpen = false;
+        $('panel').classList.remove('open');
+        $('stage').classList.remove('panel-open');
+        $('hoverPreview').classList.remove('show');
+        hideBubble();
+        await setMode('idle');
+        try { await fn('minimize_dev_buddy'); } catch (_) {}
+      }
+
+      async function movePixelAside() {
+        const fn = invoke();
+        if (!fn) return;
+        clearTimeout(closeTimer);
+        clearTimeout(peekTimer);
+        buddyGesture = null;
+        panelOpen = false;
+        peekOpen = false;
+        manipulatingWindow = true;
+        $('panel').classList.remove('open');
+        $('stage').classList.remove('panel-open');
+        $('hoverPreview').classList.remove('show');
+        hideBubble();
+        try {
+          applyWindowPlacement(await fn('move_dev_buddy_aside', {
+            buddyLeft: windowPlacement.buddyLeft,
+            buddyTop: windowPlacement.buddyTop,
+          }));
+        } catch (_) {}
+        setTimeout(() => { manipulatingWindow = false; }, 300);
+      }
+
       function flashNewWork(item) {
         clearTimeout(newWorkTimer);
         $('buddy').classList.add('new-work');
@@ -2851,6 +2890,10 @@
         }
         togglePanel();
       });
+      $('buddy').addEventListener('contextmenu', event => {
+        event.preventDefault();
+        movePixelAside();
+      });
       $('buddy').addEventListener('mouseenter', schedulePeek);
       $('buddy').addEventListener('focus', schedulePeek);
       $('stage').addEventListener('mouseenter', () => clearTimeout(closeTimer));
@@ -2876,6 +2919,12 @@
       });
       $('closePanel').addEventListener('click', () => {
         closePanel();
+      });
+      $('minimizePixel').addEventListener('click', minimizePixel);
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden) return;
+        const fn = invoke();
+        if (fn) fn('restore_dev_buddy_floating').catch(() => {});
       });
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
