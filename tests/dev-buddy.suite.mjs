@@ -29,6 +29,28 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     'Catch up and work-item dismissal are removed');
 });
 
+await t.test('reading pane builds grounded dossiers and optional AI plans', () => {
+  const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
+  const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  t.ok(/function dossierFor\(item\)/.test(html) &&
+    /State and path/.test(html) &&
+    /Suggested next moves/.test(html) &&
+    /Observed history/.test(html),
+  'reading pane includes state, next-step, signal, and history sections');
+  t.ok(/item\.kind === 'pull-request'/.test(html) &&
+    /item\.kind === 'build'/.test(html) &&
+    /\['email', 'teams', 'meeting', 'calendar'\]/.test(html),
+  'dossiers adapt to engineering, collaboration, and personal work types');
+  t.ok(/\/api\/dev-buddy\/insight/.test(html) &&
+    /app\.post\('\/api\/dev-buddy\/insight'/.test(server) &&
+    /_devBuddyGenerateInsight/.test(server),
+  'Pixel can request a cached grounded AI execution brief');
+  t.ok(/failedChecks: failed/.test(server) &&
+    /buildNumber: build\.buildNumber/.test(server) &&
+    /lastActivityAt: lastModified/.test(server),
+  'PR, build, and session items carry factual workflow context');
+});
+
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
   const item = buddy.addItem({ title: 'Finish the review', detail: 'Two threads remain', priority: 'high' });
   t.eq(buddy.listItems()[0].title, 'Finish the review', 'new memory is returned from durable storage');

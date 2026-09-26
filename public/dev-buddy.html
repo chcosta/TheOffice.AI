@@ -500,6 +500,15 @@
       padding: 22px 26px;
       background: var(--cp-bg-elevated);
     }
+    .detail-shell {
+      width: 100%;
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+    .detail-hero {
+      padding-bottom: 18px;
+      border-bottom: 1px solid var(--cp-border);
+    }
     .detail-kicker {
       color: var(--cp-text-muted);
       font-size: 11px;
@@ -520,7 +529,7 @@
     }
     .detail-summary {
       max-width: 850px;
-      margin-top: 22px;
+      margin-top: 14px;
       color: var(--cp-text);
       font-size: 14px;
       line-height: 1.55;
@@ -540,7 +549,7 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 8px 14px;
-      margin-top: 24px;
+      margin-top: 16px;
     }
     .detail-primary {
       min-height: 32px;
@@ -552,6 +561,246 @@
       cursor: pointer;
       font-size: 12px;
       font-weight: 650;
+    }
+    .detail-dashboard {
+      display: grid;
+      grid-template-columns: minmax(0, 1.55fr) minmax(240px, .8fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+    .detail-column {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .detail-section {
+      min-width: 0;
+      padding: 16px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-surface);
+      box-shadow: 0 0 2px var(--cp-border), 0 1px 2px var(--cp-border);
+    }
+    .detail-section-title {
+      margin: 0 0 11px;
+      color: var(--cp-text);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .025em;
+    }
+    .pixel-take {
+      padding-left: 13px;
+      border-left: 3px solid var(--cp-accent);
+    }
+    .pixel-take strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--cp-accent);
+      font-size: 12px;
+    }
+    .pixel-take p {
+      margin: 0;
+      color: var(--cp-text);
+      font-size: 13px;
+      line-height: 1.5;
+      user-select: text;
+    }
+    .state-flow {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(90px, 1fr);
+      overflow-x: auto;
+      padding: 2px 0 5px;
+    }
+    .state-node {
+      position: relative;
+      min-width: 90px;
+      padding: 22px 10px 0 0;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.35;
+    }
+    .state-node::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 5px;
+      width: 10px;
+      height: 10px;
+      border: 2px solid var(--cp-border-strong);
+      border-radius: 50%;
+      background: var(--cp-surface);
+      z-index: 1;
+    }
+    .state-node:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      left: 12px;
+      right: 0;
+      top: 10px;
+      height: 1px;
+      background: var(--cp-border);
+    }
+    .state-node.done::before {
+      border-color: var(--cp-success);
+      background: var(--cp-success);
+    }
+    .state-node.current {
+      color: var(--cp-text);
+      font-weight: 650;
+    }
+    .state-node.current::before {
+      border-color: var(--cp-link);
+      background: var(--cp-link);
+    }
+    .state-node.blocked::before {
+      border-color: var(--cp-danger);
+      background: var(--cp-danger);
+    }
+    .state-node.watch::before {
+      border-color: var(--cp-warning);
+      background: var(--cp-warning);
+    }
+    .state-node span {
+      display: block;
+      margin-top: 2px;
+      color: var(--cp-text-muted);
+      font-weight: 400;
+    }
+    .next-step-list {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: next-step;
+    }
+    .next-step {
+      position: relative;
+      min-height: 28px;
+      padding-left: 30px;
+      counter-increment: next-step;
+    }
+    .next-step::before {
+      content: counter(next-step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 20px;
+      border-bottom: 2px solid var(--cp-accent);
+      color: var(--cp-accent);
+      font-size: 12px;
+      font-weight: 750;
+      text-align: center;
+    }
+    .next-step strong {
+      display: block;
+      color: var(--cp-text);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .next-step span {
+      display: block;
+      margin-top: 2px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .ai-brief {
+      margin-top: 13px;
+      padding-top: 12px;
+      border-top: 1px solid var(--cp-border);
+    }
+    .ai-brief p {
+      margin: 0 0 10px;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+      user-select: text;
+    }
+    .ai-analysis-button {
+      padding: 0 0 2px;
+      border: 0;
+      border-bottom: 1px solid var(--cp-link);
+      background: var(--cp-clear);
+      color: var(--cp-link);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .ai-analysis-button:disabled {
+      border-bottom-color: var(--cp-border);
+      color: var(--cp-text-muted);
+      cursor: wait;
+    }
+    .insight-note {
+      margin-top: 10px;
+      padding: 9px 10px;
+      border-left: 2px solid var(--cp-warning);
+      background: var(--cp-surface-soft);
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.45;
+      user-select: text;
+    }
+    .fact-grid {
+      display: grid;
+      grid-template-columns: minmax(90px, .7fr) minmax(0, 1.3fr);
+      gap: 8px 12px;
+      margin: 0;
+      font-size: 11px;
+    }
+    .fact-grid dt { color: var(--cp-text-muted); }
+    .fact-grid dd {
+      min-width: 0;
+      margin: 0;
+      overflow-wrap: anywhere;
+      color: var(--cp-text);
+      font-weight: 600;
+      user-select: text;
+    }
+    .history-list {
+      position: relative;
+      display: grid;
+      gap: 12px;
+      margin: 0;
+      padding: 0 0 0 17px;
+      list-style: none;
+    }
+    .history-list::before {
+      content: "";
+      position: absolute;
+      left: 4px;
+      top: 4px;
+      bottom: 4px;
+      width: 1px;
+      background: var(--cp-border);
+    }
+    .history-item {
+      position: relative;
+      color: var(--cp-text);
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .history-item::before {
+      content: "";
+      position: absolute;
+      left: -17px;
+      top: 4px;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--cp-border-strong);
+    }
+    .history-item.current::before { background: var(--cp-accent); }
+    .history-item span {
+      display: block;
+      margin-top: 1px;
+      color: var(--cp-text-muted);
+    }
+    @media (max-width: 1180px) {
+      .detail-dashboard { grid-template-columns: minmax(0, 1fr); }
+      .detail-side { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
     .summary {
       display: grid;
@@ -1281,6 +1530,8 @@
       let loadSequence = 0;
       const pendingHiddenIds = new Set();
       const pendingStarStates = new Map();
+      const detailInsights = new Map();
+      let detailInsightSequence = 0;
       let mapTransform = { x: 24, y: 24, scale: 1 };
       let mapExtent = { width: 980, height: 600 };
       let mapPointer = null;
@@ -1382,6 +1633,255 @@
           : new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
       }
 
+      function itemTypeLabel(item) {
+        return ({
+          'pull-request': 'Pull request',
+          build: 'Build',
+          session: 'Copilot session',
+          'agent-run': 'Agent run',
+          agenda: 'Agenda',
+          email: 'Email commitment',
+          teams: 'Teams commitment',
+          meeting: 'Meeting follow-up',
+          calendar: 'Calendar commitment',
+          memory: 'Reminder',
+        })[item?.kind] || 'Tracked work';
+      }
+
+      function readableState(value) {
+        return String(value || '')
+          .replace(/^refs\/heads\//, '')
+          .replace(/[-_]+/g, ' ')
+          .replace(/\b\w/g, letter => letter.toUpperCase());
+      }
+
+      function dossierFor(item) {
+        const context = item.context && typeof item.context === 'object' ? item.context : {};
+        const facts = [];
+        const history = [];
+        const steps = [];
+        let flow = [];
+        const addFact = (label, value) => {
+          if (value !== undefined && value !== null && value !== '') facts.push({ label, value: String(value) });
+        };
+        const addStep = (title, why) => {
+          if (title && !steps.some(step => step.title === title)) steps.push({ title, why });
+        };
+        const addHistory = (title, detail, current = false) => {
+          if (title) history.push({ title, detail, current });
+        };
+        addFact('Type', itemTypeLabel(item));
+        addFact('Source', item.source || 'Pixel');
+        addFact('Urgency', `${item.urgency?.label || 'Medium'} · score ${urgencyScore(item)}`);
+        addFact('Tracked', formatWorkItemDate(item));
+        if (item.dueAt) addFact('Due', new Date(item.dueAt).toLocaleString());
+        addHistory('Pixel began tracking this', formatWorkItemDate(item));
+
+        if (item.kind === 'pull-request') {
+          const checksBlocked = Number(context.failedChecks) > 0;
+          const checksPending = Number(context.pendingChecks) > 0;
+          const threadsOpen = Number(context.actionableThreads || context.activeThreads) > 0;
+          const reviewDone = ['approved', 'approved-with-suggestions'].includes(context.approvalState);
+          flow = [
+            { label: context.isDraft ? 'Draft opened' : 'PR opened', state: 'done', detail: context.repository || '' },
+            { label: 'Review', state: threadsOpen || context.view === 'reviews' ? 'current' : reviewDone ? 'done' : 'watch', detail: readableState(context.approvalState || 'waiting') },
+            { label: 'Checks', state: checksBlocked ? 'blocked' : checksPending ? 'current' : 'done', detail: checksBlocked ? `${context.failedChecks} failing` : checksPending ? `${context.pendingChecks} pending` : 'Clear' },
+            { label: 'Merge', state: context.readyToMerge ? 'current' : 'pending', detail: context.readyToMerge ? 'Ready' : readableState(context.mergeStatus || 'Waiting') },
+          ];
+          addFact('Repository', context.repository);
+          addFact('PR', context.prNumber ? `#${context.prNumber}` : '');
+          addFact('Author', context.author);
+          addFact('Branches', [context.sourceBranch, context.targetBranch].filter(Boolean).join(' → '));
+          addFact('Review', readableState(context.approvalState));
+          addFact('Checks', checksBlocked ? `${context.failedChecks} failing` : checksPending ? `${context.pendingChecks} pending` : 'Passing');
+          addFact('Threads', context.totalThreads ? `${context.activeThreads || 0} open · ${context.resolvedThreads || 0} resolved` : 'None reported');
+          addHistory('Pull request opened', context.isDraft ? 'Draft workflow' : 'Ready for collaboration');
+          if (context.reviewerCount) addHistory('Reviewers engaged', `${context.reviewerCount} reviewer${context.reviewerCount === 1 ? '' : 's'}`);
+          addHistory('Current state', item.detail || readableState(context.approvalState), true);
+          if (checksBlocked) addStep('Open the failing checks', 'Start with the first actionable failure rather than scanning every log.');
+          if (threadsOpen) addStep('Resolve the open review conversation', `${context.actionableThreads || context.activeThreads} thread${Number(context.actionableThreads || context.activeThreads) === 1 ? '' : 's'} still need a response or code change.`);
+          if (context.view === 'reviews') addStep('Review the latest diff and submit a decision', 'The pull request is currently waiting on your review.');
+          if (context.readyToMerge) addStep('Confirm the merge window and merge', 'Checks and approvals indicate that the PR is ready.');
+          addStep('Open the pull request state', 'Verify the latest checks, reviewers, and discussion before changing its status.');
+        } else if (item.kind === 'build') {
+          const active = context.active === true;
+          const failed = context.failed === true;
+          const canceled = context.canceled === true;
+          flow = [
+            { label: 'Queued', state: 'done', detail: context.buildNumber || context.event || '' },
+            { label: 'Running', state: active ? 'current' : 'done', detail: active ? 'In progress' : 'Finished' },
+            { label: 'Result', state: failed ? 'blocked' : canceled ? 'watch' : active ? 'pending' : 'done', detail: readableState(context.result || context.status) },
+            { label: 'Follow-up', state: active ? 'pending' : 'current', detail: failed ? 'Diagnose' : canceled ? 'Decide' : 'Verify' },
+          ];
+          addFact('Pipeline', context.pipeline || context.workflow);
+          addFact('Run', context.buildNumber || context.runId);
+          addFact('Repository', context.repository || item.repository);
+          addFact('Branch', context.branch);
+          addFact('Trigger', context.event);
+          addFact('Result', readableState(context.result || context.status));
+          addHistory('Run observed', formatWorkItemDate(item));
+          addHistory(active ? 'Pipeline is executing' : 'Pipeline completed', readableState(context.result || context.status), true);
+          if (active) addStep('Watch the active stage', 'Wait for a terminal result before deciding whether intervention is needed.');
+          if (failed) {
+            addStep('Open the first failing task', 'The earliest causal error is usually more useful than downstream failures.');
+            addStep('Compare with the last healthy run', 'Separate a code regression from an environment or infrastructure change.');
+            addStep('Fix or rerun with an explicit hypothesis', 'Avoid blind retries that erase useful failure evidence.');
+          } else if (canceled) {
+            addStep('Confirm whether cancellation was intentional', 'A canceled run may still leave the delivery path blocked.');
+            addStep('Rerun only if the underlying work is still needed', 'Preserve capacity and avoid duplicating obsolete runs.');
+          } else {
+            addStep('Open the run summary', 'Confirm artifacts and downstream checks before considering the work complete.');
+          }
+        } else if (item.kind === 'session') {
+          const active = context.state === 'active';
+          flow = [
+            { label: 'Started', state: 'done', detail: context.repository || '' },
+            { label: active ? 'Working' : 'Paused', state: 'current', detail: context.branch || '' },
+            { label: 'Review changes', state: 'pending', detail: 'Diff and checks' },
+            { label: 'Close out', state: 'pending', detail: 'Commit or archive' },
+          ];
+          addFact('Repository', context.repository || item.repository);
+          addFact('Branch', context.branch);
+          addFact('Session', context.sessionId || item.sessionId);
+          addFact('State', readableState(context.state));
+          addHistory('Last session activity', formatWorkItemDate(item));
+          addHistory(active ? 'Session is active' : 'Session is waiting to resume', item.detail, true);
+          addStep(active ? 'Check the session’s current turn' : 'Resume the session with a concrete objective', active ? 'Confirm whether it is progressing or waiting for input.' : 'A focused continuation reduces context rebuilding.');
+          addStep('Review its working-tree changes', 'Decide what is ready to keep, test, commit, or discard.');
+          addStep('Record the outcome', 'Close or archive the session when the work has a durable next state.');
+        } else if (item.kind === 'agent-run') {
+          flow = [
+            { label: 'Assigned', state: 'done', detail: context.trigger || '' },
+            { label: 'Working', state: 'current', detail: context.reviewStatus ? readableState(context.reviewStatus) : 'In progress' },
+            { label: 'Review output', state: 'pending', detail: 'Evidence and changes' },
+            { label: 'Accept or redirect', state: 'pending', detail: 'Next decision' },
+          ];
+          addFact('Agent', context.agentId);
+          addFact('Task', context.taskId);
+          addFact('Repository', context.repository);
+          addFact('PR', context.prNumber ? `#${context.prNumber}` : '');
+          addHistory('Run started', context.startedAt ? new Date(context.startedAt).toLocaleString() : formatWorkItemDate(item));
+          addHistory('Agent is working', item.detail, true);
+          addStep('Let the active run reach a checkpoint', 'Interrupt only if its direction or assumptions are wrong.');
+          addStep('Review the result and evidence', 'Confirm the output addresses the original task before accepting it.');
+          addStep('Redirect or close the loop', 'Give precise follow-up if work remains; otherwise mark it done.');
+        } else if (['email', 'teams', 'meeting', 'calendar'].includes(item.kind)) {
+          const isMeeting = ['meeting', 'calendar'].includes(item.kind);
+          flow = isMeeting
+            ? [
+                { label: 'Scheduled', state: 'done', detail: '' },
+                { label: 'Context captured', state: 'done', detail: readableState(context.channel) },
+                { label: 'Follow-up', state: 'current', detail: item.dueAt ? 'Time-bound' : 'Open' },
+                { label: 'Closed', state: 'pending', detail: 'Confirm outcome' },
+              ]
+            : [
+                { label: 'Received', state: 'done', detail: readableState(context.channel || item.kind) },
+                { label: 'Commitment found', state: 'done', detail: readableState(context.confidence) },
+                { label: 'Respond or act', state: 'current', detail: item.dueAt ? 'Due' : 'Open' },
+                { label: 'Closed', state: 'pending', detail: 'Done' },
+              ];
+          addFact('Channel', readableState(context.channel || item.kind));
+          addFact('Sources', Array.isArray(context.sources) ? context.sources.join(' + ') : '');
+          addFact('Confidence', readableState(context.confidence));
+          addHistory(isMeeting ? 'Meeting context observed' : 'Request observed', context.observedAt ? new Date(context.observedAt).toLocaleString() : formatWorkItemDate(item));
+          addHistory('Commitment remains open', item.detail, true);
+          addStep('Open the original conversation', 'Read the latest context before replying or acting.');
+          addStep(isMeeting ? 'Complete the named follow-up' : 'Respond with the decision or next commitment', 'Move the thread from awareness to an explicit outcome.');
+          addStep('Mark it done after the loop is closed', 'Pixel will count it as addressed and stop resurfacing it.');
+        } else if (item.kind === 'agenda') {
+          const conflicts = Number(context.conflicts) || 0;
+          flow = [
+            { label: 'Day loaded', state: 'done', detail: `${context.remainingBlocks || 0} blocks` },
+            { label: 'Pressure found', state: conflicts ? 'blocked' : 'watch', detail: conflicts ? `${conflicts} conflicts` : `${context.needsAttention || 0} to triage` },
+            { label: 'Replan', state: 'current', detail: 'Choose tradeoffs' },
+            { label: 'Execute', state: 'pending', detail: 'Updated agenda' },
+          ];
+          addFact('Conflicts', context.conflicts || 0);
+          addFact('Meetings left', context.meetings || 0);
+          addFact('Blocks left', context.remainingBlocks || 0);
+          addFact('Open to-dos', context.openTodos || 0);
+          addHistory('Today’s agenda was evaluated', formatWorkItemDate(item));
+          addHistory('Current pressure', item.detail, true);
+          if (conflicts) addStep('Resolve the earliest schedule conflict', 'Protect the next commitment before optimizing the rest of the day.');
+          addStep('Choose what must happen today', 'Move or drop lower-value work instead of carrying an impossible plan.');
+          addStep('Update the agenda with the decision', 'A current plan prevents stale goals from returning as noise.');
+        } else {
+          flow = [
+            { label: 'Remembered', state: 'done', detail: formatWorkItemDate(item) },
+            { label: 'Ready to act', state: 'current', detail: readableState(item.priority) },
+            { label: 'Completed', state: 'pending', detail: 'Done' },
+          ];
+          addFact('Priority', readableState(item.priority));
+          addHistory('Added to Pixel’s memory', formatWorkItemDate(item));
+          addHistory('Waiting for action', item.detail || 'No additional detail', true);
+          addStep('Take the smallest concrete next action', 'Turn the reminder into progress rather than another status check.');
+          addStep('Set a reminder if now is not the right time', 'Choose an intentional return time instead of leaving it ambient.');
+          addStep('Mark it done when the outcome is real', 'This drains today’s open-work balance.');
+        }
+        return { context, facts, history, steps: steps.slice(0, 3), flow };
+      }
+
+      function renderStateFlow(flow) {
+        return `<div class="state-flow">${flow.map(node => `
+          <div class="state-node ${escapeHtml(node.state || 'pending')}">
+            ${escapeHtml(node.label)}
+            ${node.detail ? `<span>${escapeHtml(node.detail)}</span>` : ''}
+          </div>`).join('')}</div>`;
+      }
+
+      function renderNextSteps(steps) {
+        return `<ol class="next-step-list">${steps.map(step => `
+          <li class="next-step">
+            <strong>${escapeHtml(step.title)}</strong>
+            ${step.why ? `<span>${escapeHtml(step.why)}</span>` : ''}
+          </li>`).join('')}</ol>`;
+      }
+
+      function detailInsightSignature(item) {
+        return JSON.stringify([
+          item.id,
+          item.title,
+          item.detail,
+          item.attentionBlurb,
+          item.kind,
+          item.priority,
+          item.dueAt,
+          item.trackedAt,
+          item.context,
+          item.urgency,
+        ]);
+      }
+
+      function renderInsight(item) {
+        let entry = detailInsights.get(item.id);
+        const signature = detailInsightSignature(item);
+        if (entry && entry.signature !== signature) {
+          detailInsights.delete(item.id);
+          entry = null;
+        }
+        if (!entry) {
+          return `<div class="ai-brief">
+            <p>Pixel can inspect the known facts and turn them into a deeper execution plan without inventing missing state.</p>
+            <button class="ai-analysis-button" type="button" data-action="ai-plan">Think this through with AI</button>
+          </div>`;
+        }
+        if (entry.state === 'loading') {
+          return `<div class="ai-brief"><p>Pixel is examining the state, likely blockers, and best execution order…</p>
+            <button class="ai-analysis-button" type="button" disabled>Thinking…</button></div>`;
+        }
+        if (entry.state === 'error') {
+          return `<div class="ai-brief"><p>${escapeHtml(entry.error || 'Pixel could not complete the deeper analysis.')}</p>
+            <button class="ai-analysis-button" type="button" data-action="ai-plan">Try again</button></div>`;
+        }
+        const insight = entry.insight || {};
+        return `<div class="ai-brief">
+          ${insight.summary ? `<p><strong>Deeper read:</strong> ${escapeHtml(insight.summary)}</p>` : ''}
+          ${renderNextSteps(insight.nextSteps || [])}
+          ${insight.risk ? `<div class="insight-note"><strong>Risk:</strong> ${escapeHtml(insight.risk)}</div>` : ''}
+          ${insight.question ? `<div class="insight-note"><strong>Decision to make:</strong> ${escapeHtml(insight.question)}</div>` : ''}
+        </div>`;
+      }
+
       function renderWorkDetail(items) {
         const selected = items.find(item => item.id === selectedItemId) || items[0];
         if (!selected) {
@@ -1392,36 +1892,76 @@
         selectedItemId = selected.id;
         localStorage.setItem('dev-buddy-selected-item', selectedItemId);
         const openable = selected.link || selected.route;
+        const dossier = dossierFor(selected);
+        const pixelTake = selected.semanticComment || selected.attentionBlurb ||
+          selected.detail || 'Pixel is tracking this item for you.';
         $('itemDetail').innerHTML = `
-          <div class="detail-kicker">${escapeHtml(selected.source || 'Pixel')} · ${escapeHtml(selected.kind || 'work')}</div>
-          <h2 class="detail-title">${escapeHtml(selected.title)}</h2>
-          <div class="detail-meta">
-            <span class="urgency" data-level="${escapeHtml(selected.urgency?.level || 'medium')}">${escapeHtml(selected.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(selected))}</span>
-            · ${escapeHtml(formatWorkItemDate(selected))}
-          </div>
-          <div class="detail-summary">${escapeHtml(selected.attentionBlurb || selected.detail || 'Pixel is tracking this item for you.')}</div>
-          ${selected.attentionBlurb && selected.detail ? `<div class="detail-description">${escapeHtml(selected.detail)}</div>` : ''}
-          <div class="detail-actions" data-detail-id="${escapeHtml(selected.id)}">
-            <button class="detail-primary" type="button" data-action="done">Done</button>
-            <button class="text-action" type="button" data-action="star" aria-pressed="${selected.starred ? 'true' : 'false'}">${selected.starred ? '★ Starred' : '☆ Star'}</button>
-            ${openable ? '<button class="text-action" type="button" data-action="open">Open source</button>' : ''}
-            ${selected.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
-            <label class="reminder-control">Remind me in
-              <select data-reminder-in aria-label="Remind me in">
-                <option value="">Select…</option>
-                <option value="5">5m</option>
-                <option value="15">15m</option>
-                <option value="30">30m</option>
-                <option value="60">1h</option>
-                <option value="120">2h</option>
-                <option value="240">4h</option>
-                <option value="1440">Tomorrow</option>
-              </select>
-            </label>
-            <label class="reminder-control">Remind me at
-              <input type="datetime-local" data-reminder-at value="${defaultReminderAt()}" min="${minimumReminderAt()}" aria-label="Reminder date and time">
-            </label>
-            <button class="text-action" type="button" data-action="remind-at">Set</button>
+          <div class="detail-shell" data-detail-id="${escapeHtml(selected.id)}">
+            <div class="detail-hero">
+              <div class="detail-kicker">${escapeHtml(selected.source || 'Pixel')} · ${escapeHtml(itemTypeLabel(selected))}</div>
+              <h2 class="detail-title">${escapeHtml(selected.title)}</h2>
+              <div class="detail-meta">
+                <span class="urgency" data-level="${escapeHtml(selected.urgency?.level || 'medium')}">${escapeHtml(selected.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(selected))}</span>
+                · ${escapeHtml(formatWorkItemDate(selected))}
+              </div>
+              <div class="detail-actions">
+                <button class="detail-primary" type="button" data-action="done">Done</button>
+                <button class="text-action" type="button" data-action="star" aria-pressed="${selected.starred ? 'true' : 'false'}">${selected.starred ? '★ Starred' : '☆ Star'}</button>
+                ${openable ? '<button class="text-action" type="button" data-action="open">Open source</button>' : ''}
+                ${selected.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
+                <label class="reminder-control">Remind me in
+                  <select data-reminder-in aria-label="Remind me in">
+                    <option value="">Select…</option>
+                    <option value="5">5m</option>
+                    <option value="15">15m</option>
+                    <option value="30">30m</option>
+                    <option value="60">1h</option>
+                    <option value="120">2h</option>
+                    <option value="240">4h</option>
+                    <option value="1440">Tomorrow</option>
+                  </select>
+                </label>
+                <label class="reminder-control">Remind me at
+                  <input type="datetime-local" data-reminder-at value="${defaultReminderAt()}" min="${minimumReminderAt()}" aria-label="Reminder date and time">
+                </label>
+                <button class="text-action" type="button" data-action="remind-at">Set</button>
+              </div>
+            </div>
+            <div class="detail-dashboard">
+              <div class="detail-column">
+                <section class="detail-section">
+                  <div class="pixel-take">
+                    <strong>Pixel’s take</strong>
+                    <p>${escapeHtml(pixelTake)}</p>
+                  </div>
+                  ${selected.attentionBlurb && selected.detail ? `<div class="detail-description">${escapeHtml(selected.detail)}</div>` : ''}
+                </section>
+                <section class="detail-section">
+                  <h3 class="detail-section-title">State and path</h3>
+                  ${renderStateFlow(dossier.flow)}
+                </section>
+                <section class="detail-section">
+                  <h3 class="detail-section-title">Suggested next moves</h3>
+                  ${renderNextSteps(dossier.steps)}
+                  ${renderInsight(selected)}
+                </section>
+              </div>
+              <div class="detail-column detail-side">
+                <section class="detail-section">
+                  <h3 class="detail-section-title">Known signals</h3>
+                  <dl class="fact-grid">${dossier.facts.map(fact => `
+                    <dt>${escapeHtml(fact.label)}</dt><dd>${escapeHtml(fact.value)}</dd>`).join('')}</dl>
+                </section>
+                <section class="detail-section">
+                  <h3 class="detail-section-title">Observed history</h3>
+                  <ol class="history-list">${dossier.history.map(entry => `
+                    <li class="history-item ${entry.current ? 'current' : ''}">
+                      ${escapeHtml(entry.title)}
+                      ${entry.detail ? `<span>${escapeHtml(entry.detail)}</span>` : ''}
+                    </li>`).join('')}</ol>
+                </section>
+              </div>
+            </div>
           </div>`;
       }
 
@@ -2347,6 +2887,30 @@
         if (reload) await load();
       }
 
+      async function loadItemInsight(item) {
+        if (!item) return;
+        const token = ++detailInsightSequence;
+        const signature = detailInsightSignature(item);
+        detailInsights.set(item.id, { state: 'loading', token, signature });
+        renderWorkDetail(sortedWorkItems(status?.list || []));
+        try {
+          const result = await request('/api/dev-buddy/insight', {
+            method: 'POST',
+            body: JSON.stringify({ id: item.id }),
+          });
+          if (detailInsights.get(item.id)?.token !== token) return;
+          detailInsights.set(item.id, { state: 'ready', insight: result.insight || {}, signature });
+        } catch (error) {
+          if (detailInsights.get(item.id)?.token !== token) return;
+          detailInsights.set(item.id, {
+            state: 'error',
+            error: error.message || 'Pixel could not complete the deeper analysis.',
+            signature,
+          });
+        }
+        if (selectedItemId === item.id) renderWorkDetail(sortedWorkItems(status?.list || []));
+      }
+
       async function remindIn(select, item, row) {
         if (!select?.value || !item) return;
         const minutes = Number(select.value);
@@ -2366,6 +2930,7 @@
 
       async function handleWorkAction(action, item, row, scope) {
         if (!action || !item) return;
+        if (action === 'ai-plan') return loadItemInsight(item);
         if (action === 'open') return openItem(item);
         if (action === 'star') {
           const starred = item.starred !== true;

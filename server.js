@@ -3202,6 +3202,28 @@ function _devBuddyPrSignal(pr, view) {
     slaBusinessHours: view === 'reviews' ? 24 : null,
     fingerprint,
     reminderKey,
+    context: {
+      provider,
+      repository,
+      prNumber: pr.id,
+      view,
+      state: pr.status || 'open',
+      isDraft: pr.isDraft === true,
+      approvalState: pr.approvalState || 'no-reviews',
+      mergeStatus: pr.mergeStatus || '',
+      readyToMerge: pr.readyToMerge === true,
+      failedChecks: failed,
+      pendingChecks: Number(pr.pendingChecks) || 0,
+      activeThreads: Number(comments.activeComments) || 0,
+      actionableThreads: activeComments,
+      resolvedThreads: Number(comments.resolvedComments) || 0,
+      totalThreads: Number(comments.totalThreads) || 0,
+      reviewerCount: Array.isArray(pr.reviewers) ? pr.reviewers.length : 0,
+      myVote: pr.myVote || '',
+      sourceBranch: pr.sourceBranch || pr.sourceRefName || '',
+      targetBranch: pr.targetBranch || pr.targetRefName || '',
+      author: pr.createdBy && (pr.createdBy.displayName || pr.createdBy.name) || '',
+    },
   };
 }
 
@@ -3237,6 +3259,7 @@ function _devBuddySemanticHash(item) {
     item.priority,
     item.dueAt,
     item.trackedAt,
+    item.context,
     item.urgency && item.urgency.level,
     item.urgency && item.urgency.reason,
   ])).digest('hex');
@@ -3377,6 +3400,92 @@ function _devBuddyQueueSemanticRefresh(items) {
   });
 }
 
+const _devBuddyInsightCache = new Map();
+
+function _devBuddyInsightHash(item) {
+  return require('crypto').createHash('sha1').update(JSON.stringify([
+    item.id,
+    item.title,
+    item.detail,
+    item.attentionBlurb,
+    item.semanticComment,
+    item.kind,
+    item.source,
+    item.priority,
+    item.dueAt,
+    item.trackedAt,
+    item.context,
+    item.urgency,
+  ])).digest('hex');
+}
+
+async function _devBuddyGenerateInsight(item) {
+  const hash = _devBuddyInsightHash(item);
+  const cached = _devBuddyInsightCache.get(item.id);
+  if (cached && cached.hash === hash && Date.now() - cached.at < 30 * 60 * 1000) {
+    return { ...cached.value, cached: true };
+  }
+  const facts = {
+    id: item.id,
+    title: item.title,
+    detail: item.detail || '',
+    kind: item.kind || 'work',
+    source: item.source || '',
+    urgency: item.urgency || null,
+    priority: item.priority || 'normal',
+    trackedAt: item.trackedAt || null,
+    dueAt: item.dueAt || null,
+    context: item.context || {},
+  };
+  const prompt = [
+    'You are Pixel, a concise development chief of staff. Build a practical next-step brief for one tracked work item.',
+    'Use only the supplied facts. Do not invent people, dates, failures, approvals, dependencies, messages, or repository state.',
+    'Give two or three concrete next steps in useful execution order. Each step must say what to do and why it helps.',
+    'Call out one grounded risk only when the facts support it; otherwise use an empty string.',
+    'Ask one decision question only when answering it would materially unblock the work; otherwise use an empty string.',
+    'Return ONLY JSON: {"summary":"one sentence situational assessment","nextSteps":[{"title":"short action","why":"brief reason"}],"risk":"brief grounded risk or empty","question":"one useful decision question or empty"}.',
+    JSON.stringify(facts),
+  ].join('\n\n');
+  let acc = '';
+  const result = await sdkRunner.runChat({
+    config: null,
+    prompt,
+    sessionId: require('crypto').randomUUID(),
+    resume: false,
+    cwd: __dirname,
+    availableTools: [],
+    timeoutMs: 90 * 1000,
+    modelCategory: 'execution',
+    meta: { source: 'dev-buddy', category: 'item-insight', record: false },
+    onChunk: chunk => { acc += chunk; },
+  });
+  const parsed = _connectExtractJson(acc.trim() || result.output || '');
+  const nextSteps = (parsed && Array.isArray(parsed.nextSteps) ? parsed.nextSteps : [])
+    .slice(0, 3)
+    .map(step => ({
+      title: String(step && step.title || '').trim().slice(0, 180),
+      why: String(step && step.why || '').trim().slice(0, 300),
+    }))
+    .filter(step => step.title);
+  const value = {
+    summary: String(parsed && parsed.summary || '').trim().slice(0, 500),
+    nextSteps,
+    risk: String(parsed && parsed.risk || '').trim().slice(0, 400),
+    question: String(parsed && parsed.question || '').trim().slice(0, 400),
+  };
+  if (!value.summary && !value.nextSteps.length) {
+    throw new Error('Pixel returned an unreadable work brief.');
+  }
+  _devBuddyInsightCache.set(item.id, { hash, at: Date.now(), value });
+  if (_devBuddyInsightCache.size > 250) {
+    const oldest = [..._devBuddyInsightCache.entries()]
+      .sort((a, b) => a[1].at - b[1].at)
+      .slice(0, _devBuddyInsightCache.size - 250);
+    for (const [id] of oldest) _devBuddyInsightCache.delete(id);
+  }
+  return { ...value, cached: false };
+}
+
 let _devBuddyBuildCache = { at: 0, signals: [], errors: [] };
 let _devBuddyBuildRefresh = null;
 async function _refreshDevBuddyBuildSignals() {
@@ -3430,6 +3539,19 @@ async function _refreshDevBuddyBuildSignals() {
             route: '#/codeflow',
             trackedAt: build.startTime || build.queueTime || since,
             repository: build.repository || '',
+            context: {
+              provider: 'azdo',
+              runId: build.id,
+              buildNumber: build.buildNumber || '',
+              pipeline: build.definitionName || '',
+              repository: build.repository || '',
+              branch: build.sourceBranch ? String(build.sourceBranch).replace('refs/heads/', '') : '',
+              status: state,
+              result,
+              active,
+              failed,
+              canceled,
+            },
           });
         }
       } catch (error) {
@@ -3469,6 +3591,19 @@ async function _refreshDevBuddyBuildSignals() {
             route: '#/codeflow',
             trackedAt: run.createdAt || since,
             repository: `${repo.org}/${repo.repo}`,
+            context: {
+              provider: 'github',
+              runId: run.id,
+              workflow: run.name || '',
+              repository: `${repo.org}/${repo.repo}`,
+              branch: run.branch || '',
+              event: run.event || '',
+              status: String(run.status || '').toLowerCase(),
+              result: conclusion,
+              active,
+              failed,
+              canceled,
+            },
           });
         }
       } catch (error) {
@@ -3562,6 +3697,13 @@ function _devBuddySessionSignals() {
         trackedAt: lastModified,
         repository,
         sessionId: meta.id || candidate.id,
+        context: {
+          state: active ? 'active' : 'idle',
+          repository,
+          branch: meta.branch || '',
+          sessionId: meta.id || candidate.id,
+          lastActivityAt: lastModified,
+        },
       };
     })
     .filter(Boolean);
@@ -3585,6 +3727,14 @@ function _devBuddyCommitmentSignals() {
       source: `${label} · commitment${sourceLabels.length > 1 ? ' · merged' : ''}`,
       trackedAt: item.observedAt || item.createdAt,
       completable: true,
+      context: {
+        state: 'open',
+        channel: item.source || 'commitment',
+        sources: sourceLabels,
+        confidence: item.confidence || '',
+        observedAt: item.observedAt || item.createdAt || null,
+        dueAt: item.dueAt || null,
+      },
     };
   }).filter(Boolean);
 }
@@ -3731,6 +3881,14 @@ async function _devBuddyStatus({ refresh = false } = {}) {
       trackedAt: rec.reviewStartedAt || null,
       fingerprint,
       reminderKey: ['review-reminder', rec.provider || 'azdo', rec.org, rec.project || '', rec.repo, rec.prId].join('|').toLowerCase(),
+      context: {
+        provider: rec.provider || 'azdo',
+        repository: rec.repo || '',
+        prNumber: rec.prId,
+        state: 'reviewing',
+        reviewStatus: rec.reviewStatus,
+        startedAt: rec.reviewStartedAt || null,
+      },
     });
   }
 
@@ -3751,6 +3909,15 @@ async function _devBuddyStatus({ refresh = false } = {}) {
         : null,
       fingerprint,
       reminderKey: fingerprint,
+      context: {
+        agentId: id,
+        taskId: entry._taskId || '',
+        trigger: entry._trigger && entry._trigger.label || entry._triggerMode || '',
+        state: 'working',
+        startedAt: entry._live && entry._live.startedAt
+          ? new Date(entry._live.startedAt).toISOString()
+          : null,
+      },
     });
   }
   if (devBuddySettings.trackSessions) signals.push(..._devBuddySessionSignals());
@@ -3774,6 +3941,14 @@ async function _devBuddyStatus({ refresh = false } = {}) {
         dueAt: `${day.date}T23:59:59`,
         fingerprint,
         reminderKey: `agenda-reminder|${day.date}`,
+        context: {
+          state: day.conflicts ? 'conflict' : 'needs-triage',
+          conflicts: day.conflicts,
+          needsAttention: day.needsAttention,
+          remainingBlocks: day.remainingBlocks,
+          meetings: day.meetings,
+          openTodos: day.openTodos,
+        },
       });
     }
   }
@@ -3908,6 +4083,19 @@ app.post('/api/dev-buddy/map-groupings', async (req, res) => {
     res.json({ ok: true, relationships });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Pixel could not organize the map.' });
+  }
+});
+
+app.post('/api/dev-buddy/insight', async (req, res) => {
+  const id = String(req.body && req.body.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id is required' });
+  try {
+    const status = await _devBuddyStatus();
+    const item = status.list.find(entry => String(entry.id) === id);
+    if (!item) return res.status(404).json({ error: 'Tracked work item not found.' });
+    res.json({ ok: true, insight: await _devBuddyGenerateInsight(item) });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Pixel could not analyze this item.' });
   }
 });
 
