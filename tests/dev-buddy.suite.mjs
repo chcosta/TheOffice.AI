@@ -32,6 +32,11 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
 await t.test('reading pane builds grounded dossiers and optional AI plans', () => {
   const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
   const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  const github = readFileSync(path.join(process.cwd(), 'github.js'), 'utf8');
+  t.ok(/data-detail-tab="context"/.test(html) &&
+    /data-detail-tab="tracking"/.test(html) &&
+    /renderSourceContext/.test(html),
+  'source context is the default reading view and tracking has a separate tab');
   t.ok(/function dossierFor\(item\)/.test(html) &&
     /State and path/.test(html) &&
     /Suggested next moves/.test(html) &&
@@ -45,6 +50,20 @@ await t.test('reading pane builds grounded dossiers and optional AI plans', () =
     /app\.post\('\/api\/dev-buddy\/insight'/.test(server) &&
     /_devBuddyGenerateInsight/.test(server),
   'Pixel can request a cached grounded AI execution brief');
+  t.ok(/app\.post\('\/api\/dev-buddy\/context'/.test(server) &&
+    /_devBuddyPrContext/.test(server) &&
+    /_devBuddyBuildContext/.test(server) &&
+    /_devBuddySessionContext/.test(server) &&
+    /getWorkflowRunContext/.test(github),
+  'context endpoint retrieves source-specific PR, build, and session evidence');
+  t.ok(/configured\.org/.test(server) &&
+    /configured\.project/.test(server) &&
+    /jobsNotice/.test(server),
+  'source context preserves repository identity and reports incomplete workflow evidence');
+  t.ok(/page <= 100/.test(github) &&
+    /pageJobs\.length < pageSize/.test(github) &&
+    /Workflow jobs could not be retrieved/.test(github),
+  'GitHub workflow evidence follows pagination and exposes partial retrieval failures');
   t.ok(/failedChecks: failed/.test(server) &&
     /buildNumber: build\.buildNumber/.test(server) &&
     /lastActivityAt: lastModified/.test(server),

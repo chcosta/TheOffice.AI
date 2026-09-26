@@ -551,6 +551,161 @@
       gap: 8px 14px;
       margin-top: 16px;
     }
+    .detail-tabs {
+      display: flex;
+      gap: 22px;
+      margin-top: 14px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .detail-tab {
+      margin-bottom: -1px;
+      padding: 8px 0 7px;
+      border: 0;
+      border-bottom: 2px solid var(--cp-clear);
+      background: var(--cp-clear);
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .detail-tab.active {
+      border-bottom-color: var(--cp-accent);
+      color: var(--cp-text);
+    }
+    .context-pane { margin-top: 18px; }
+    .context-loading {
+      padding: 24px 0;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+    }
+    .context-overview {
+      padding: 17px 18px;
+      border-left: 3px solid var(--cp-link);
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font-size: 14px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .context-metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 1px;
+      margin-top: 1px;
+      background: var(--cp-border);
+    }
+    .context-metric {
+      min-width: 0;
+      padding: 11px 13px;
+      background: var(--cp-surface-soft);
+    }
+    .context-metric span {
+      display: block;
+      margin-bottom: 3px;
+      color: var(--cp-text-muted);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+    .context-metric strong {
+      display: block;
+      overflow-wrap: anywhere;
+      color: var(--cp-text);
+      font-size: 12px;
+      font-weight: 650;
+      user-select: text;
+    }
+    .context-sections {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+      gap: 16px;
+      margin-top: 16px;
+      align-items: start;
+    }
+    .context-section {
+      min-width: 0;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      overflow: hidden;
+      background: var(--cp-surface);
+    }
+    .context-section h3 {
+      margin: 0;
+      padding: 11px 13px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+      font-size: 12px;
+    }
+    .context-text {
+      padding: 13px;
+      color: var(--cp-text);
+      font-size: 12px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .context-row {
+      position: relative;
+      padding: 10px 13px 10px 16px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .context-row:last-child { border-bottom: 0; }
+    .context-row::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 3px;
+      background: var(--cp-border-strong);
+    }
+    .context-row[data-state="error"]::before { background: var(--cp-danger); }
+    .context-row[data-state="attention"]::before,
+    .context-row[data-state="pending"]::before { background: var(--cp-warning); }
+    .context-row[data-state="success"]::before { background: var(--cp-success); }
+    .context-row-title {
+      color: var(--cp-text);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.4;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .context-row-detail {
+      margin-top: 3px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .context-row-link {
+      margin-top: 6px;
+      padding: 0;
+      border: 0;
+      border-bottom: 1px solid var(--cp-link);
+      background: var(--cp-clear);
+      color: var(--cp-link);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .context-notice {
+      margin-top: 12px;
+      color: var(--cp-warning);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+    .context-advice {
+      margin-top: 16px;
+      padding: 14px 16px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-surface);
+    }
+    .context-advice h3 {
+      margin: 0 0 7px;
+      font-size: 12px;
+    }
     .detail-primary {
       min-height: 32px;
       padding: 5px 12px;
@@ -1531,7 +1686,10 @@
       const pendingHiddenIds = new Set();
       const pendingStarStates = new Map();
       const detailInsights = new Map();
+      const detailContexts = new Map();
+      const detailTabs = new Map();
       let detailInsightSequence = 0;
+      let detailContextSequence = 0;
       let mapTransform = { x: 24, y: 24, scale: 1 };
       let mapExtent = { width: 980, height: 600 };
       let mapPointer = null;
@@ -1852,6 +2010,18 @@
         ]);
       }
 
+      function detailContextSignature(item) {
+        return JSON.stringify([
+          item.id,
+          item.title,
+          item.detail,
+          item.kind,
+          item.trackedAt,
+          item.updatedAt,
+          item.context,
+        ]);
+      }
+
       function renderInsight(item) {
         let entry = detailInsights.get(item.id);
         const signature = detailInsightSignature(item);
@@ -1861,8 +2031,8 @@
         }
         if (!entry) {
           return `<div class="ai-brief">
-            <p>Pixel can inspect the known facts and turn them into a deeper execution plan without inventing missing state.</p>
-            <button class="ai-analysis-button" type="button" data-action="ai-plan">Think this through with AI</button>
+            <p>Pixel can reason over the source evidence above and turn it into specific advice without inventing missing state.</p>
+            <button class="ai-analysis-button" type="button" data-action="ai-plan">Analyze this evidence with AI</button>
           </div>`;
         }
         if (entry.state === 'loading') {
@@ -1882,6 +2052,63 @@
         </div>`;
       }
 
+      function renderContextRows(items) {
+        return (items || []).map(entry => `
+          <div class="context-row" data-state="${escapeHtml(entry.state || 'neutral')}">
+            <div class="context-row-title">${escapeHtml(entry.title || '')}</div>
+            ${entry.detail ? `<div class="context-row-detail">${escapeHtml(entry.detail)}</div>` : ''}
+            ${entry.url ? `<button class="context-row-link" type="button" data-context-url="${escapeHtml(entry.url)}">Open evidence</button>` : ''}
+          </div>`).join('');
+      }
+
+      function renderSourceContext(item) {
+        const signature = detailContextSignature(item);
+        let entry = detailContexts.get(item.id);
+        if (entry && entry.signature !== signature) {
+          detailContexts.delete(item.id);
+          detailInsights.delete(item.id);
+          entry = null;
+        }
+        if (!entry) {
+          const token = ++detailContextSequence;
+          entry = { state: 'loading', token, signature };
+          detailContexts.set(item.id, entry);
+          setTimeout(() => loadItemContext(item, token, signature), 0);
+        }
+        if (entry.state === 'loading') {
+          return `<div class="context-pane">
+            <div class="context-overview">${escapeHtml(item.detail || 'Loading the source material behind this item…')}</div>
+            <div class="context-loading">Pixel is retrieving the actual source state and evidence…</div>
+          </div>`;
+        }
+        if (entry.state === 'error') {
+          return `<div class="context-pane">
+            <div class="context-overview">${escapeHtml(item.detail || 'No additional source context is currently available.')}</div>
+            <div class="context-notice">${escapeHtml(entry.error || 'Pixel could not load source context.')}</div>
+            <div class="ai-brief"><button class="ai-analysis-button" type="button" data-action="context-retry">Try loading context again</button></div>
+          </div>`;
+        }
+        const context = entry.context || {};
+        return `<div class="context-pane">
+          <div class="context-overview">${escapeHtml(context.overview || item.detail || 'No source summary is available.')}</div>
+          ${(context.metrics || []).length ? `<div class="context-metrics">${context.metrics.map(metric => `
+            <div class="context-metric">
+              <span>${escapeHtml(metric.label)}</span>
+              <strong>${escapeHtml(metric.value || '—')}</strong>
+            </div>`).join('')}</div>` : ''}
+          ${(context.sections || []).length ? `<div class="context-sections">${context.sections.map(section => `
+            <section class="context-section">
+              <h3>${escapeHtml(section.title || 'Context')}</h3>
+              ${section.text ? `<div class="context-text">${escapeHtml(section.text)}</div>` : renderContextRows(section.items)}
+            </section>`).join('')}</div>` : ''}
+          ${context.notice ? `<div class="context-notice">${escapeHtml(context.notice)}</div>` : ''}
+          <section class="context-advice">
+            <h3>Advice grounded in this context</h3>
+            ${renderInsight(item)}
+          </section>
+        </div>`;
+      }
+
       function renderWorkDetail(items) {
         const selected = items.find(item => item.id === selectedItemId) || items[0];
         if (!selected) {
@@ -1895,6 +2122,7 @@
         const dossier = dossierFor(selected);
         const pixelTake = selected.semanticComment || selected.attentionBlurb ||
           selected.detail || 'Pixel is tracking this item for you.';
+        const detailTab = detailTabs.get(selected.id) || 'context';
         $('itemDetail').innerHTML = `
           <div class="detail-shell" data-detail-id="${escapeHtml(selected.id)}">
             <div class="detail-hero">
@@ -1926,8 +2154,12 @@
                 </label>
                 <button class="text-action" type="button" data-action="remind-at">Set</button>
               </div>
+              <nav class="detail-tabs" aria-label="Item detail views">
+                <button class="detail-tab ${detailTab === 'context' ? 'active' : ''}" type="button" data-detail-tab="context">Context</button>
+                <button class="detail-tab ${detailTab === 'tracking' ? 'active' : ''}" type="button" data-detail-tab="tracking">Tracking &amp; plan</button>
+              </nav>
             </div>
-            <div class="detail-dashboard">
+            ${detailTab === 'context' ? renderSourceContext(selected) : `<div class="detail-dashboard">
               <div class="detail-column">
                 <section class="detail-section">
                   <div class="pixel-take">
@@ -1943,7 +2175,6 @@
                 <section class="detail-section">
                   <h3 class="detail-section-title">Suggested next moves</h3>
                   ${renderNextSteps(dossier.steps)}
-                  ${renderInsight(selected)}
                 </section>
               </div>
               <div class="detail-column detail-side">
@@ -1961,7 +2192,7 @@
                     </li>`).join('')}</ol>
                 </section>
               </div>
-            </div>
+            </div>`}
           </div>`;
       }
 
@@ -2887,6 +3118,35 @@
         if (reload) await load();
       }
 
+      async function loadItemContext(item, token = ++detailContextSequence, signature = detailContextSignature(item)) {
+        if (!item) return;
+        const current = detailContexts.get(item.id);
+        if (!current || current.token !== token) {
+          detailContexts.set(item.id, { state: 'loading', token, signature });
+          if (selectedItemId === item.id) renderWorkDetail(sortedWorkItems(status?.list || []));
+        }
+        try {
+          const result = await request('/api/dev-buddy/context', {
+            method: 'POST',
+            body: JSON.stringify({ id: item.id }),
+          });
+          if (detailContexts.get(item.id)?.token !== token) return;
+          detailContexts.set(item.id, {
+            state: 'ready',
+            context: result.context || {},
+            signature,
+          });
+        } catch (error) {
+          if (detailContexts.get(item.id)?.token !== token) return;
+          detailContexts.set(item.id, {
+            state: 'error',
+            error: error.message || 'Pixel could not load source context.',
+            signature,
+          });
+        }
+        if (selectedItemId === item.id) renderWorkDetail(sortedWorkItems(status?.list || []));
+      }
+
       async function loadItemInsight(item) {
         if (!item) return;
         const token = ++detailInsightSequence;
@@ -2930,6 +3190,10 @@
 
       async function handleWorkAction(action, item, row, scope) {
         if (!action || !item) return;
+        if (action === 'context-retry') {
+          detailContexts.delete(item.id);
+          return loadItemContext(item);
+        }
         if (action === 'ai-plan') return loadItemInsight(item);
         if (action === 'open') return openItem(item);
         if (action === 'star') {
@@ -3027,10 +3291,30 @@
         const item = findItemById(event.target.closest('[data-detail-id]')?.dataset.detailId);
         if (select) remindIn(select, item, $('itemList').querySelector(`[data-id="${CSS.escape(item?.id || '')}"]`));
       });
-      $('itemDetail').addEventListener('click', event => {
-        const action = event.target.closest('[data-action]')?.dataset.action;
+      $('itemDetail').addEventListener('click', async event => {
+        const tab = event.target.closest('[data-detail-tab]')?.dataset.detailTab;
         const scope = event.target.closest('[data-detail-id]');
         const item = findItemById(scope?.dataset.detailId);
+        if (tab && item) {
+          detailTabs.set(item.id, tab === 'tracking' ? 'tracking' : 'context');
+          renderWorkDetail(sortedWorkItems(status?.list || []));
+          return;
+        }
+        const contextUrl = event.target.closest('[data-context-url]')?.dataset.contextUrl;
+        if (contextUrl) {
+          showOperationStatus('Opening the source evidence…');
+          try {
+            await request('/api/open-external', {
+              method: 'POST',
+              body: JSON.stringify({ url: contextUrl }),
+            });
+            showOperationStatus('Source evidence opened.', 'done', 1800);
+          } catch {
+            showOperationStatus('I couldn’t open that source evidence.', 'error', 3500);
+          }
+          return;
+        }
+        const action = event.target.closest('[data-action]')?.dataset.action;
         if (action && item) {
           const row = $('itemList').querySelector(`[data-id="${CSS.escape(item.id)}"]`);
           handleWorkAction(action, item, row, scope);

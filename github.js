@@ -633,6 +633,7 @@ async function getPrStatuses(owner, _project, repo, prId) {
         creationDate: run.started_at || run.completed_at || ''
       });
     }
+
   } catch {}
   try {
     const st = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${sha}/status`);
@@ -650,6 +651,57 @@ async function getPrStatuses(owner, _project, repo, prId) {
     }
   } catch {}
   return out.sort((a, b) => `${a.genre}${a.name}`.localeCompare(`${b.genre}${b.name}`));
+}
+
+async function getWorkflowRunContext(owner, repo, runId) {
+  const run = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(runId)}`);
+  let jobs = [];
+  let jobsNotice = '';
+  try {
+    const pageSize = 100;
+    let totalCount = null;
+    for (let page = 1; page <= 100; page++) {
+      const data = await api(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/actions/runs/${encodeURIComponent(runId)}/jobs?per_page=${pageSize}&page=${page}`);
+      const pageJobs = Array.isArray(data.jobs) ? data.jobs : [];
+      if (totalCount == null && Number.isFinite(Number(data.total_count))) totalCount = Number(data.total_count);
+      jobs.push(...pageJobs);
+      if (pageJobs.length < pageSize || (totalCount != null && jobs.length >= totalCount)) break;
+      if (page === 100) jobsNotice = `GitHub reported ${totalCount || 'more than 10,000'} jobs; only the first ${jobs.length} were retrieved.`;
+    }
+    jobs = jobs.map(job => ({
+      id: job.id,
+      name: job.name || '',
+      status: job.status || '',
+      conclusion: job.conclusion || '',
+      startedAt: job.started_at || '',
+      completedAt: job.completed_at || '',
+      url: job.html_url || '',
+      steps: (job.steps || []).map(step => ({
+        name: step.name || '',
+        status: step.status || '',
+        conclusion: step.conclusion || '',
+        number: step.number,
+        startedAt: step.started_at || '',
+        completedAt: step.completed_at || '',
+      })),
+    }));
+  } catch (error) {
+    jobsNotice = `Workflow jobs could not be retrieved: ${error.message || 'unknown GitHub error'}`;
+  }
+  return {
+    id: run.id,
+    name: run.name || '',
+    displayTitle: run.display_title || '',
+    status: run.status || '',
+    conclusion: run.conclusion || '',
+    event: run.event || '',
+    branch: run.head_branch || '',
+    createdAt: run.created_at || '',
+    updatedAt: run.updated_at || '',
+    url: run.html_url || '',
+    jobs,
+    jobsNotice,
+  };
 }
 
 // Fetch branch protection, distinguishing "no protection" (404 → known, empty
@@ -1318,6 +1370,7 @@ module.exports = {
   createPrThread,
   createReview,
   getPrStatuses,
+  getWorkflowRunContext,
   getPrPolicyEvaluations,
   listRepos,
   listBranches,

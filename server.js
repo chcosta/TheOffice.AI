@@ -3204,6 +3204,9 @@ function _devBuddyPrSignal(pr, view) {
     reminderKey,
     context: {
       provider,
+      org,
+      project,
+      repo,
       repository,
       prNumber: pr.id,
       view,
@@ -3402,7 +3405,7 @@ function _devBuddyQueueSemanticRefresh(items) {
 
 const _devBuddyInsightCache = new Map();
 
-function _devBuddyInsightHash(item) {
+function _devBuddyInsightHash(item, sourceContext) {
   return require('crypto').createHash('sha1').update(JSON.stringify([
     item.id,
     item.title,
@@ -3416,11 +3419,16 @@ function _devBuddyInsightHash(item) {
     item.trackedAt,
     item.context,
     item.urgency,
+    sourceContext,
   ])).digest('hex');
 }
 
-async function _devBuddyGenerateInsight(item) {
-  const hash = _devBuddyInsightHash(item);
+async function _devBuddyGenerateInsight(item, sourceContext) {
+  const groundedContext = sourceContext && typeof sourceContext === 'object'
+    ? { ...sourceContext }
+    : null;
+  if (groundedContext) delete groundedContext.cached;
+  const hash = _devBuddyInsightHash(item, groundedContext);
   const cached = _devBuddyInsightCache.get(item.id);
   if (cached && cached.hash === hash && Date.now() - cached.at < 30 * 60 * 1000) {
     return { ...cached.value, cached: true };
@@ -3436,6 +3444,7 @@ async function _devBuddyGenerateInsight(item) {
     trackedAt: item.trackedAt || null,
     dueAt: item.dueAt || null,
     context: item.context || {},
+    sourceContext: groundedContext,
   };
   const prompt = [
     'You are Pixel, a concise development chief of staff. Build a practical next-step brief for one tracked work item.',
@@ -3541,6 +3550,8 @@ async function _refreshDevBuddyBuildSignals() {
             repository: build.repository || '',
             context: {
               provider: 'azdo',
+              org: repo.org,
+              project: repo.project,
               runId: build.id,
               buildNumber: build.buildNumber || '',
               pipeline: build.definitionName || '',
@@ -3593,6 +3604,8 @@ async function _refreshDevBuddyBuildSignals() {
             repository: `${repo.org}/${repo.repo}`,
             context: {
               provider: 'github',
+              owner: repo.org,
+              repo: repo.repo,
               runId: run.id,
               workflow: run.name || '',
               repository: `${repo.org}/${repo.repo}`,
@@ -4018,6 +4031,463 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   };
 }
 
+const _devBuddySourceContextCache = new Map();
+
+function _devBuddyClip(value, limit = 3000) {
+  return String(value == null ? '' : value).trim().slice(0, limit);
+}
+
+function _devBuddyReviewerState(vote) {
+  const value = Number(vote);
+  if (value <= -10) return 'Rejected';
+  if (value <= -5) return 'Waiting for author';
+  if (value >= 10) return 'Approved';
+  if (value >= 5) return 'Approved with suggestions';
+  return 'No vote';
+}
+
+function _devBuddyCachedPr(item) {
+  const context = item.context || {};
+  for (const cached of _codeflowCache.values()) {
+    const pullRequests = cached && cached.data && cached.data.pullRequests || [];
+    const repos = cached && cached.data && cached.data.repos || [];
+    const match = pullRequests.find(pr => {
+      const configured = repos.find(repo => String(repo.id) === String(pr.repoId)) || {};
+      const identity = {
+        provider: pr.provider || configured.provider || 'azdo',
+        org: pr.org || configured.org || '',
+        project: pr.project || configured.project || '',
+        repo: pr.repo || configured.repo || '',
+      };
+      return String(pr.id) === String(context.prNumber) &&
+        String(identity.provider).toLowerCase() === String(context.provider || '').toLowerCase() &&
+        String(identity.org).toLowerCase() === String(context.org || '').toLowerCase() &&
+        String(identity.project).toLowerCase() === String(context.project || '').toLowerCase() &&
+        String(identity.repo).toLowerCase() === String(context.repo || '').toLowerCase();
+    });
+    if (match) return match;
+  }
+  return null;
+}
+
+async function _devBuddyPrContext(item) {
+  const context = item.context || {};
+  let pr = _devBuddyCachedPr(item);
+  const errors = [];
+  if (!pr && context.org && context.repo && context.prNumber) {
+    const F = forge({ provider: context.provider, org: context.org });
+    const settled = await Promise.allSettled([
+      F.getPullRequest(context.org, context.project, context.repo, context.prNumber),
+      F.getPrThreads(context.org, context.project, context.repo, context.prNumber),
+      F.getPrStatuses(context.org, context.project, context.repo, context.prNumber),
+    ]);
+    if (settled[0].status === 'fulfilled') pr = settled[0].value;
+    else errors.push(`Pull request details: ${settled[0].reason && settled[0].reason.message || 'unavailable'}`);
+    if (pr) {
+      if (settled[1].status === 'fulfilled') pr.comments = settled[1].value;
+      else errors.push(`Review discussion: ${settled[1].reason && settled[1].reason.message || 'unavailable'}`);
+      if (settled[2].status === 'fulfilled') pr.validation = settled[2].value;
+      else errors.push(`Checks: ${settled[2].reason && settled[2].reason.message || 'unavailable'}`);
+    }
+  }
+  if (!pr) throw new Error(errors[0] || 'Pull request context is unavailable.');
+  const comments = pr.comments || {};
+  const validation = Array.isArray(pr.validation) ? pr.validation : [];
+  const blockingChecks = validation.filter(check =>
+    check.required !== false && ['failed', 'error', 'pending'].includes(String(check.state || '').toLowerCase()));
+  const activeThreads = (comments.items || []).filter(thread => thread.active !== false);
+  const sections = [];
+  const blockers = [
+    ...blockingChecks.map(check => ({
+      title: check.name || check.genre || 'Required check',
+      detail: check.description || `${check.genre || 'Check'} is ${check.state || 'not complete'}.`,
+      state: ['failed', 'error'].includes(String(check.state || '').toLowerCase()) ? 'error' : 'pending',
+      url: check.targetUrl || '',
+    })),
+    ...activeThreads.map(thread => ({
+      title: [
+        thread.rootAuthor ? `${thread.rootAuthor}:` : '',
+        thread.preview || 'Open review thread',
+      ].filter(Boolean).join(' '),
+      detail: [
+        thread.file ? `${thread.file}${thread.line ? `:${thread.line}` : ''}` : '',
+        thread.commentCount ? `${thread.commentCount} comment${thread.commentCount === 1 ? '' : 's'}` : '',
+        thread.lastAuthor ? `Latest: ${thread.lastAuthor}` : '',
+      ].filter(Boolean).join(' · '),
+      state: 'attention',
+    })),
+  ];
+  if (blockers.length) sections.push({ title: 'What is blocking progress', items: blockers.slice(0, 12) });
+  if (activeThreads.length) {
+    sections.push({
+      title: 'Open review discussion',
+      items: activeThreads.slice(0, 10).map(thread => ({
+        title: thread.preview || 'Review comment',
+        detail: [
+          thread.rootAuthor || '',
+          thread.file ? `${thread.file}${thread.line ? `:${thread.line}` : ''}` : '',
+          thread.lastCommentAt ? new Date(thread.lastCommentAt).toLocaleString() : '',
+        ].filter(Boolean).join(' · '),
+        state: 'attention',
+      })),
+    });
+  }
+  if (validation.length) {
+    sections.push({
+      title: 'Checks and policies',
+      items: validation.slice(0, 16).map(check => ({
+        title: check.name || check.genre || 'Check',
+        detail: [check.required === false ? 'Optional' : 'Required', check.description || ''].filter(Boolean).join(' · '),
+        state: ['failed', 'error'].includes(String(check.state || '').toLowerCase())
+          ? 'error'
+          : String(check.state || '').toLowerCase() === 'succeeded' ? 'success' : 'pending',
+        url: check.targetUrl || '',
+      })),
+    });
+  }
+  if (Array.isArray(pr.reviewers) && pr.reviewers.length) {
+    sections.push({
+      title: 'Review state',
+      items: pr.reviewers.slice(0, 12).map(reviewer => ({
+        title: reviewer.name || reviewer.displayName || 'Reviewer',
+        detail: `${_devBuddyReviewerState(reviewer.vote)}${reviewer.isRequired ? ' · Required' : ''}`,
+        state: Number(reviewer.vote) < 0 ? 'error' : Number(reviewer.vote) >= 5 ? 'success' : 'pending',
+      })),
+    });
+  }
+  return {
+    kind: 'pull-request',
+    overview: _devBuddyClip(pr.description || item.detail || 'No pull request description was provided.', 5000),
+    metrics: [
+      { label: 'State', value: pr.isDraft ? 'Draft' : _devBuddyClip(pr.status || 'Open', 80) },
+      { label: 'Review', value: _devBuddyClip(pr.approvalState || context.approvalState || 'Pending', 80) },
+      { label: 'Required checks', value: blockingChecks.length ? `${blockingChecks.length} unresolved` : 'Clear' },
+      { label: 'Open threads', value: String(activeThreads.length) },
+      { label: 'Merge', value: pr.readyToMerge ? 'Ready' : _devBuddyClip(pr.mergeStatus || context.mergeStatus || 'Waiting', 80) },
+    ],
+    sections,
+    notice: errors.join(' · '),
+  };
+}
+
+async function _devBuddyBuildContext(item) {
+  const context = item.context || {};
+  const sections = [];
+  const errors = [];
+  let overview = item.detail || 'Pipeline run details.';
+  let metrics = [
+    { label: 'Pipeline', value: context.pipeline || context.workflow || 'Build' },
+    { label: 'Run', value: context.buildNumber || context.runId || '' },
+    { label: 'Branch', value: context.branch || '' },
+    { label: 'State', value: context.result || context.status || '' },
+  ];
+  if (context.provider === 'azdo' && context.org && context.project && context.runId) {
+    const settled = await Promise.allSettled([
+      azdo.getBuild(context.org, context.project, context.runId),
+      azdo.apiSend(
+        context.org,
+        `${encodeURIComponent(context.project)}/_apis/build/builds/${encodeURIComponent(context.runId)}/timeline?api-version=7.1`
+      ),
+    ]);
+    const build = settled[0].status === 'fulfilled' ? settled[0].value : null;
+    const timeline = settled[1].status === 'fulfilled' ? settled[1].value : null;
+    if (!build) errors.push(`Build details: ${settled[0].reason && settled[0].reason.message || 'unavailable'}`);
+    if (!timeline) errors.push(`Build timeline: ${settled[1].reason && settled[1].reason.message || 'unavailable'}`);
+    if (build) {
+      metrics = [
+        { label: 'Pipeline', value: build.definitionName || context.pipeline || 'Build' },
+        { label: 'Run', value: build.buildNumber || context.runId },
+        { label: 'State', value: [build.status, build.result].filter(Boolean).join(' · ') },
+        { label: 'Duration', value: build.durationMs == null ? '' : `${Math.max(1, Math.round(build.durationMs / 60000))}m` },
+      ];
+    }
+    const records = timeline && Array.isArray(timeline.records) ? timeline.records : [];
+    const issues = [];
+    for (const record of records) {
+      for (const issue of (record.issues || [])) {
+        issues.push({
+          title: record.name || record.type || 'Pipeline issue',
+          detail: _devBuddyClip(issue.message || issue.data && issue.data.logFileLineNumber || '', 1200),
+          state: String(issue.type || '').toLowerCase() === 'warning' ? 'attention' : 'error',
+        });
+      }
+    }
+    const failed = records.filter(record =>
+      ['failed', 'canceled', 'abandoned'].includes(String(record.result || '').toLowerCase()));
+    const active = records.filter(record =>
+      ['inprogress', 'pending'].includes(String(record.state || '').replace(/\s/g, '').toLowerCase()));
+    if (issues.length || failed.length) {
+      sections.push({
+        title: 'Failure evidence',
+        items: [
+          ...issues,
+          ...failed.map(record => ({
+            title: record.name || record.type || 'Failed pipeline step',
+            detail: [record.type, record.result].filter(Boolean).join(' · '),
+            state: 'error',
+          })),
+        ].slice(0, 16),
+      });
+      overview = issues[0] && issues[0].detail || `${failed.length} pipeline stage${failed.length === 1 ? '' : 's'} failed.`;
+    }
+    const stages = records.filter(record => ['stage', 'job'].includes(String(record.type || '').toLowerCase()));
+    if (stages.length || active.length) {
+      sections.push({
+        title: 'Pipeline progress',
+        items: stages.slice(0, 20).map(record => ({
+          title: record.name || record.type,
+          detail: [record.type, record.state, record.result].filter(Boolean).join(' · '),
+          state: String(record.result || '').toLowerCase() === 'succeeded'
+            ? 'success'
+            : String(record.result || '').toLowerCase() === 'failed' ? 'error' : 'pending',
+        })),
+      });
+    }
+  } else if (context.provider === 'github' && context.owner && context.repo && context.runId) {
+    try {
+      const run = await github.getWorkflowRunContext(context.owner, context.repo, context.runId);
+      if (run.jobsNotice) errors.push(run.jobsNotice);
+      overview = run.displayTitle || item.detail || `${run.name} workflow run`;
+      metrics = [
+        { label: 'Workflow', value: run.name },
+        { label: 'Trigger', value: run.event },
+        { label: 'Branch', value: run.branch },
+        { label: 'State', value: [run.status, run.conclusion].filter(Boolean).join(' · ') },
+      ];
+      const failedSteps = [];
+      for (const job of run.jobs || []) {
+        for (const step of job.steps || []) {
+          if (['failure', 'cancelled', 'timed_out', 'action_required'].includes(String(step.conclusion || '').toLowerCase())) {
+            failedSteps.push({
+              title: `${job.name}: ${step.name}`,
+              detail: step.conclusion || step.status,
+              state: 'error',
+              url: job.url || '',
+            });
+          }
+        }
+      }
+      if (failedSteps.length) sections.push({ title: 'Failure evidence', items: failedSteps.slice(0, 16) });
+      if (run.jobs && run.jobs.length) {
+        sections.push({
+          title: 'Jobs',
+          items: run.jobs.slice(0, 20).map(job => ({
+            title: job.name,
+            detail: [job.status, job.conclusion].filter(Boolean).join(' · '),
+            state: String(job.conclusion || '').toLowerCase() === 'success'
+              ? 'success'
+              : String(job.conclusion || '').toLowerCase() === 'failure' ? 'error' : 'pending',
+            url: job.url || '',
+          })),
+        });
+      }
+    } catch (error) {
+      errors.push(`Workflow details: ${error.message}`);
+    }
+  }
+  return { kind: 'build', overview: _devBuddyClip(overview, 5000), metrics, sections, notice: errors.join(' · ') };
+}
+
+function _devBuddySessionContext(item) {
+  const context = item.context || {};
+  const id = context.sessionId || item.sessionId;
+  const dir = id ? path.join(SESSION_STATE_DIR, id) : '';
+  if (!dir || !fs.existsSync(dir)) throw new Error('The Copilot session data is no longer available.');
+  const meta = readSessionMeta(dir) || {};
+  const conversation = readSessionConversation(dir);
+  const turns = conversation.turns || [];
+  const latest = turns[turns.length - 1] || {};
+  const sections = [];
+  if (latest.content) {
+    sections.push({
+      title: 'Current objective',
+      text: _devBuddyClip(latest.content, 5000),
+    });
+  }
+  if (latest.assistant) {
+    sections.push({
+      title: 'Latest response',
+      text: _devBuddyClip(latest.assistant, 7000),
+    });
+  }
+  const recentTurns = turns.slice(-4).flatMap(turn => [
+    turn.content ? { title: 'You', detail: _devBuddyClip(turn.content, 900), state: 'neutral' } : null,
+    turn.assistant ? { title: 'Copilot', detail: _devBuddyClip(turn.assistant, 1200), state: 'neutral' } : null,
+  ]).filter(Boolean);
+  if (recentTurns.length) sections.push({ title: 'Recent conversation', items: recentTurns });
+  const toolSteps = (latest.steps || []).filter(step => step.type === 'tool' || step.type === 'tool_start');
+  if (toolSteps.length) {
+    sections.push({
+      title: 'Latest tool activity',
+      items: toolSteps.slice(-12).map(step => ({
+        title: step.tool || 'Tool',
+        detail: step.type === 'tool_start' ? 'Running' : step.success === false ? 'Failed' : 'Completed',
+        state: step.type === 'tool_start' ? 'pending' : step.success === false ? 'error' : 'success',
+      })),
+    });
+  }
+  let changedFiles = [];
+  if (meta.cwd && fs.existsSync(meta.cwd)) {
+    try {
+      const output = require('child_process').execFileSync('git', ['status', '--short'], {
+        cwd: meta.cwd,
+        encoding: 'utf8',
+        timeout: 5000,
+        windowsHide: true,
+      });
+      changedFiles = output.split(/\r?\n/).filter(Boolean).slice(0, 30);
+    } catch {}
+  }
+  if (changedFiles.length) {
+    sections.push({
+      title: 'Working-tree changes',
+      items: changedFiles.map(line => ({
+        title: line.slice(3).trim(),
+        detail: line.slice(0, 2).trim() || 'Changed',
+        state: 'attention',
+      })),
+    });
+  }
+  return {
+    kind: 'session',
+    overview: _devBuddyClip(latest.content || latest.assistant || item.detail || 'No conversation content is available.', 5000),
+    metrics: [
+      { label: 'State', value: context.state || 'active' },
+      { label: 'Repository', value: meta.repository || context.repository || '' },
+      { label: 'Branch', value: meta.branch || context.branch || '' },
+      { label: 'Turns', value: String(turns.length) },
+      { label: 'Changed files', value: String(changedFiles.length) },
+      { label: 'Model', value: latest.model || '' },
+    ],
+    sections,
+    notice: '',
+  };
+}
+
+function _devBuddyCommitmentContext(item) {
+  const links = Array.isArray(item.links) ? item.links : [];
+  return {
+    kind: item.kind,
+    overview: _devBuddyClip(item.detail || 'The collector identified an open commitment but did not retain more source text.', 5000),
+    metrics: [
+      { label: 'Channel', value: item.kind },
+      { label: 'Observed', value: item.observedAt || item.trackedAt || '' },
+      { label: 'Due', value: item.dueAt || 'No explicit date' },
+      { label: 'Confidence', value: item.confidence || 'normal' },
+    ],
+    sections: links.length ? [{
+      title: 'Source conversations',
+      items: links.map(link => ({
+        title: link.source || item.kind,
+        detail: 'Open the exact source conversation.',
+        state: 'neutral',
+        url: link.url || '',
+      })),
+    }] : [],
+    notice: links.length || item.link ? '' : 'The collector did not provide a direct source link for this commitment.',
+  };
+}
+
+function _devBuddyAgendaContext(item) {
+  const date = _meAiLocalDay();
+  const agenda = loadAgendaForDate(date) || {};
+  const blocks = Array.isArray(agenda.blocks) ? agenda.blocks : [];
+  const conflicts = Array.isArray(agenda.meta && agenda.meta.conflicts) ? agenda.meta.conflicts : [];
+  const attention = Array.isArray(agenda.needsAttention) ? agenda.needsAttention : [];
+  const todos = (Array.isArray(agenda.todos) ? agenda.todos : []).filter(todo => todo && !todo.done);
+  const sections = [];
+  if (conflicts.length) {
+    sections.push({
+      title: 'Schedule conflicts',
+      items: conflicts.slice(0, 12).map(conflict => ({
+        title: _devBuddyClip(conflict.title || conflict.label || conflict.reason || 'Schedule conflict', 240),
+        detail: _devBuddyClip(conflict.detail || conflict.when || '', 600),
+        state: 'error',
+      })),
+    });
+  }
+  if (attention.length) {
+    sections.push({
+      title: 'Needs a decision',
+      items: attention.slice(0, 12).map(entry => ({
+        title: _devBuddyClip(entry.title || entry.label || entry.text || String(entry), 240),
+        detail: _devBuddyClip(entry.detail || entry.reason || '', 600),
+        state: 'attention',
+      })),
+    });
+  }
+  if (blocks.length) {
+    sections.push({
+      title: 'Remaining agenda',
+      items: blocks.slice(0, 16).map(block => ({
+        title: _devBuddyClip(block.title || block.label || block.type || 'Agenda block', 240),
+        detail: [block.start, block.end, block.type].filter(Boolean).join(' · '),
+        state: 'neutral',
+      })),
+    });
+  }
+  if (todos.length) {
+    sections.push({
+      title: 'Open to-dos',
+      items: todos.slice(0, 12).map(todo => ({
+        title: _devBuddyClip(todo.title || todo.text || String(todo), 240),
+        detail: _devBuddyClip(todo.detail || '', 600),
+        state: 'pending',
+      })),
+    });
+  }
+  return {
+    kind: 'agenda',
+    overview: _devBuddyClip(item.detail || 'Today’s agenda contains unresolved pressure.', 5000),
+    metrics: [
+      { label: 'Conflicts', value: String(conflicts.length) },
+      { label: 'Remaining blocks', value: String(blocks.length) },
+      { label: 'Needs attention', value: String(attention.length) },
+      { label: 'Open to-dos', value: String(todos.length) },
+    ],
+    sections,
+    notice: '',
+  };
+}
+
+async function _devBuddySourceContext(item) {
+  const signature = require('crypto').createHash('sha1').update(JSON.stringify([
+    item.id, item.title, item.detail, item.kind, item.trackedAt, item.updatedAt, item.context,
+  ])).digest('hex');
+  const cached = _devBuddySourceContextCache.get(item.id);
+  const ttl = item.kind === 'session' ? 15 * 1000 : 2 * 60 * 1000;
+  if (cached && cached.signature === signature && Date.now() - cached.at < ttl) {
+    return { ...cached.value, cached: true };
+  }
+  let value;
+  if (item.kind === 'pull-request') value = await _devBuddyPrContext(item);
+  else if (item.kind === 'build') value = await _devBuddyBuildContext(item);
+  else if (item.kind === 'session') value = _devBuddySessionContext(item);
+  else if (['email', 'teams', 'meeting', 'calendar'].includes(item.kind)) value = _devBuddyCommitmentContext(item);
+  else if (item.kind === 'agenda') value = _devBuddyAgendaContext(item);
+  else value = {
+    kind: item.kind || 'work',
+    overview: _devBuddyClip(item.detail || item.attentionBlurb || 'No additional source context is available.', 5000),
+    metrics: [
+      { label: 'Source', value: item.source || 'Pixel' },
+      { label: 'Priority', value: item.priority || 'normal' },
+      { label: 'Tracked', value: item.trackedAt || item.createdAt || '' },
+    ],
+    sections: [],
+    notice: item.kind === 'agent-run'
+      ? 'Open the agent activity to inspect its live steps and output.'
+      : 'Pixel has only the information recorded with this reminder.',
+  };
+  _devBuddySourceContextCache.set(item.id, { signature, at: Date.now(), value });
+  if (_devBuddySourceContextCache.size > 250) {
+    const oldest = [..._devBuddySourceContextCache.entries()]
+      .sort((a, b) => a[1].at - b[1].at)
+      .slice(0, _devBuddySourceContextCache.size - 250);
+    for (const [id] of oldest) _devBuddySourceContextCache.delete(id);
+  }
+  return { ...value, cached: false };
+}
+
 app.get('/api/dev-buddy/status', async (req, res) => {
   try { res.json(await _devBuddyStatus({ refresh: req.query.refresh === '1' })); }
   catch (e) { res.status(500).json({ error: e.message || 'Could not load Dev Buddy status.' }); }
@@ -4086,6 +4556,19 @@ app.post('/api/dev-buddy/map-groupings', async (req, res) => {
   }
 });
 
+app.post('/api/dev-buddy/context', async (req, res) => {
+  const id = String(req.body && req.body.id || '').trim();
+  if (!id) return res.status(400).json({ error: 'id is required' });
+  try {
+    const status = await _devBuddyStatus();
+    const item = status.list.find(entry => String(entry.id) === id);
+    if (!item) return res.status(404).json({ error: 'Tracked work item not found.' });
+    res.json({ ok: true, context: await _devBuddySourceContext(item) });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Pixel could not load source context.' });
+  }
+});
+
 app.post('/api/dev-buddy/insight', async (req, res) => {
   const id = String(req.body && req.body.id || '').trim();
   if (!id) return res.status(400).json({ error: 'id is required' });
@@ -4093,7 +4576,8 @@ app.post('/api/dev-buddy/insight', async (req, res) => {
     const status = await _devBuddyStatus();
     const item = status.list.find(entry => String(entry.id) === id);
     if (!item) return res.status(404).json({ error: 'Tracked work item not found.' });
-    res.json({ ok: true, insight: await _devBuddyGenerateInsight(item) });
+    const sourceContext = await _devBuddySourceContext(item);
+    res.json({ ok: true, insight: await _devBuddyGenerateInsight(item, sourceContext) });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Pixel could not analyze this item.' });
   }
