@@ -300,8 +300,9 @@ fn position_dev_buddy(
     };
 
     let scale_factor = monitor.scale_factor();
-    let area = monitor.size();
-    let origin = monitor.position();
+    let work_area = monitor.work_area();
+    let area = &work_area.size;
+    let origin = &work_area.position;
     let margin = (16.0 * scale_factor).round() as i32;
     let max_width = ((area.width as f64 - margin as f64 * 2.0) / scale_factor)
         .floor()
@@ -554,6 +555,8 @@ fn plan_dev_buddy_mode(
 
 fn dev_buddy_mode_size(mode: &str) -> (u32, u32) {
     match mode {
+        "workspace" => (u32::MAX, u32::MAX),
+        "peek" => (400, 620),
         "expanded" => (440, 900),
         "wide" => (680, 900),
         "ultra" => (u32::MAX, 900),

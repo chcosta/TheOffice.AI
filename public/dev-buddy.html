@@ -352,9 +352,9 @@
     }
     .panel {
       position: absolute;
-      right: 16px;
-      left: 16px;
-      top: calc(var(--buddy-top) + 146px);
+      right: 12px;
+      left: 12px;
+      top: 12px;
       bottom: 16px;
       display: none;
       flex-direction: column;
@@ -363,16 +363,11 @@
       background: var(--cp-panel-strong);
       box-shadow: var(--cp-shadow);
       overflow: hidden;
-      opacity: .34;
-      transition: opacity .2s ease;
+      opacity: 1;
       z-index: 8;
     }
-    .stage[data-anchor-y="bottom"] .panel {
-      top: 16px;
-      bottom: calc(100% - var(--buddy-top) + 2px);
-    }
     .panel.open { display: flex; animation: panel-in .18s ease-out; }
-    .stage:hover .panel.open { opacity: 1; }
+    .stage.panel-open .buddy { display: none; }
     .panel-head {
       display: flex;
       align-items: center;
@@ -457,6 +452,107 @@
       outline: 0;
       background: var(--cp-surface);
     }
+    .work-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 9px 14px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+    }
+    .work-toolbar .daily-progress {
+      flex: 1;
+      margin: 0;
+    }
+    .sort-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .sort-control select {
+      min-height: 30px;
+      padding: 3px 26px 3px 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font: inherit;
+    }
+    .work-layout {
+      flex: 1;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(280px, 34%) minmax(0, 1fr);
+    }
+    .work-navigation {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+    }
+    .work-detail {
+      min-width: 0;
+      overflow-y: auto;
+      padding: 22px 26px;
+      background: var(--cp-bg-elevated);
+    }
+    .detail-kicker {
+      color: var(--cp-text-muted);
+      font-size: 11px;
+      font-weight: 650;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .detail-title {
+      margin: 5px 0 7px;
+      font-size: 22px;
+      font-weight: 650;
+      line-height: 1.25;
+      user-select: text;
+    }
+    .detail-meta {
+      color: var(--cp-text-muted);
+      font-size: 12px;
+    }
+    .detail-summary {
+      max-width: 850px;
+      margin-top: 22px;
+      color: var(--cp-text);
+      font-size: 14px;
+      line-height: 1.55;
+      user-select: text;
+    }
+    .detail-description {
+      max-width: 850px;
+      margin-top: 10px;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+      line-height: 1.55;
+      white-space: pre-wrap;
+      user-select: text;
+    }
+    .detail-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 14px;
+      margin-top: 24px;
+    }
+    .detail-primary {
+      min-height: 32px;
+      padding: 5px 12px;
+      border: 1px solid var(--cp-accent);
+      border-radius: 7px;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 650;
+    }
     .summary {
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -504,25 +600,27 @@
       flex: 1;
       min-height: 0;
       overflow-y: auto;
-      padding: 6px 14px;
+      padding: 0;
     }
     .empty { padding: 22px 4px; color: var(--cp-text-muted); font-size: 13px; text-align: center; }
     .item {
       --category-color: var(--cp-border-strong);
-      margin: 0 -2px;
-      padding: 11px 4px 11px 10px;
+      position: relative;
+      margin: 0;
+      padding: 9px 9px 9px 12px;
       border-bottom: 1px solid var(--cp-border);
-      border-left: 3px solid var(--category-color);
+      border-left: 3px solid var(--cp-clear);
     }
-    .item[data-openable="1"] { cursor: pointer; }
-    .item[data-openable="1"]:hover,
-    .item[data-openable="1"]:focus-visible {
+    .item { cursor: pointer; }
+    .item:hover,
+    .item:focus-visible,
+    .item.selected {
       background: var(--cp-accent-soft);
       outline: none;
     }
+    .item.selected { border-left-color: var(--category-color); }
     .item.dragging { opacity: .38; }
     .item.drag-target { border-top: 2px solid var(--cp-accent); }
-    .item.focused-from-catch-up { animation: item-focus 1.6s ease-out; }
     .item[data-kind="pull-request"] { --category-color: var(--cp-link); }
     .item[data-kind="agent-run"] { --category-color: var(--cp-success); }
     .item[data-kind="build"] { --category-color: var(--cp-success); }
@@ -534,7 +632,7 @@
     .item[data-kind="calendar"] { --category-color: var(--cp-warning); }
     .item[data-kind="memory"] { --category-color: var(--cp-accent); }
     .item:last-child { border-bottom: 0; }
-    .item-top { display: flex; gap: 8px; align-items: flex-start; }
+    .item-top { display: flex; gap: 7px; align-items: center; }
     .drag-handle {
       flex: none;
       width: 14px;
@@ -551,27 +649,19 @@
       user-select: none;
     }
     .drag-handle:active { cursor: grabbing; }
-    .priority {
-      width: 8px;
-      height: 8px;
-      margin-top: 6px;
-      border-radius: 50%;
-      background: var(--cp-border-strong);
-      flex: none;
-    }
-    .priority.high { background: var(--cp-danger); }
-    .item-title { font-size: 13px; font-weight: 650; line-height: 1.35; }
-    .item-detail { margin-top: 2px; color: var(--cp-text-muted); font-size: 12px; line-height: 1.35; }
-    .item-blurb {
-      margin-top: 5px;
-      color: var(--cp-text);
-      font-size: 11px;
-      line-height: 1.4;
+    .item-copy { min-width: 0; flex: 1; }
+    .item-title {
+      overflow: hidden;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .item-meta {
       display: flex;
       gap: 5px;
-      margin-top: 5px;
+      margin-top: 3px;
       color: var(--cp-text-muted);
       font-size: 11px;
     }
@@ -580,8 +670,28 @@
     .urgency[data-level="high"] { color: var(--cp-warning); }
     .urgency[data-level="medium"] { color: var(--cp-link); }
     .urgency[data-level="low"] { color: var(--cp-text-muted); }
-    .item-source { margin-top: 5px; color: var(--category-color); font-size: 11px; font-weight: 600; }
-    .item-actions { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: 8px; }
+    .item-quick-actions {
+      display: flex;
+      flex: none;
+      align-items: center;
+      gap: 4px;
+    }
+    .quick-action {
+      min-width: 27px;
+      height: 27px;
+      padding: 0 6px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-surface);
+      color: var(--cp-link);
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .quick-done {
+      color: var(--cp-success);
+      font-size: 15px;
+      font-weight: 700;
+    }
     .reminder-controls {
       display: flex;
       flex-basis: 100%;
@@ -660,27 +770,70 @@
     }
     .recent-actions { display: flex; gap: 12px; margin-top: 5px; }
     .recent-state { color: var(--cp-text-muted); font-size: 11px; }
-    .catch-up-list {
-      height: 100%;
-      overflow-y: auto;
-      padding: 8px 14px 14px;
+    .hover-preview {
+      position: absolute;
+      left: var(--buddy-left);
+      top: calc(var(--buddy-top) + 154px);
+      width: 370px;
+      display: none;
+      border: 1px solid var(--cp-border);
+      border-radius: 12px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+      overflow: hidden;
+      z-index: 9;
     }
-    .catch-up-intro {
-      padding: 2px 0 10px;
-      color: var(--cp-text-muted);
+    .stage[data-anchor-x="right"] .hover-preview {
+      right: calc(100% - var(--buddy-left) - 132px);
+      left: auto;
+    }
+    .stage[data-anchor-y="bottom"] .hover-preview {
+      top: auto;
+      bottom: calc(100% - var(--buddy-top) + 2px);
+    }
+    .hover-preview.show { display: block; animation: panel-in .16s ease-out; }
+    .hover-preview-head {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--cp-border);
       font-size: 12px;
-      line-height: 1.45;
+      font-weight: 650;
     }
-    .catch-up-item {
-      padding: 11px 2px;
-      border-top: 1px solid var(--cp-border);
+    .hover-preview-head span {
+      margin-left: auto;
+      color: var(--cp-text-muted);
+      font-size: 10px;
+      font-weight: 400;
     }
-    .catch-up-item[data-openable="1"] { cursor: pointer; }
-    .catch-up-item[data-openable="1"]:hover .catch-up-title { color: var(--cp-link); }
-    .catch-up-change { color: var(--cp-accent); font-size: 11px; font-weight: 650; }
-    .catch-up-title { margin-top: 2px; font-size: 13px; font-weight: 650; }
-    .catch-up-detail { margin-top: 3px; color: var(--cp-text-muted); font-size: 12px; line-height: 1.4; }
-    .catch-up-meta { margin-top: 5px; color: var(--cp-text-soft); font-size: 11px; }
+    .preview-item {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--cp-border);
+    }
+    .preview-item:last-child { border-bottom: 0; }
+    .preview-read {
+      min-width: 0;
+      padding: 0;
+      border: 0;
+      background: var(--cp-clear);
+      color: var(--cp-text);
+      cursor: pointer;
+      text-align: left;
+    }
+    .preview-title {
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 600;
+      line-height: 1.3;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .preview-meta { margin-top: 2px; color: var(--cp-text-muted); font-size: 10px; }
     .source-status {
       padding: 7px 14px;
       border-bottom: 1px solid var(--cp-border);
@@ -907,7 +1060,6 @@
       z-index: 12;
     }
     .stage.celebrating .reward { animation: reward-in 2.8s ease both; }
-    .stage.panel-open .resize-handle { display: block; }
     @keyframes buddy-float { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-5px) rotate(1deg); } }
     @keyframes buddy-hustle { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
     @keyframes buddy-happy { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-9px) rotate(2deg); } }
@@ -933,10 +1085,6 @@
       100% { opacity: 0; transform: translateY(-7px) scale(.98); }
     }
     @keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
-    @keyframes item-focus {
-      0%, 35% { background: var(--cp-highlight); border-left-color: var(--cp-accent); }
-      100% { background: var(--cp-clear); }
-    }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
     }
@@ -951,52 +1099,45 @@
           <div class="panel-sub" id="panelSub">Keeping the loose ends together</div>
         </div>
         <div class="panel-tools">
-          <button class="panel-pin" id="pinPanel" type="button">Pin</button>
-          <select class="panel-size" id="sizePanel" aria-label="Flyout width">
-            <option value="expanded">Compact</option>
-            <option value="wide">Wide</option>
-            <option value="ultra">Ultra wide</option>
-          </select>
           <button class="panel-close" id="closePanel" type="button" aria-label="Close">×</button>
         </div>
       </header>
       <div class="operation-status" id="operationStatus" role="status" aria-live="polite" hidden></div>
       <nav class="view-nav" aria-label="Dev Buddy views">
         <button class="view-link active" type="button" data-view-target="work">Work</button>
-        <button class="view-link" type="button" data-view-target="catchup">Catch up <span class="view-count" id="catchUpCount">0</span></button>
         <button class="view-link" type="button" data-view-target="map">Map</button>
         <button class="view-link" type="button" data-view-target="memory">Memory</button>
       </nav>
       <section class="panel-view" id="workView">
-        <div class="summary">
-          <div class="metric"><strong id="attentionCount">0</strong><span>need attention</span></div>
-          <div class="metric"><strong id="trackingCount">0</strong><span>being tracked</span></div>
-          <div class="metric"><strong id="memoryCount">0</strong><span>remembered</span></div>
+        <div class="work-toolbar">
+          <div class="daily-progress" id="dailyProgress"></div>
+          <label class="sort-control">Sort
+            <select id="workSort" aria-label="Sort work list">
+              <option value="urgency">Urgency</option>
+              <option value="arrival">Arrival time</option>
+              <option value="manual">My order</option>
+            </select>
+          </label>
         </div>
-        <div class="daily-progress" id="dailyProgress"></div>
-        <div class="legend" aria-label="Work categories">
-          <span class="legend-item legend-pr">PR</span>
-          <span class="legend-item legend-agent">Build / Agent</span>
-          <span class="legend-item legend-agenda">Agenda / Meeting</span>
-          <span class="legend-item legend-memory">Email / Reminder</span>
+        <div class="work-layout">
+          <aside class="work-navigation" aria-label="Work list">
+            <div class="source-status" id="sourceStatus"></div>
+            <div class="list" id="itemList"></div>
+            <details class="recent-activity" id="recentActivity">
+              <summary>
+                Recent activity
+                <span class="recent-summary-meta">Past 24 hours · <span id="recentCount">0</span></span>
+              </summary>
+              <div class="recent-list" id="recentList"></div>
+            </details>
+          </aside>
+          <section class="work-detail" id="itemDetail" aria-live="polite"></section>
         </div>
-        <div class="source-status" id="sourceStatus"></div>
-        <div class="list" id="itemList"></div>
-        <details class="recent-activity" id="recentActivity">
-          <summary>
-            Recent activity
-            <span class="recent-summary-meta">Past 24 hours · <span id="recentCount">0</span></span>
-          </summary>
-          <div class="recent-list" id="recentList"></div>
-        </details>
         <div class="pixel-chat" id="pixelChat" aria-live="polite"></div>
         <form class="composer" id="composer">
           <input id="newItem" maxlength="4000" placeholder="Ask Pixel to help…" aria-label="Message Pixel">
           <button class="primary" id="chatSend" type="submit">Ask</button>
         </form>
-      </section>
-      <section class="panel-view" id="catchUpView" hidden>
-        <div class="catch-up-list" id="catchUpList"></div>
       </section>
       <section class="panel-view" id="mapView" hidden>
         <div class="map-wrap" id="mapWrap">
@@ -1025,7 +1166,10 @@
         </form>
       </section>
     </section>
-    <button class="resize-handle" id="resizeHandle" type="button" aria-label="Resize Dev Buddy"></button>
+    <aside class="hover-preview" id="hoverPreview" aria-label="Top work items">
+      <div class="hover-preview-head">Up next <span>Read or mark done</span></div>
+      <div id="previewList"></div>
+    </aside>
 
     <aside class="bubble" id="bubble" aria-live="polite" data-kind="memory">
       <button class="bubble-dismiss" id="dismissBubble" type="button" aria-label="Dismiss">×</button>
@@ -1069,10 +1213,9 @@
       let snoozeWakeTimer = null;
       let snoozeWakeAt = 0;
       let closeTimer = null;
+      let peekTimer = null;
+      let peekOpen = false;
       let lastFingerprint = '';
-      let panelSize = localStorage.getItem('dev-buddy-size') ||
-        (localStorage.getItem('dev-buddy-wide') === '1' ? 'wide' : 'expanded');
-      let panelPinned = localStorage.getItem('dev-buddy-pinned') === '1';
       let manipulatingWindow = false;
       let buddyGesture = null;
       let buddyDragSafety = null;
@@ -1082,17 +1225,12 @@
       let dragPointer = null;
       let suppressItemOpenUntil = 0;
       let currentView = localStorage.getItem('dev-buddy-view') || 'work';
+      let workSort = localStorage.getItem('dev-buddy-work-sort') || 'urgency';
+      let selectedItemId = localStorage.getItem('dev-buddy-selected-item') || '';
       let startupLaunch = new URLSearchParams(location.search).get('startup') === '1';
       let knownItemIds = null;
       let loadSequence = 0;
       const pendingHiddenIds = new Set();
-      let catchUpSeen = {};
-      let catchUpItems = [];
-      let catchUpViewing = false;
-      try {
-        const saved = JSON.parse(localStorage.getItem('dev-buddy-catch-up-seen') || '{}');
-        catchUpSeen = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
-      } catch {}
       let mapTransform = { x: 24, y: 24, scale: 1 };
       let mapExtent = { width: 980, height: 600 };
       let mapPointer = null;
@@ -1163,89 +1301,115 @@
         })[char]);
       }
 
-      function catchUpKey(item) {
-        return String(item?.reminderKey || item?.id || '');
+      function itemArrival(item) {
+        const timestamp = Date.parse(item?.trackedAt || item?.observedAt || item?.createdAt ||
+          item?.updatedAt || item?.dueAt || '');
+        return Number.isFinite(timestamp) ? timestamp : 0;
       }
 
-      function catchUpFacts(item) {
-        return {
-          state: item?.id || '',
-          title: item?.title || '',
-          detail: item?.detail || '',
-          priority: item?.priority || 'normal',
-          dueAt: item?.dueAt || '',
-          urgency: item?.urgency?.level || '',
-          kind: item?.kind || '',
-          source: item?.source || '',
-        };
-      }
-
-      function catchUpSignature(facts) {
-        return JSON.stringify(facts);
-      }
-
-      function catchUpChangeSummary(previous, current) {
-        if (!previous) return 'New since your last look';
-        const changes = [];
-        if (previous.urgency !== current.urgency) changes.push(`urgency ${previous.urgency || 'unknown'} → ${current.urgency || 'unknown'}`);
-        if (previous.priority !== current.priority) changes.push(`priority ${previous.priority || 'normal'} → ${current.priority || 'normal'}`);
-        if (previous.dueAt !== current.dueAt) changes.push('due time changed');
-        if (previous.state !== current.state || previous.detail !== current.detail) changes.push('status or details changed');
-        if (previous.title !== current.title) changes.push('title changed');
-        return changes.length ? `Changed: ${changes.slice(0, 2).join(' · ')}` : 'Changed since your last look';
-      }
-
-      function saveCatchUpSnapshot(items) {
-        catchUpSeen = Object.fromEntries((items || []).map(item => {
-          const facts = catchUpFacts(item);
-          return [catchUpKey(item), { ...facts, signature: catchUpSignature(facts) }];
-        }).filter(([key]) => key));
-        localStorage.setItem('dev-buddy-catch-up-seen', JSON.stringify(catchUpSeen));
-      }
-
-      function updateCatchUp(items) {
-        const current = new Map((items || []).map(item => [catchUpKey(item), item]).filter(([key]) => key));
-        const changes = [];
-        for (const [key, item] of current) {
-          const facts = catchUpFacts(item);
-          const previous = catchUpSeen[key];
-          const previousSignature = typeof previous === 'string' ? previous : previous?.signature;
-          if (!previousSignature || previousSignature !== catchUpSignature(facts)) {
-            changes.push({
-              ...item,
-              catchUpKey: key,
-              catchUpType: previousSignature ? 'changed' : 'new',
-              catchUpSummary: catchUpChangeSummary(typeof previous === 'object' ? previous : null, facts),
-            });
-          }
+      function sortedWorkItems(items) {
+        const sorted = [...(items || [])];
+        if (workSort === 'manual') return sorted;
+        if (workSort === 'arrival') {
+          return sorted.sort((a, b) => itemArrival(b) - itemArrival(a) ||
+            String(a.title || '').localeCompare(String(b.title || '')));
         }
-        if (catchUpViewing) {
-          const merged = new Map(catchUpItems
-            .filter(item => current.has(item.catchUpKey))
-            .map(item => [item.catchUpKey, item]));
-          for (const item of changes) merged.set(item.catchUpKey, item);
-          catchUpItems = [...merged.values()];
-          saveCatchUpSnapshot(items);
-        } else {
-          catchUpItems = changes;
-        }
-        catchUpItems.sort((a, b) =>
-          (b.urgency?.score || 0) - (a.urgency?.score || 0) ||
+        return sorted.sort((a, b) =>
+          Number(b.urgency?.score || 0) - Number(a.urgency?.score || 0) ||
+          itemArrival(b) - itemArrival(a) ||
           String(a.title || '').localeCompare(String(b.title || '')));
       }
 
-      function renderCatchUp() {
-        $('catchUpCount').textContent = String(catchUpItems.length);
-        $('catchUpList').innerHTML = catchUpItems.length ? `
-          <div class="catch-up-intro">New and changed work since your last Catch up view. Items stay here while you review them.</div>
-          ${catchUpItems.map(item => `
-            <article class="catch-up-item" data-catch-up-id="${escapeHtml(item.id)}" role="button" tabindex="0">
-              <div class="catch-up-change">${escapeHtml(item.catchUpSummary)}</div>
-              <div class="catch-up-title">${escapeHtml(item.title)}</div>
-              <div class="catch-up-detail">${escapeHtml(item.attentionBlurb || item.detail || '')}</div>
-              <div class="catch-up-meta">${escapeHtml(item.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(item))} · ${escapeHtml(formatWorkItemDate(item))} · ${escapeHtml(item.source || 'Pixel')}</div>
-            </article>`).join('')}
-        ` : '<div class="empty">You’re caught up. Nothing currently on your list has changed since your last look.</div>';
+      function formatArrivalTime(item) {
+        const timestamp = itemArrival(item);
+        if (!timestamp) return 'Unknown time';
+        const date = new Date(timestamp);
+        const today = new Date();
+        const sameDay = date.getFullYear() === today.getFullYear() &&
+          date.getMonth() === today.getMonth() && date.getDate() === today.getDate();
+        return sameDay
+          ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date)
+          : new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' }).format(date);
+      }
+
+      function renderWorkDetail(items) {
+        const selected = items.find(item => item.id === selectedItemId) || items[0];
+        if (!selected) {
+          selectedItemId = '';
+          $('itemDetail').innerHTML = '<div class="empty">Nothing needs you right now. Pixel will keep watching.</div>';
+          return;
+        }
+        selectedItemId = selected.id;
+        localStorage.setItem('dev-buddy-selected-item', selectedItemId);
+        const openable = selected.link || selected.route;
+        $('itemDetail').innerHTML = `
+          <div class="detail-kicker">${escapeHtml(selected.source || 'Pixel')} · ${escapeHtml(selected.kind || 'work')}</div>
+          <h2 class="detail-title">${escapeHtml(selected.title)}</h2>
+          <div class="detail-meta">
+            <span class="urgency" data-level="${escapeHtml(selected.urgency?.level || 'medium')}">${escapeHtml(selected.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(selected))}</span>
+            · ${escapeHtml(formatWorkItemDate(selected))}
+          </div>
+          <div class="detail-summary">${escapeHtml(selected.attentionBlurb || selected.detail || 'Pixel is tracking this item for you.')}</div>
+          ${selected.attentionBlurb && selected.detail ? `<div class="detail-description">${escapeHtml(selected.detail)}</div>` : ''}
+          <div class="detail-actions" data-detail-id="${escapeHtml(selected.id)}">
+            <button class="detail-primary" type="button" data-action="done">Done</button>
+            ${openable ? '<button class="text-action" type="button" data-action="open">Open source</button>' : ''}
+            ${selected.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
+            <label class="reminder-control">Remind me in
+              <select data-reminder-in aria-label="Remind me in">
+                <option value="">Select…</option>
+                <option value="5">5m</option>
+                <option value="15">15m</option>
+                <option value="30">30m</option>
+                <option value="60">1h</option>
+                <option value="120">2h</option>
+                <option value="240">4h</option>
+                <option value="1440">Tomorrow</option>
+              </select>
+            </label>
+            <label class="reminder-control">Remind me at
+              <input type="datetime-local" data-reminder-at value="${defaultReminderAt()}" min="${minimumReminderAt()}" aria-label="Reminder date and time">
+            </label>
+            <button class="text-action" type="button" data-action="remind-at">Set</button>
+          </div>`;
+      }
+
+      function renderWorkItems(items) {
+        const sorted = sortedWorkItems(items);
+        if (!sorted.some(item => item.id === selectedItemId)) selectedItemId = sorted[0]?.id || '';
+        $('workSort').value = workSort;
+        $('itemList').innerHTML = sorted.length ? sorted.map(item => `
+          <article class="item ${item.id === selectedItemId ? 'selected' : ''}" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" role="button" tabindex="0" aria-selected="${item.id === selectedItemId ? 'true' : 'false'}">
+            <div class="item-top">
+              ${workSort === 'manual' ? '<button class="drag-handle" type="button" title="Drag to reorder" aria-label="Drag to reorder">↕</button>' : ''}
+              <div class="item-copy">
+                <div class="item-title">${escapeHtml(item.title)}</div>
+                <div class="item-meta">
+                  <span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}">${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))}</span>
+                  <span>·</span>
+                  <span>${escapeHtml(formatArrivalTime(item))}</span>
+                </div>
+              </div>
+              <div class="item-quick-actions">
+                ${item.link || item.route ? '<button class="quick-action" type="button" data-action="open" aria-label="Open source" title="Open source">↗</button>' : ''}
+                <button class="quick-action quick-done" type="button" data-action="done" aria-label="Mark done" title="Mark done">✓</button>
+              </div>
+            </div>
+          </article>`).join('') : '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
+        renderWorkDetail(sorted);
+        renderPreview(sorted);
+      }
+
+      function renderPreview(items) {
+        const top = sortedWorkItems(items).slice(0, 5);
+        $('previewList').innerHTML = top.length ? top.map(item => `
+          <div class="preview-item" data-preview-id="${escapeHtml(item.id)}">
+            <button class="preview-read" type="button" data-preview-action="read">
+              <div class="preview-title">${escapeHtml(item.title)}</div>
+              <div class="preview-meta">${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))} · ${escapeHtml(formatArrivalTime(item))}</div>
+            </button>
+            <button class="quick-action quick-done" type="button" data-preview-action="done" aria-label="Mark done" title="Mark done">✓</button>
+          </div>`).join('') : '<div class="empty">Nothing needs you right now.</div>';
       }
 
       function refreshBuddyUrgency(items) {
@@ -1269,11 +1433,6 @@
         $('buddy').dataset.mood = mood.id || 'calm';
         $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${mood.label}. ${mood.detail || ''}`);
         $('buddy').title = `${mood.label}: ${mood.detail || ''}`;
-        $('attentionCount').textContent = status?.counts?.attention || 0;
-        $('trackingCount').textContent = status?.counts?.tracking || 0;
-        $('memoryCount').textContent = status?.counts?.remembered || 0;
-        $('sizePanel').value = panelSize;
-        $('pinPanel').textContent = panelPinned ? 'Unpin' : 'Pin';
         $('attentionDot').classList.toggle('on', (status?.counts?.attention || 0) > 0);
         const combined = status?.list || [...(status?.signals || []), ...(status?.items || []).filter(item => !item.snoozed)];
         refreshBuddyUrgency(combined);
@@ -1308,47 +1467,7 @@
         $('sourceStatus').textContent = sourceBits.join(' · ') || 'No automatic sources enabled';
         $('bodyCount').textContent = combined.length > 99 ? '99+' : String(combined.length);
         $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${combined.length} tracked items · ${mood.label}. ${mood.detail || ''}`);
-        $('itemList').innerHTML = combined.length ? combined.map(item => `
-          <article class="item" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" ${item.link || item.route ? 'role="link" tabindex="0"' : 'tabindex="-1"'}>
-            <div class="item-top">
-              <button class="drag-handle" type="button" title="Drag to reorder" aria-label="Drag to reorder">↕</button>
-              <span class="priority ${item.priority === 'high' ? 'high' : ''}"></span>
-              <div>
-                <div class="item-title">${escapeHtml(item.title)}</div>
-                <div class="item-detail">${escapeHtml(item.detail || '')}</div>
-                <div class="item-blurb">${escapeHtml(item.attentionBlurb || '')}</div>
-                <div class="item-meta">
-                  <span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}" title="${escapeHtml(item.urgency?.reason || '')}">${escapeHtml(item.urgency?.label || 'Medium')} urgency · score ${escapeHtml(urgencyScore(item))}</span>
-                  <span>·</span>
-                  <span>${escapeHtml(formatWorkItemDate(item))}</span>
-                </div>
-                <div class="item-source">${escapeHtml(item.source || 'Dev Buddy')}</div>
-              </div>
-            </div>
-            <div class="item-actions">
-              ${item.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
-              <button class="text-action" type="button" data-action="dismiss">Dismiss</button>
-              <button class="text-action" type="button" data-action="done">Mark done</button>
-              <div class="reminder-controls">
-                <label class="reminder-control">Remind me in
-                  <select data-reminder-in aria-label="Remind me in">
-                    <option value="">Select…</option>
-                    <option value="5">5m</option>
-                    <option value="15">15m</option>
-                    <option value="30">30m</option>
-                    <option value="60">1h</option>
-                    <option value="120">2h</option>
-                    <option value="240">4h</option>
-                    <option value="1440">Tomorrow</option>
-                  </select>
-                </label>
-                <label class="reminder-control">Remind me at
-                  <input type="datetime-local" data-reminder-at value="${defaultReminderAt()}" min="${minimumReminderAt()}" aria-label="Reminder date and time">
-                </label>
-                <button class="text-action" type="button" data-action="remind-at">Set</button>
-              </div>
-            </div>
-          </article>`).join('') : '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
+        renderWorkItems(combined);
         const recentActivity = status?.recentActivity || [];
         $('recentCount').textContent = String(recentActivity.length);
         $('recentList').innerHTML = recentActivity.length ? recentActivity.map(item => {
@@ -1374,7 +1493,6 @@
           </div>`;
         }).join('') : '<div class="empty">No changes in the past 24 hours.</div>';
         $('mapGrouping').value = mapMode;
-        renderCatchUp();
         renderMap(mapMode === 'context' ? status?.relationships : (mapRelationships || status?.relationships));
         renderMemories(status?.memories || []);
         renderChat();
@@ -1562,27 +1680,16 @@
       }
 
       async function setView(view, resize = true) {
-        const previousView = currentView;
-        currentView = ['work', 'catchup', 'map', 'memory'].includes(view) ? view : 'work';
-        if (previousView === 'catchup' && currentView !== 'catchup') {
-          catchUpViewing = false;
-          catchUpItems = [];
-        }
-        if (currentView === 'catchup' && !catchUpViewing) {
-          catchUpViewing = true;
-          saveCatchUpSnapshot(status?.list || []);
-        }
+        currentView = ['work', 'map', 'memory'].includes(view) ? view : 'work';
         localStorage.setItem('dev-buddy-view', currentView);
         $('workView').hidden = currentView !== 'work';
-        $('catchUpView').hidden = currentView !== 'catchup';
         $('mapView').hidden = currentView !== 'map';
         $('memoryView').hidden = currentView !== 'memory';
-        renderCatchUp();
         for (const button of document.querySelectorAll('[data-view-target]')) {
           button.classList.toggle('active', button.dataset.viewTarget === currentView);
         }
         if (resize && panelOpen) {
-          await setMode(panelSize);
+          await setMode('workspace');
           if (currentView === 'map') {
             if (mapMode !== 'context' && !mapRelationships) loadMapGrouping(mapMode);
             else setTimeout(fitMap, 80);
@@ -1607,7 +1714,6 @@
             items: hidePending(nextStatus.items),
           };
           status = nextStatus;
-          updateCatchUp(status.list || []);
           for (const item of (status.items || [])) {
             if (item.snoozedUntil) scheduleSnoozeWake(item.snoozedUntil);
           }
@@ -1629,7 +1735,6 @@
             loadMapGrouping(mapMode);
           }
           if (added.length) flashNewWork(added[0]);
-          if (panelPinned && !panelOpen) await openPanel();
           scheduleReminder();
         } catch (error) {
           if (sequence !== loadSequence) return;
@@ -1641,15 +1746,15 @@
         clearTimeout(bubbleTimer);
         $('buddy').classList.remove('commenting');
         $('bubble').classList.remove('show');
-        if (!panelOpen) {
+        if (!panelOpen && !peekOpen) {
           setTimeout(() => {
-            if (!panelOpen) setMode('idle');
+            if (!panelOpen && !peekOpen) setMode('idle');
           }, 350);
         }
       }
 
       async function showBubble(item, force = false) {
-        if (!item || panelOpen || (!force && !status?.settings?.remindersEnabled)) return;
+        if (!item || panelOpen || peekOpen || (!force && !status?.settings?.remindersEnabled)) return;
         lastFingerprint = item.fingerprint || item.id || '';
         $('bubble').dataset.kind = item.kind || 'memory';
         $('bubbleKicker').textContent = item.priority === 'high' ? 'Needs your attention' : 'Quick heads-up';
@@ -1692,8 +1797,10 @@
       async function openPanel(focusComposer = false) {
         clearTimeout(closeTimer);
         panelOpen = true;
+        peekOpen = false;
+        $('hoverPreview').classList.remove('show');
         hideBubble();
-        await setMode(panelSize);
+        await setMode('workspace');
         $('panel').classList.add('open');
         $('stage').classList.add('panel-open');
         if (currentView === 'map') setTimeout(fitMap, 80);
@@ -1708,6 +1815,31 @@
         await setMode('idle');
       }
 
+      async function showPeek() {
+        if (panelOpen || manipulatingWindow || buddyGesture) return;
+        clearTimeout(peekTimer);
+        hideBubble();
+        peekOpen = true;
+        renderPreview(status?.list || []);
+        await setMode('peek');
+        if (peekOpen && !panelOpen) $('hoverPreview').classList.add('show');
+      }
+
+      function schedulePeek() {
+        if (panelOpen || manipulatingWindow) return;
+        clearTimeout(closeTimer);
+        clearTimeout(peekTimer);
+        peekTimer = setTimeout(showPeek, 260);
+      }
+
+      async function hidePeek() {
+        clearTimeout(peekTimer);
+        if (!peekOpen) return;
+        peekOpen = false;
+        $('hoverPreview').classList.remove('show');
+        if (!panelOpen) await setMode('idle');
+      }
+
       async function beginWindowAction(command) {
         const fn = invoke();
         if (!fn) return;
@@ -1718,22 +1850,6 @@
             buddyLeft: windowPlacement.buddyLeft,
             buddyTop: windowPlacement.buddyTop,
           });
-        } catch (_) {}
-        setTimeout(() => { manipulatingWindow = false; }, 500);
-      }
-
-      async function beginResizeAction() {
-        clearTimeout(closeTimer);
-        manipulatingWindow = true;
-        try {
-          const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
-          const direction = {
-            'left-top': 'SouthEast',
-            'right-top': 'SouthWest',
-            'left-bottom': 'NorthEast',
-            'right-bottom': 'NorthWest',
-          }[`${windowPlacement.anchorX}-${windowPlacement.anchorY}`];
-          if (currentWindow) await currentWindow.startResizeDragging(direction || 'SouthWest');
         } catch (_) {}
         setTimeout(() => { manipulatingWindow = false; }, 500);
       }
@@ -1831,13 +1947,9 @@
 
       function togglePanel() {
         if (panelOpen) {
-          if (panelPinned) {
-            panelPinned = false;
-            localStorage.setItem('dev-buddy-pinned', '0');
-          }
           closePanel();
         } else {
-          openPanel(true);
+          openPanel();
         }
       }
       function finishBuddyDrag() {
@@ -1850,6 +1962,7 @@
         const fn = invoke();
         if (!fn) return;
         event.preventDefault();
+        clearTimeout(peekTimer);
         clearTimeout(closeTimer);
         buddyGesture = {
           id: event.pointerId,
@@ -1900,13 +2013,15 @@
         }
         togglePanel();
       });
+      $('buddy').addEventListener('mouseenter', schedulePeek);
+      $('buddy').addEventListener('focus', schedulePeek);
       $('stage').addEventListener('mouseenter', () => clearTimeout(closeTimer));
       $('stage').addEventListener('mouseleave', () => {
         clearTimeout(closeTimer);
         closeTimer = setTimeout(() => {
-          if (panelOpen && !panelPinned && !manipulatingWindow && !controlFocused &&
-              Date.now() >= controlInteractionUntil) closePanel();
-        }, 900);
+          if (peekOpen && !manipulatingWindow && !controlFocused &&
+              Date.now() >= controlInteractionUntil) hidePeek();
+        }, 450);
       });
       $('panel').addEventListener('focusin', event => {
         if (!event.target.closest('button, input, select')) return;
@@ -1922,22 +2037,7 @@
         }, 0);
       });
       $('closePanel').addEventListener('click', () => {
-        panelPinned = false;
-        localStorage.setItem('dev-buddy-pinned', '0');
         closePanel();
-      });
-      $('pinPanel').addEventListener('click', event => {
-        event.stopPropagation();
-        panelPinned = !panelPinned;
-        localStorage.setItem('dev-buddy-pinned', panelPinned ? '1' : '0');
-        $('pinPanel').textContent = panelPinned ? 'Unpin' : 'Pin';
-      });
-      $('sizePanel').addEventListener('change', async event => {
-        event.stopPropagation();
-        panelSize = ['expanded', 'wide', 'ultra'].includes(event.target.value) ? event.target.value : 'expanded';
-        localStorage.setItem('dev-buddy-size', panelSize);
-        await setMode(panelSize);
-        if (currentView === 'map') setTimeout(fitMap, 80);
       });
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
@@ -1946,12 +2046,6 @@
         if (event.button !== 0 || event.target.closest('button, input, select')) return;
         event.preventDefault();
         beginWindowAction('start_dev_buddy_drag');
-      });
-      $('resizeHandle').addEventListener('pointerdown', event => {
-        if (event.button !== 0) return;
-        event.preventDefault();
-        event.stopPropagation();
-        beginResizeAction();
       });
       $('bubble').addEventListener('click', event => {
         if (!event.target.closest('#dismissBubble')) openPanel();
@@ -2043,8 +2137,12 @@
       });
 
       function findListItem(row) {
+        return findItemById(row?.dataset.id);
+      }
+
+      function findItemById(id) {
         return (status?.list || [...(status?.signals || []), ...(status?.items || [])])
-          .find(entry => entry.id === row.dataset.id);
+          .find(entry => entry.id === id);
       }
 
       function refreshProgressIndicators(progressOverride) {
@@ -2070,7 +2168,7 @@
         const previousStatus = status;
         loadSequence++;
         pendingHiddenIds.add(item.id);
-        row.remove();
+        row?.remove();
         const remove = entries => (entries || []).filter(entry => entry.id !== item.id);
         const list = remove(status?.list);
         const progress = status?.progress || {};
@@ -2099,14 +2197,10 @@
           },
         };
         $('bodyCount').textContent = list.length > 99 ? '99+' : String(list.length);
-        $('attentionCount').textContent = status.counts.attention;
-        $('trackingCount').textContent = status.counts.tracking;
-        $('memoryCount').textContent = status.counts.remembered;
         refreshBuddyUrgency(list);
         refreshProgressIndicators();
-        if (!$('itemList').querySelector('.item')) {
-          $('itemList').innerHTML = '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
-        }
+        if (selectedItemId === item.id) selectedItemId = '';
+        renderWorkItems(list);
         return () => {
           loadSequence++;
           pendingHiddenIds.delete(item.id);
@@ -2132,24 +2226,22 @@
             deferredToday: Number(progress.deferredToday || 0) + (alreadyCounted ? 0 : 1),
           },
         };
-        row.querySelector('.priority')?.classList.toggle('high', priority === 'high');
-        const button = row.querySelector('[data-action="priority-down"]');
-        if (button && priority === 'low') button.remove();
         refreshBuddyUrgency(status.list);
         refreshProgressIndicators();
+        renderWorkItems(status.list);
         return () => {
           status = previousStatus;
           render();
         };
       }
 
-      async function updateListItem(row, item, body, reload = true) {
+      async function updateListItem(item, body, reload = true) {
         if (item.completable) {
           await request('/api/dev-buddy/commitments/' + encodeURIComponent(item.id), {
             method: 'PUT',
             body: JSON.stringify(body),
           });
-        } else if (row.dataset.signal === '1') {
+        } else if (item.fingerprint) {
           const signalKey = body.snoozedUntil ? (item.reminderKey || item.fingerprint) : item.fingerprint;
           await request('/api/dev-buddy/signals/' + encodeURIComponent(signalKey), {
             method: 'PUT',
@@ -2165,41 +2257,28 @@
         if (reload) await load();
       }
 
-      $('itemList').addEventListener('change', async event => {
-        const select = event.target.closest('[data-reminder-in]');
-        const row = event.target.closest('.item');
-        if (!select || !row || !select.value) return;
-        const item = findListItem(row);
+      async function remindIn(select, item, row) {
+        if (!select?.value || !item) return;
         const minutes = Number(select.value);
-        if (!item || !Number.isFinite(minutes) || minutes <= 0) return;
+        if (!Number.isFinite(minutes) || minutes <= 0) return;
         select.disabled = true;
         const snoozedUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
         const restore = removeListItemLocally(row, item, 'deferred');
         try {
-          await updateListItem(row, item, { snoozedUntil }, false);
+          await updateListItem(item, { snoozedUntil }, false);
           void load();
         } catch (error) {
           restore();
         } finally {
           select.disabled = false;
         }
-      });
+      }
 
-      $('itemList').addEventListener('click', async event => {
-        const action = event.target.closest('[data-action]')?.dataset.action;
-        const row = event.target.closest('.item');
-        if (!row) return;
-        const item = findListItem(row);
-        if (!item) return;
-        if (!action) {
-          const interactive = event.target.closest('button, input, select, label, .drag-handle');
-          if (!interactive && row.dataset.openable === '1' && Date.now() >= suppressItemOpenUntil) {
-            return openItem(item);
-          }
-          return;
-        }
+      async function handleWorkAction(action, item, row, scope) {
+        if (!action || !item) return;
+        if (action === 'open') return openItem(item);
         if (action === 'remind-at') {
-          const input = row.querySelector('[data-reminder-at]');
+          const input = scope.querySelector('[data-reminder-at]');
           const reminderAt = new Date(input.value).getTime();
           if (!Number.isFinite(reminderAt) || reminderAt <= Date.now()) {
             input.setCustomValidity('Choose a future reminder time.');
@@ -2209,7 +2288,7 @@
           input.setCustomValidity('');
           const restore = removeListItemLocally(row, item, 'deferred');
           try {
-            await updateListItem(row, item, { snoozedUntil: new Date(reminderAt).toISOString() }, false);
+            await updateListItem(item, { snoozedUntil: new Date(reminderAt).toISOString() }, false);
             void load();
           } catch (error) {
             restore();
@@ -2220,14 +2299,12 @@
         const currentPriority = Math.max(0, priorities.indexOf(item.priority || 'normal'));
         const body = action === 'done'
           ? { status: 'done' }
-          : action === 'dismiss'
-            ? { status: 'dismissed' }
-            : { priority: priorities[Math.max(0, currentPriority - 1)] };
-        if (action === 'done' || action === 'dismiss') {
-          const restore = removeListItemLocally(row, item, action === 'done' ? 'completed' : 'dismissed');
-          if (action === 'done') celebrate(item.title);
+          : { priority: priorities[Math.max(0, currentPriority - 1)] };
+        if (action === 'done') {
+          const restore = removeListItemLocally(row, item, 'completed');
+          celebrate(item.title);
           try {
-            await updateListItem(row, item, body, false);
+            await updateListItem(item, body, false);
             void load();
           } catch (error) {
             restore();
@@ -2238,19 +2315,76 @@
         const nextPriority = body.priority;
         const restore = lowerPriorityLocally(row, item, nextPriority);
         try {
-          await updateListItem(row, item, body, false);
+          await updateListItem(item, body, false);
           void load();
         } catch (error) {
           restore();
         }
+      }
+
+      $('workSort').addEventListener('change', event => {
+        workSort = ['urgency', 'arrival', 'manual'].includes(event.target.value)
+          ? event.target.value
+          : 'urgency';
+        localStorage.setItem('dev-buddy-work-sort', workSort);
+        renderWorkItems(status?.list || []);
+      });
+
+      $('itemList').addEventListener('click', async event => {
+        const row = event.target.closest('.item');
+        if (!row) return;
+        const item = findListItem(row);
+        if (!item) return;
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        if (action) return handleWorkAction(action, item, row, row);
+        if (event.target.closest('.drag-handle') || Date.now() < suppressItemOpenUntil) return;
+        selectedItemId = item.id;
+        localStorage.setItem('dev-buddy-selected-item', selectedItemId);
+        renderWorkItems(status?.list || []);
       });
       $('itemList').addEventListener('keydown', event => {
         if (!['Enter', ' '].includes(event.key) || event.target !== event.target.closest('.item')) return;
         const row = event.target.closest('.item');
         const item = row && findListItem(row);
-        if (!item || row.dataset.openable !== '1') return;
+        if (!item) return;
         event.preventDefault();
-        openItem(item);
+        selectedItemId = item.id;
+        localStorage.setItem('dev-buddy-selected-item', selectedItemId);
+        renderWorkItems(status?.list || []);
+      });
+
+      $('itemDetail').addEventListener('change', event => {
+        const select = event.target.closest('[data-reminder-in]');
+        const item = findItemById(event.target.closest('[data-detail-id]')?.dataset.detailId);
+        if (select) remindIn(select, item, $('itemList').querySelector(`[data-id="${CSS.escape(item?.id || '')}"]`));
+      });
+      $('itemDetail').addEventListener('click', event => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        const scope = event.target.closest('[data-detail-id]');
+        const item = findItemById(scope?.dataset.detailId);
+        if (action && item) {
+          const row = $('itemList').querySelector(`[data-id="${CSS.escape(item.id)}"]`);
+          handleWorkAction(action, item, row, scope);
+        }
+      });
+
+      $('previewList').addEventListener('click', async event => {
+        const row = event.target.closest('[data-preview-id]');
+        const action = event.target.closest('[data-preview-action]')?.dataset.previewAction;
+        const item = findItemById(row?.dataset.previewId);
+        if (!item || !action) return;
+        if (action === 'read') {
+          selectedItemId = item.id;
+          localStorage.setItem('dev-buddy-selected-item', selectedItemId);
+          currentView = 'work';
+          await openPanel();
+          renderWorkItems(status?.list || []);
+          return;
+        }
+        if (action === 'done') {
+          const listRow = $('itemList').querySelector(`[data-id="${CSS.escape(item.id)}"]`);
+          await handleWorkAction('done', item, listRow, row);
+        }
       });
 
       $('recentList').addEventListener('click', async event => {
@@ -2366,35 +2500,6 @@
         else row.parentNode.insertBefore(sibling, row);
         handle.focus();
         await persistWorkItemOrder();
-      });
-
-      async function focusCatchUpItem(id) {
-        await setView('work');
-        await new Promise(resolve => requestAnimationFrame(resolve));
-        const row = [...$('itemList').querySelectorAll('.item')]
-          .find(entry => entry.dataset.id === id);
-        if (!row) {
-          showOperationStatus('That item is no longer on the active work list.', 'error', 2500);
-          return;
-        }
-        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        row.focus({ preventScroll: true });
-        row.classList.remove('focused-from-catch-up');
-        void row.offsetWidth;
-        row.classList.add('focused-from-catch-up');
-        setTimeout(() => row.classList.remove('focused-from-catch-up'), 1700);
-      }
-
-      $('catchUpList').addEventListener('click', event => {
-        const row = event.target.closest('[data-catch-up-id]');
-        if (row) focusCatchUpItem(row.dataset.catchUpId);
-      });
-      $('catchUpList').addEventListener('keydown', event => {
-        if (!['Enter', ' '].includes(event.key)) return;
-        const row = event.target.closest('[data-catch-up-id]');
-        if (!row) return;
-        event.preventDefault();
-        focusCatchUpItem(row.dataset.catchUpId);
       });
 
       $('mapWrap').addEventListener('click', event => {

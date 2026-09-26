@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -9,6 +9,18 @@ const dir = mkdtempSync(path.join(os.tmpdir(), 'theoffice-dev-buddy-'));
 process.env.SUPERVISOR_DATA_DIR = dir;
 const require = createRequire(import.meta.url);
 const buddy = require(path.join(process.cwd(), 'dev-buddy.js'));
+
+await t.test('work UI uses a compact list-detail workspace and one completion action', () => {
+  const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
+  t.ok(/class="work-layout"/.test(html) && /id="itemDetail"/.test(html),
+    'work items use navigation and detail panes');
+  t.ok(/id="workSort"/.test(html) && /value="urgency"/.test(html) && /value="arrival"/.test(html),
+    'work list exposes urgency and arrival sorting');
+  t.ok(/id="hoverPreview"/.test(html) && /slice\(0, 5\)/.test(html),
+    'hover preview is limited to the next five items');
+  t.ok(!/data-view-target="catchup"/.test(html) && !/data-action="dismiss"/.test(html),
+    'Catch up and work-item dismissal are removed');
+});
 
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
   const item = buddy.addItem({ title: 'Finish the review', detail: 'Two threads remain', priority: 'high' });
