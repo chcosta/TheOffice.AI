@@ -3237,6 +3237,10 @@ function _devBuddyDecorateItem(item) {
     ? devBuddy.getSignalState(item.reminderKey || item.fingerprint)
     : {};
   const priority = signalState.priority || item.priority;
+  const derivedUrgency = devBuddy.deriveUrgency({ ...item, priority, trackedAt });
+  const preservedUrgency = item.urgency && Number(item.urgency.score) > Number(derivedUrgency.score)
+    ? item.urgency
+    : derivedUrgency;
   return {
     ...item,
     priority,
@@ -3244,8 +3248,75 @@ function _devBuddyDecorateItem(item) {
     kind: item.kind || 'memory',
     trackedAt,
     trackedFor: devBuddy.describeAge(trackedAt),
-    urgency: devBuddy.deriveUrgency({ ...item, priority, trackedAt }),
+    urgency: preservedUrgency,
   };
+}
+
+let _devBuddyEffortClassification = null;
+let _devBuddyEffortClassificationLastAttempt = 0;
+
+function _devBuddyQueueEffortClassification() {
+  if (_devBuddyEffortClassification || Date.now() - _devBuddyEffortClassificationLastAttempt < 30 * 1000) return;
+  const state = devBuddy.getEffortClassificationState();
+  if (!state.pending.length) return;
+  _devBuddyEffortClassificationLastAttempt = Date.now();
+  _devBuddyEffortClassification = (async () => {
+    const pending = state.pending.slice(0, 30);
+    const established = state.established
+      .sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0))
+      .slice(0, 40);
+    const prompt = [
+      'You are Pixel, organizing raw work observations into durable, incident-specific efforts.',
+      'Compare every provisional effort against the established efforts and against the other provisional efforts.',
+      'Group observations only when they share a concrete objective, rollout, incident, deliverable, or outcome.',
+      'A shared technology or repository alone is not enough. Keep uncertain work separate.',
+      'Use concise action-oriented effort titles that describe the actual work, not the source type.',
+      'When matching an established effort, provide its exact id and a confidence from 0 to 1.',
+      'You may revise the target title and summary to reflect the combined evidence.',
+      'Every provisional id must appear exactly once.',
+      'Return ONLY JSON shaped:',
+      '{"groups":[{"provisionalIds":["effort-..."],"targetEffortId":"effort-... or empty","title":"...","summary":"...","confidence":0.0,"reason":"..."}]}',
+      '',
+      'Established efforts:',
+      JSON.stringify(established),
+      '',
+      'Provisional efforts:',
+      JSON.stringify(pending),
+    ].join('\n');
+    let acc = '';
+    const result = await sdkRunner.runChat({
+      config: null,
+      prompt,
+      sessionId: require('crypto').randomUUID(),
+      resume: false,
+      cwd: __dirname,
+      availableTools: [],
+      timeoutMs: 90 * 1000,
+      model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
+      modelCategory: 'execution',
+      meta: { source: 'dev-buddy', category: 'effort-classification', record: false },
+      onChunk: chunk => { acc += chunk; },
+    });
+    if (result && result.fallback) throw new Error('The configured execution model is unavailable.');
+    const parsed = _connectExtractJson(acc.trim() || result.output || '');
+    if (!parsed || !Array.isArray(parsed.groups)) throw new Error('Pixel returned an invalid effort classification.');
+    const applied = devBuddy.applyEffortClassification(parsed.groups, pending.map(effort => effort.id));
+    broadcastSSE('dev-buddy-changed', {
+      action: 'efforts-classified',
+      efforts: applied.applied,
+      remaining: applied.remaining.length,
+    });
+    if (applied.remaining.length && applied.remainingAttempted.length < pending.length) {
+      _devBuddyEffortClassificationLastAttempt = 0;
+    }
+  })()
+    .catch(error => console.warn('[dev-buddy] Effort classification failed:', error.message))
+    .finally(() => {
+      _devBuddyEffortClassification = null;
+      if (_devBuddyEffortClassificationLastAttempt === 0) {
+        setTimeout(_devBuddyQueueEffortClassification, 1000);
+      }
+    });
 }
 
 const _devBuddySemanticCache = new Map();
@@ -3765,9 +3836,16 @@ function _devBuddyRelationships(items, mode = 'context', aiGroups = []) {
   }
   const groupKey = item => {
     if (mode === 'urgency') return `${item.urgency && item.urgency.label || 'Medium'} urgency`;
-    if (mode === 'source') return item.kind || 'Other';
+    if (mode === 'source') {
+      const kinds = item.context && Array.isArray(item.context.kinds) ? item.context.kinds : [];
+      return kinds.join(' + ') || item.kind || 'Other';
+    }
     if (mode.startsWith('ai-')) return aiByItem.get(String(item.id)) || 'Other work';
-    return item.repository || item.sessionId || item.kind || 'work';
+    return item.repository ||
+      item.sessionId ||
+      item.context && Array.isArray(item.context.kinds) && item.context.kinds.join(' + ') ||
+      item.kind ||
+      'work';
   };
   for (const item of visible) {
     const key = groupKey(item);
@@ -3976,33 +4054,37 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   const activeItems = items.filter(item => !item.snoozed);
   const deterministicList = [...signals, ...activeItems];
   _devBuddyQueueSemanticRefresh(deterministicList);
-  const list = devBuddy.applyManualOrder(deterministicList
+  const observations = deterministicList
     .map(_devBuddyApplySemantic)
-    .filter(item => item.semanticSurface !== false));
-  const visibleSignals = list.filter(item => item.fingerprint);
+    .filter(item => item.semanticSurface !== false);
+  const effortState = devBuddy.syncEffortObservations(observations);
+  _devBuddyQueueEffortClassification();
+  const list = devBuddy.applyManualOrder(effortState.efforts.map(_devBuddyDecorateItem));
+  const visibleSignals = observations.filter(item => item.fingerprint);
   const counts = {
     attention: list.filter(item => item.urgency && item.urgency.score >= 2).length,
-    tracking: list.filter(item => ['agent-run', 'build', 'session'].includes(item.kind)).length,
-    remembered: list.filter(item => !item.fingerprint || item.completable).length,
+    tracking: list.filter(item => (item.observations || []).some(observation =>
+      ['agent-run', 'build', 'session'].includes(observation.kind))).length,
+    remembered: list.filter(item => (item.observations || []).some(observation =>
+      ['memory', 'email', 'teams', 'meeting', 'calendar'].includes(observation.kind))).length,
   };
   const progress = devBuddy.getProgress(list);
   const firstItem = [...list]
-    .filter(item => item.semanticAttention !== false)
+    .filter(item => item.semanticAttention !== false && !devBuddy.isSignalDismissed(item.id))
     .sort((a, b) =>
       (b.urgency && b.urgency.score || 0) - (a.urgency && a.urgency.score || 0) ||
       Date.parse(a.dueAt || a.trackedAt || 0) - Date.parse(b.dueAt || b.trackedAt || 0)
     )[0] || null;
-  const suggestedReminder = firstItem && firstItem.kind === 'memory'
-    ? {
-        ...firstItem,
-        detail: firstItem.detail || 'You asked me to keep this on your radar.',
-        fingerprint: `memory|${firstItem.id}|${firstItem.updatedAt}`,
-      }
-    : firstItem;
+  const suggestedReminder = firstItem;
   return {
     settings: devBuddySettings,
     signals: visibleSignals,
     items,
+    efforts: list,
+    effortClassification: {
+      running: !!_devBuddyEffortClassification,
+      pending: effortState.pending.length,
+    },
     day,
     mood: devBuddy.deriveMood({ ...counts, ...progress, day }),
     progress,
@@ -4450,9 +4532,62 @@ function _devBuddyAgendaContext(item) {
   };
 }
 
+async function _devBuddyEffortContext(item) {
+  const observations = Array.isArray(item.observations) ? item.observations : [];
+  const evidence = observations.map(observation => ({
+    title: observation.title || observation.kind || 'Source evidence',
+    detail: [
+      observation.kind,
+      observation.source,
+      observation.detail,
+    ].filter(Boolean).join(' · '),
+    state: ['high'].includes(observation.priority) ? 'attention' : 'neutral',
+    url: observation.link || '',
+  }));
+  const settled = await Promise.allSettled(observations.slice(0, 8).map(observation =>
+    _devBuddySourceContext({ ...observation, id: observation.id || observation.key })));
+  const sections = evidence.length ? [{ title: 'Evidence connected to this effort', items: evidence }] : [];
+  const notices = [];
+  for (let index = 0; index < settled.length; index++) {
+    const result = settled[index];
+    const observation = observations[index] || {};
+    if (result.status === 'rejected') {
+      notices.push(`${observation.title || observation.kind || 'Evidence'}: ${result.reason && result.reason.message || 'context unavailable'}`);
+      continue;
+    }
+    const context = result.value || {};
+    if (context.overview && context.overview !== observation.detail) {
+      sections.push({
+        title: observation.title || observation.kind || 'Source context',
+        text: _devBuddyClip(context.overview, 3000),
+      });
+    }
+    for (const section of context.sections || []) {
+      sections.push({
+        ...section,
+        title: `${observation.title || observation.kind || 'Evidence'} · ${section.title || 'Details'}`,
+      });
+    }
+    if (context.notice) notices.push(`${observation.title || observation.kind || 'Evidence'}: ${context.notice}`);
+  }
+  if (item.provisional) notices.unshift('Pixel is still comparing this evidence with your existing efforts.');
+  return {
+    kind: 'effort',
+    overview: _devBuddyClip(item.detail || 'Pixel grouped the available evidence into this effort.', 5000),
+    metrics: [
+      { label: 'Connected signals', value: String(observations.length) },
+      { label: 'Source types', value: [...new Set(observations.map(observation => observation.kind).filter(Boolean))].join(', ') },
+      { label: 'Tracked since', value: item.trackedAt || '' },
+      { label: 'Last evidence', value: item.lastObservedAt || item.updatedAt || '' },
+    ],
+    sections: sections.slice(0, 30),
+    notice: notices.join(' · '),
+  };
+}
+
 async function _devBuddySourceContext(item) {
   const signature = require('crypto').createHash('sha1').update(JSON.stringify([
-    item.id, item.title, item.detail, item.kind, item.trackedAt, item.updatedAt, item.context,
+    item.id, item.title, item.detail, item.kind, item.trackedAt, item.updatedAt, item.context, item.observations,
   ])).digest('hex');
   const cached = _devBuddySourceContextCache.get(item.id);
   const ttl = item.kind === 'session' ? 15 * 1000 : 2 * 60 * 1000;
@@ -4460,7 +4595,8 @@ async function _devBuddySourceContext(item) {
     return { ...cached.value, cached: true };
   }
   let value;
-  if (item.kind === 'pull-request') value = await _devBuddyPrContext(item);
+  if (item.kind === 'effort') value = await _devBuddyEffortContext(item);
+  else if (item.kind === 'pull-request') value = await _devBuddyPrContext(item);
   else if (item.kind === 'build') value = await _devBuddyBuildContext(item);
   else if (item.kind === 'session') value = _devBuddySessionContext(item);
   else if (['email', 'teams', 'meeting', 'calendar'].includes(item.kind)) value = _devBuddyCommitmentContext(item);
@@ -4731,6 +4867,20 @@ app.put('/api/dev-buddy/items/:id', (req, res) => {
     broadcastSSE('dev-buddy-changed', { action: 'updated', item });
     res.json({ item });
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+app.put('/api/dev-buddy/efforts/:id', (req, res) => {
+  const patch = req.body || {};
+  if (patch.status && !['done', 'dismissed', 'open'].includes(patch.status)) {
+    return res.status(400).json({ error: 'Unsupported effort status.' });
+  }
+  const effort = devBuddy.updateEffort(req.params.id, patch);
+  if (!effort) return res.status(404).json({ error: 'Effort not found.' });
+  broadcastSSE('dev-buddy-changed', {
+    action: patch.status === 'done' ? 'effort-completed' : 'effort-updated',
+    effort,
+  });
+  res.json({ effort });
 });
 
 app.put('/api/dev-buddy/order', (req, res) => {

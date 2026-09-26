@@ -2291,6 +2291,11 @@
           else if (commitments.sync?.error) sourceBits.push('M365 sync needs attention');
           else sourceBits.push(commitments.sync?.lastSuccessAt ? `M365 synced ${formatRelative(commitments.sync.lastSuccessAt)}` : 'M365 preparing first sync');
         }
+        if (status?.effortClassification?.pending) {
+          sourceBits.push(status.effortClassification.running
+            ? `Pixel connecting ${status.effortClassification.pending} new ${status.effortClassification.pending === 1 ? 'signal' : 'signals'}`
+            : `${status.effortClassification.pending} ${status.effortClassification.pending === 1 ? 'signal needs' : 'signals need'} classification`);
+        }
         $('sourceStatus').textContent = sourceBits.join(' · ') || 'No automatic sources enabled';
         $('bodyCount').textContent = combined.length > 99 ? '99+' : String(combined.length);
         $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${combined.length} tracked items · ${mood.label}. ${mood.detail || ''}`);
@@ -2538,6 +2543,7 @@
             ...(nextStatus.list || []),
             ...(nextStatus.signals || []),
             ...(nextStatus.items || []),
+            ...(nextStatus.efforts || []),
           ];
           for (const [id, starred] of pendingStarStates) {
             const returned = returnedItems.find(item => item.id === id);
@@ -2552,6 +2558,7 @@
             list: preservePendingStars(hidePending(nextStatus.list)),
             signals: preservePendingStars(hidePending(nextStatus.signals)),
             items: preservePendingStars(hidePending(nextStatus.items)),
+            efforts: preservePendingStars(hidePending(nextStatus.efforts)),
           };
           status = nextStatus;
           for (const item of (status.items || [])) {
@@ -3072,16 +3079,21 @@
           entry.id === item.id && (entry.actions || []).includes(actionType));
         const addressedIncrement = ['completed', 'dismissed'].includes(actionType) && !alreadyCounted ? 1 : 0;
         const deferredIncrement = actionType === 'deferred' && !alreadyCounted ? 1 : 0;
+        const observationKinds = (item.observations || []).map(observation => observation.kind);
+        const countedAsTracking = observationKinds.some(kind => ['agent-run', 'build', 'session'].includes(kind));
+        const countedAsRemembered = observationKinds.some(kind =>
+          ['memory', 'email', 'teams', 'meeting', 'calendar'].includes(kind));
         status = {
           ...status,
           list,
           signals: remove(status?.signals),
           items: remove(status?.items),
+          efforts: remove(status?.efforts),
           counts: {
             ...counts,
             attention: Math.max(0, Number(counts.attention || 0) - (item.urgency?.score >= 2 ? 1 : 0)),
-            tracking: Math.max(0, Number(counts.tracking || 0) - (['agent-run', 'build', 'session'].includes(item.kind) ? 1 : 0)),
-            remembered: Math.max(0, Number(counts.remembered || 0) - (!item.fingerprint || item.completable ? 1 : 0)),
+            tracking: Math.max(0, Number(counts.tracking || 0) - (countedAsTracking ? 1 : 0)),
+            remembered: Math.max(0, Number(counts.remembered || 0) - (countedAsRemembered ? 1 : 0)),
           },
           progress: {
             ...progress,
@@ -3116,6 +3128,7 @@
           list: update(status?.list),
           signals: update(status?.signals),
           items: update(status?.items),
+          efforts: update(status?.efforts),
           progress: {
             ...progress,
             deferredToday: Number(progress.deferredToday || 0) + (alreadyCounted ? 0 : 1),
@@ -3141,6 +3154,7 @@
           list: update(status?.list),
           signals: update(status?.signals),
           items: update(status?.items),
+          efforts: update(status?.efforts),
         };
         renderWorkItems(status.list);
         return () => {
@@ -3152,7 +3166,12 @@
       }
 
       async function updateListItem(item, body, reload = true) {
-        if (item.completable) {
+        if (item.effortId) {
+          await request('/api/dev-buddy/efforts/' + encodeURIComponent(item.effortId), {
+            method: 'PUT',
+            body: JSON.stringify(body),
+          });
+        } else if (item.completable) {
           await request('/api/dev-buddy/commitments/' + encodeURIComponent(item.id), {
             method: 'PUT',
             body: JSON.stringify(body),

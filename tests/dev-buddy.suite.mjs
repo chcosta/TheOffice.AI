@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
@@ -298,6 +298,193 @@ await t.test('recent activity can restore hidden work and priority', () => {
   buddy.restoreRecentActivity(item.id, 'restore-priority');
   t.eq(buddy.listItems().find(entry => entry.id === item.id).priority, 'normal', 'priority restores to normal');
   t.ok(!buddy.listRecentActivity(24).some(entry => entry.id === item.id), 'undone actions leave recent activity');
+});
+
+await t.test('efforts durably group related observations and preserve user state', () => {
+  const first = {
+    id: 'effort-test-pr',
+    reminderKey: 'effort-test-pr',
+    kind: 'pull-request',
+    title: 'Roll out autoscaler safeguards',
+    detail: 'PR adds staged rollout safeguards',
+    source: 'GitHub',
+    trackedAt: '2026-09-26T08:00:00Z',
+    context: { repository: 'example/autoscaler', state: 'open', headSha: 'abc123' },
+  };
+  const second = {
+    id: 'effort-test-build',
+    reminderKey: 'effort-test-build',
+    kind: 'build',
+    title: 'Autoscaler rollout validation',
+    detail: 'Canary validation failed in the rollout pipeline',
+    source: 'Azure Pipelines',
+    starred: true,
+    trackedAt: '2026-09-26T08:10:00Z',
+    context: { repository: 'example/autoscaler', status: 'failed', buildId: '867' },
+  };
+  const initial = buddy.syncEffortObservations([first, second]);
+  const firstEffort = initial.efforts.find(effort =>
+    effort.observations.some(observation => observation.key === first.reminderKey));
+  const secondEffort = initial.efforts.find(effort =>
+    effort.observations.some(observation => observation.key === second.reminderKey));
+  t.ok(firstEffort && secondEffort && firstEffort.id !== secondEffort.id,
+    'new observations begin as separate provisional efforts');
+
+  buddy.applyEffortClassification([{
+    provisionalIds: [firstEffort.id, secondEffort.id],
+    targetEffortId: '',
+    title: 'Stabilize the autoscaler rollout',
+    summary: 'Ship safeguards and recover canary validation.',
+    confidence: 0.94,
+    reason: 'Both signals concern the same rollout outcome.',
+  }]);
+  const grouped = buddy.syncEffortObservations([first, second]);
+  const effort = grouped.efforts.find(entry =>
+    entry.observations.some(observation => observation.key === first.reminderKey));
+  t.eq(effort.observations.length, 2, 'related observations are retained as evidence on one effort');
+  t.eq(effort.title, 'Stabilize the autoscaler rollout', 'AI-derived effort title persists');
+  t.ok(effort.starred, 'a star on merged evidence promotes to the effort');
+  t.ok(!effort.provisional, 'classified effort remains established across refreshes');
+
+  buddy.updateEffort(effort.id, { status: 'done' });
+  const unchanged = buddy.syncEffortObservations([first, second]);
+  t.ok(!unchanged.efforts.some(entry => entry.id === effort.id),
+    'completed efforts stay hidden when their evidence is unchanged');
+  const changed = buddy.syncEffortObservations([{ ...first, context: { ...first.context, state: 'merged' } }, second]);
+  const reopened = changed.efforts.find(entry => entry.id === effort.id);
+  t.ok(reopened?.provisional && reopened.observations.length === 2,
+    'materially changed evidence reopens the complete effort for reclassification');
+
+  buddy.updateEffort(effort.id, { status: 'done' });
+  buddy.restoreRecentActivity(effort.id, 'put-back');
+  t.ok(buddy.syncEffortObservations([first, second]).efforts.some(entry => entry.id === effort.id),
+    'recent activity can restore a completed effort');
+});
+
+await t.test('effort classification gates uncertain and established merges', () => {
+  const makeObservation = (key, title) => ({
+    id: key,
+    reminderKey: key,
+    kind: 'email',
+    title,
+    detail: `${title} details`,
+    source: 'Outlook',
+    trackedAt: '2026-09-26T09:00:00Z',
+  });
+  const unrelated = [
+    makeObservation('effort-low-confidence-a', 'Review autoscaler telemetry'),
+    makeObservation('effort-low-confidence-b', 'Prepare quarterly planning notes'),
+  ];
+  let state = buddy.syncEffortObservations(unrelated);
+  const ids = unrelated.map(observation => state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observation.reminderKey)).id);
+  buddy.applyEffortClassification([{
+    provisionalIds: ids,
+    targetEffortId: '',
+    title: 'Handle operational planning',
+    summary: 'Potentially related work.',
+    confidence: 0.4,
+    reason: 'The relationship is uncertain.',
+  }]);
+  state = buddy.syncEffortObservations(unrelated);
+  const classifiedIds = unrelated.map(observation => state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observation.reminderKey)).id);
+  t.ok(classifiedIds[0] !== classifiedIds[1], 'low-confidence provisional work is not merged');
+  t.ok(classifiedIds.every(id => !state.efforts.find(effort => effort.id === id).provisional),
+    'uncertain items become separate established efforts instead of retrying forever');
+
+  const established = state.efforts.find(effort => effort.id === classifiedIds[0]);
+  const followup = makeObservation('effort-established-followup', 'Autoscaler telemetry follow-up');
+  state = buddy.syncEffortObservations([...unrelated, followup]);
+  const followupEffort = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === followup.reminderKey));
+  buddy.applyEffortClassification([{
+    provisionalIds: [followupEffort.id],
+    targetEffortId: established.id,
+    title: 'Review autoscaler telemetry',
+    summary: 'Review the telemetry and its follow-up.',
+    confidence: 0.6,
+    reason: 'The evidence may be related.',
+  }]);
+  state = buddy.syncEffortObservations([...unrelated, followup]);
+  const resolvedFollowup = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === followup.reminderKey));
+  t.ok(resolvedFollowup.id !== established.id, 'low-confidence match does not merge into an established effort');
+
+  const omitted = makeObservation('effort-unclassified', 'Investigate an ambiguous signal');
+  state = buddy.syncEffortObservations([...unrelated, followup, omitted]);
+  const omittedId = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === omitted.reminderKey)).id;
+  buddy.applyEffortClassification([], [omittedId]);
+  buddy.applyEffortClassification([], [omittedId]);
+  buddy.applyEffortClassification([], [omittedId]);
+  state = buddy.syncEffortObservations([...unrelated, followup, omitted]);
+  t.ok(!state.efforts.find(effort => effort.id === omittedId).provisional,
+    'repeatedly omitted work is kept separate instead of retried forever');
+});
+
+await t.test('efforts preserve urgency, reconcile cleared evidence, and complete source records', () => {
+  const critical = {
+    id: 'effort-critical-signal',
+    reminderKey: 'effort-critical-signal',
+    kind: 'pull-request',
+    title: 'Restore blocked production rollout',
+    detail: 'Required checks are failing.',
+    source: 'GitHub',
+    trackedAt: new Date().toISOString(),
+    urgency: { score: 1, level: 'medium', label: 'Medium', reason: 'Waiting for semantic analysis.' },
+    semanticAttention: true,
+  };
+  let state = buddy.syncEffortObservations([critical]);
+  let criticalEffort = state.efforts.find(effort =>
+    effort.observations.some(observation => observation.key === critical.reminderKey));
+  state = buddy.syncEffortObservations([{
+    ...critical,
+    urgency: { score: 4, level: 'critical', label: 'Critical', reason: 'Production rollout is blocked.' },
+    attentionBlurb: 'The blocked rollout needs immediate attention.',
+  }]);
+  criticalEffort = state.efforts.find(effort => effort.id === criticalEffort.id);
+  t.eq(criticalEffort.urgency.score, 4, 'effort keeps the highest urgency from its evidence');
+  t.eq(criticalEffort.attentionBlurb, 'The blocked rollout needs immediate attention.',
+    'semantic presentation updates without changing effort assignment');
+
+  buddy.syncEffortObservations([]);
+  const storePath = path.join(dir, 'dev-buddy.json');
+  const store = JSON.parse(readFileSync(storePath, 'utf8'));
+  const storedCritical = store.efforts.find(effort => effort.id === criticalEffort.id);
+  storedCritical.observations.forEach(observation => {
+    observation.missingSince = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  });
+  writeFileSync(storePath, JSON.stringify(store, null, 2));
+  state = buddy.syncEffortObservations([]);
+  t.ok(!state.efforts.some(effort => effort.id === criticalEffort.id),
+    'an effort auto-resolves after all evidence clears beyond the grace period');
+  state = buddy.syncEffortObservations([critical]);
+  t.ok(state.efforts.some(effort => effort.id === criticalEffort.id),
+    'an automatically resolved effort reopens if its evidence returns');
+
+  const memory = buddy.addItem({ title: 'Complete the rollout notes', detail: 'Capture the final outcome.' });
+  state = buddy.syncEffortObservations([memory]);
+  const memoryEffort = state.efforts.find(effort =>
+    effort.observations.some(observation => observation.id === memory.id));
+  buddy.updateEffort(memoryEffort.id, { status: 'done' });
+  t.ok(!buddy.listItems().some(item => item.id === memory.id),
+    'completing an effort also completes its underlying memory');
+});
+
+await t.test('effort APIs and UI route work-list actions through durable efforts', () => {
+  const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
+  const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  t.ok(/app\.put\('\/api\/dev-buddy\/efforts\/:id'/.test(server) &&
+    /syncEffortObservations\(observations\)/.test(server),
+  'status materializes durable efforts and exposes an effort update route');
+  t.ok(/item\.effortId/.test(html) &&
+    /\/api\/dev-buddy\/efforts\//.test(html) &&
+    /status\?\.efforts/.test(html),
+  'work-list actions and optimistic state updates include effort records');
+  t.ok(/resolveModel\('execution', null\)/.test(server) &&
+    /category: 'effort-classification'/.test(server),
+  'effort classification uses the configured execution model');
 });
 
 try { rmSync(dir, { recursive: true, force: true }); } catch {}

@@ -6,9 +6,11 @@ const STORE_PATH = dataPath('dev-buddy.json');
 
 function blankStore() {
   return {
-    version: 3,
+    version: 4,
     items: [],
     commitments: [],
+    efforts: [],
+    effortAssignments: {},
     commitmentSync: { lastAttemptAt: null, lastSuccessAt: null, error: '' },
     dismissedSignals: {},
     signalStates: {},
@@ -26,6 +28,11 @@ function readStore() {
       ...(parsed && typeof parsed === 'object' ? parsed : {}),
       items: Array.isArray(parsed && parsed.items) ? parsed.items : [],
       commitments: Array.isArray(parsed && parsed.commitments) ? parsed.commitments : [],
+      efforts: Array.isArray(parsed && parsed.efforts) ? parsed.efforts : [],
+      effortAssignments: parsed && parsed.effortAssignments &&
+        typeof parsed.effortAssignments === 'object' && !Array.isArray(parsed.effortAssignments)
+        ? parsed.effortAssignments
+        : {},
       commitmentSync: parsed && parsed.commitmentSync && typeof parsed.commitmentSync === 'object'
         ? { ...blankStore().commitmentSync, ...parsed.commitmentSync }
         : blankStore().commitmentSync,
@@ -557,6 +564,437 @@ function updateSignal(fingerprint, patch = {}, item = {}) {
   return { ...next };
 }
 
+function effortObservationKey(item) {
+  return cleanText(
+    item && (item.observationKey || item.reminderKey || item.fingerprint || item.id),
+    500
+  );
+}
+
+function effortObservationSnapshot(item, key) {
+  const context = item && item.context && typeof item.context === 'object' && !Array.isArray(item.context)
+    ? item.context
+    : {};
+  const snapshot = {
+    key,
+    id: cleanText(item && item.id, 500),
+    kind: cleanText(item && item.kind, 80) || 'work',
+    title: cleanText(item && item.title, 240) || 'Tracked work',
+    detail: cleanText(item && (item.semanticComment || item.attentionBlurb || item.detail), 1200),
+    source: cleanText(item && item.source, 240),
+    link: cleanText(item && item.link, 1600),
+    links: (Array.isArray(item && item.links) ? item.links : []).slice(0, 12).map(link => ({
+      source: cleanText(link && link.source, 120),
+      url: cleanText(link && link.url, 1600),
+    })).filter(link => link.url),
+    route: cleanText(item && item.route, 500),
+    priority: normalizePriority(item && item.priority),
+    starred: item && item.starred === true,
+    trackedAt: item && (item.trackedAt || item.createdAt || item.updatedAt) || null,
+    observedAt: item && item.observedAt || null,
+    dueAt: item && item.dueAt || null,
+    confidence: cleanText(item && item.confidence, 80),
+    urgency: item && item.urgency && typeof item.urgency === 'object'
+      ? {
+          score: Number(item.urgency.score) || 0,
+          level: cleanText(item.urgency.level, 40),
+          label: cleanText(item.urgency.label, 80),
+          reason: cleanText(item.urgency.reason, 300),
+        }
+      : null,
+    slaBusinessHours: Number(item && item.slaBusinessHours) || null,
+    semanticAttention: item && item.semanticAttention !== false,
+    attentionBlurb: cleanText(item && item.attentionBlurb, 600),
+    reminderKey: cleanText(item && item.reminderKey, 500),
+    fingerprint: cleanText(item && item.fingerprint, 500),
+    context,
+  };
+  const materialContext = {};
+  for (const field of [
+    'state', 'status', 'conclusion', 'mergeState', 'reviewDecision', 'headSha',
+    'runId', 'buildId', 'failedChecks', 'openThreads', 'repository', 'branch',
+    'sourceBranch', 'targetBranch',
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(context, field)) materialContext[field] = context[field];
+  }
+  snapshot.signature = crypto.createHash('sha1').update(JSON.stringify({
+    key: snapshot.key,
+    kind: snapshot.kind,
+    title: snapshot.title,
+    detail: cleanText(item && (item.detail || item.attentionBlurb), 1200),
+    source: snapshot.source,
+    link: snapshot.link,
+    route: snapshot.route,
+    dueAt: snapshot.dueAt,
+    context: materialContext,
+  })).digest('hex');
+  snapshot.presentationSignature = crypto.createHash('sha1').update(JSON.stringify({
+    detail: snapshot.detail,
+    source: snapshot.source,
+    link: snapshot.link,
+    links: snapshot.links,
+    route: snapshot.route,
+    priority: snapshot.priority,
+    starred: snapshot.starred,
+    trackedAt: snapshot.trackedAt,
+    observedAt: snapshot.observedAt,
+    confidence: snapshot.confidence,
+    urgency: snapshot.urgency,
+    slaBusinessHours: snapshot.slaBusinessHours,
+    semanticAttention: snapshot.semanticAttention,
+    attentionBlurb: snapshot.attentionBlurb,
+    context: snapshot.context,
+  })).digest('hex');
+  return snapshot;
+}
+
+function effortPriority(observations, explicit) {
+  if (['high', 'normal', 'low'].includes(explicit)) return explicit;
+  const rank = { high: 3, normal: 2, low: 1 };
+  return [...observations].sort((a, b) =>
+    (rank[b && b.priority] || 2) - (rank[a && a.priority] || 2))[0]?.priority || 'normal';
+}
+
+function materializeEffort(effort) {
+  const observations = [...(Array.isArray(effort.observations) ? effort.observations : [])]
+    .sort((a, b) => Date.parse(b.trackedAt || 0) - Date.parse(a.trackedAt || 0));
+  const primary = [...observations].sort((a, b) => {
+    const rank = { high: 3, normal: 2, low: 1 };
+    return (rank[b.priority] || 2) - (rank[a.priority] || 2) ||
+      Date.parse(b.trackedAt || 0) - Date.parse(a.trackedAt || 0);
+  })[0] || {};
+  const kinds = [...new Set(observations.map(item => item.kind).filter(Boolean))];
+  const sources = [...new Set(observations.map(item => item.source).filter(Boolean))];
+  const dueDates = observations.map(item => Date.parse(item.dueAt || '')).filter(Number.isFinite);
+  const trackedDates = observations.map(item => Date.parse(item.trackedAt || '')).filter(Number.isFinite);
+  const mostUrgent = [...observations].sort((a, b) =>
+    Number(b && b.urgency && b.urgency.score || 0) -
+    Number(a && a.urgency && a.urgency.score || 0))[0] || {};
+  const repositories = observations.map(item => item.context && item.context.repository).filter(Boolean);
+  const repository = repositories.sort((a, b) =>
+    repositories.filter(value => value === b).length -
+    repositories.filter(value => value === a).length)[0] || '';
+  const trackedAt = trackedDates.length
+    ? new Date(Math.min(...trackedDates)).toISOString()
+    : effort.createdAt || null;
+  return {
+    id: effort.id,
+    effortId: effort.id,
+    kind: 'effort',
+    title: effort.title || primary.title || 'Tracked effort',
+    detail: effort.summary || primary.detail || 'Pixel is connecting the available evidence.',
+    priority: effortPriority(observations, effort.priority),
+    starred: effort.starred === true,
+    status: effort.status || 'open',
+    snoozedUntil: effort.snoozedUntil || null,
+    source: `${observations.length} connected ${observations.length === 1 ? 'signal' : 'signals'}${kinds.length ? ` · ${kinds.join(' · ')}` : ''}`,
+    link: primary.link || '',
+    route: primary.route || '',
+    trackedAt,
+    dueAt: dueDates.length ? new Date(Math.min(...dueDates)).toISOString() : null,
+    urgency: mostUrgent.urgency || null,
+    slaBusinessHours: mostUrgent.slaBusinessHours || null,
+    semanticAttention: observations.some(item => item.semanticAttention !== false),
+    attentionBlurb: mostUrgent.attentionBlurb || mostUrgent.detail || '',
+    repository,
+    createdAt: effort.createdAt,
+    updatedAt: effort.updatedAt,
+    lastObservedAt: effort.lastObservedAt,
+    provisional: effort.needsClassification === true,
+    observations,
+    context: {
+      state: effort.status || 'open',
+      observationCount: observations.length,
+      sourceCount: sources.length,
+      sources,
+      kinds,
+      provisional: effort.needsClassification === true,
+      classificationReason: effort.classificationReason || '',
+      lastObservedAt: effort.lastObservedAt || null,
+    },
+    completable: true,
+  };
+}
+
+function syncEffortObservations(input = []) {
+  const observations = (Array.isArray(input) ? input : [])
+    .map(item => {
+      const key = effortObservationKey(item);
+      return key ? effortObservationSnapshot(item, key) : null;
+    })
+    .filter(Boolean);
+  const store = readStore();
+  const now = new Date().toISOString();
+  const nowMs = Date.now();
+  const activeKeys = new Set(observations.map(observation => observation.key));
+  let changed = false;
+  const effortsById = new Map(store.efforts.filter(Boolean).map(effort => [effort.id, effort]));
+
+  for (const observation of observations) {
+    const savedAssignment = store.effortAssignments[observation.key];
+    const assignment = typeof savedAssignment === 'string'
+      ? { effortId: savedAssignment, signature: '' }
+      : savedAssignment && typeof savedAssignment === 'object' ? savedAssignment : null;
+    let effort = assignment && effortsById.get(assignment.effortId);
+    if (effort && ['done', 'dismissed'].includes(effort.status)) {
+      if (effort.autoResolvedAt || assignment.signature !== observation.signature) {
+        effort.status = 'open';
+        effort.autoResolvedAt = null;
+        effort.needsClassification = true;
+        effort.updatedAt = now;
+        changed = true;
+      } else {
+        continue;
+      }
+    }
+    if (!effort) {
+      effort = {
+        id: `effort-${crypto.randomUUID()}`,
+        title: observation.title,
+        summary: observation.detail,
+        status: 'open',
+        priority: null,
+        starred: observation.starred === true,
+        snoozedUntil: null,
+        observations: [],
+        needsClassification: true,
+        createdAt: now,
+        updatedAt: now,
+        lastObservedAt: observation.trackedAt || now,
+      };
+      store.efforts.push(effort);
+      effortsById.set(effort.id, effort);
+      changed = true;
+    }
+    if (!Array.isArray(effort.observations)) effort.observations = [];
+    const index = effort.observations.findIndex(item => item && item.key === observation.key);
+    if (index < 0 ||
+        effort.observations[index].signature !== observation.signature ||
+        effort.observations[index].presentationSignature !== observation.presentationSignature) {
+      const missingSince = index >= 0 ? effort.observations[index].missingSince : null;
+      if (index < 0) effort.observations.push(observation);
+      else effort.observations[index] = missingSince ? { ...observation, missingSince } : observation;
+      effort.updatedAt = now;
+      effort.lastObservedAt = observation.trackedAt || now;
+      if (observation.starred) effort.starred = true;
+      changed = true;
+    }
+    const currentObservation = effort.observations.find(item => item && item.key === observation.key);
+    if (currentObservation && currentObservation.missingSince) {
+      delete currentObservation.missingSince;
+      changed = true;
+    }
+    const nextAssignment = { effortId: effort.id, signature: observation.signature };
+    if (!assignment || assignment.effortId !== effort.id || assignment.signature !== observation.signature) {
+      store.effortAssignments[observation.key] = nextAssignment;
+      changed = true;
+    }
+  }
+
+  for (const effort of store.efforts) {
+    if (!effort || ['done', 'dismissed'].includes(effort.status)) continue;
+    const effortObservations = Array.isArray(effort.observations) ? effort.observations : [];
+    for (const observation of effortObservations) {
+      if (!observation || !observation.key) continue;
+      if (activeKeys.has(observation.key)) {
+        if (observation.missingSince) {
+          delete observation.missingSince;
+          changed = true;
+        }
+      } else if (!observation.missingSince) {
+        observation.missingSince = now;
+        changed = true;
+      }
+    }
+    const fullyStale = effortObservations.length > 0 && effortObservations.every(observation => {
+      const missingAt = Date.parse(observation && observation.missingSince || '');
+      return Number.isFinite(missingAt) && nowMs - missingAt >= 30 * 60 * 1000;
+    });
+    if (fullyStale) {
+      effort.status = 'done';
+      effort.autoResolvedAt = now;
+      effort.classificationReason = 'All connected source evidence cleared.';
+      effort.updatedAt = now;
+      changed = true;
+    }
+  }
+
+  if (changed) writeStore(store);
+  const open = store.efforts
+    .filter(effort => effort && !['done', 'dismissed'].includes(effort.status))
+    .filter(effort => !(effort.snoozedUntil && Date.parse(effort.snoozedUntil) > Date.now()));
+  return {
+    efforts: open.map(materializeEffort),
+    pending: open.filter(effort => effort.needsClassification === true).map(effort => effort.id),
+  };
+}
+
+function getEffortClassificationState() {
+  const efforts = readStore().efforts
+    .filter(effort => effort && !['done', 'dismissed'].includes(effort.status));
+  const compact = effort => ({
+    id: effort.id,
+    title: effort.title || '',
+    summary: effort.summary || '',
+    createdAt: effort.createdAt || null,
+    observations: (effort.observations || []).slice(-12).map(observation => ({
+      key: observation.key,
+      kind: observation.kind,
+      title: observation.title,
+      detail: observation.detail,
+      source: observation.source,
+      repository: observation.context && observation.context.repository || '',
+      branch: observation.context && (observation.context.sourceBranch || observation.context.branch) || '',
+    })),
+  });
+  return {
+    pending: efforts.filter(effort => effort.needsClassification === true).map(compact),
+    established: efforts.filter(effort => effort.needsClassification !== true).map(compact),
+  };
+}
+
+function applyEffortClassification(groups = [], attemptedIds = null) {
+  const store = readStore();
+  const effortsById = new Map(store.efforts.filter(Boolean).map(effort => [effort.id, effort]));
+  const pendingIds = new Set(store.efforts
+    .filter(effort => effort && effort.needsClassification === true && !['done', 'dismissed'].includes(effort.status))
+    .map(effort => effort.id));
+  const consumed = new Set();
+  const applied = [];
+  const now = new Date().toISOString();
+  for (const group of Array.isArray(groups) ? groups : []) {
+    const sourceIds = [...new Set((group && Array.isArray(group.provisionalIds) ? group.provisionalIds : [])
+      .map(id => cleanText(id, 200))
+      .filter(id => pendingIds.has(id) && !consumed.has(id)))];
+    if (!sourceIds.length) continue;
+    const confidence = Number(group.confidence);
+    const requestedTarget = cleanText(group.targetEffortId, 200);
+    const establishedTarget = requestedTarget && effortsById.get(requestedTarget);
+    const canMergeExisting = establishedTarget &&
+      establishedTarget.needsClassification !== true &&
+      !['done', 'dismissed'].includes(establishedTarget.status) &&
+      Number.isFinite(confidence) && confidence >= 0.72;
+    const canMergeProvisionals = sourceIds.length === 1 ||
+      (Number.isFinite(confidence) && confidence >= 0.72);
+    if (!canMergeProvisionals) {
+      for (const id of sourceIds) {
+        const source = effortsById.get(id);
+        if (!source) continue;
+        consumed.add(id);
+        source.needsClassification = false;
+        source.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
+        source.classificationReason = cleanText(group.reason, 600);
+        source.updatedAt = now;
+        applied.push(id);
+      }
+      continue;
+    }
+    const target = canMergeExisting ? establishedTarget : effortsById.get(sourceIds[0]);
+    if (!target) continue;
+    const mergedObservations = new Map((target.observations || [])
+      .filter(Boolean).map(observation => [observation.key, observation]));
+    let starred = target.starred === true;
+    let earliest = Date.parse(target.createdAt || now);
+    let latest = Date.parse(target.lastObservedAt || target.updatedAt || now);
+    for (const id of sourceIds) {
+      const source = effortsById.get(id);
+      if (!source) continue;
+      consumed.add(id);
+      starred = starred || source.starred === true;
+      const sourceCreatedAt = Date.parse(source.createdAt || '');
+      const sourceObservedAt = Date.parse(source.lastObservedAt || source.updatedAt || '');
+      if (Number.isFinite(sourceCreatedAt)) earliest = Math.min(earliest, sourceCreatedAt);
+      if (Number.isFinite(sourceObservedAt)) latest = Math.max(latest, sourceObservedAt);
+      for (const observation of source.observations || []) {
+        if (!observation || !observation.key) continue;
+        mergedObservations.set(observation.key, observation);
+        store.effortAssignments[observation.key] = {
+          effortId: target.id,
+          signature: observation.signature || '',
+        };
+      }
+    }
+    target.observations = [...mergedObservations.values()].slice(-80);
+    const shouldApplyCombinedLabel = canMergeExisting || sourceIds.length > 1 || !requestedTarget;
+    if (shouldApplyCombinedLabel) {
+      target.title = cleanText(group.title, 160) || target.title;
+      target.summary = cleanText(group.summary, 1200) || target.summary;
+    }
+    target.starred = starred;
+    target.needsClassification = false;
+    target.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
+    target.classificationReason = cleanText(group.reason, 600);
+    target.createdAt = Number.isFinite(earliest) ? new Date(earliest).toISOString() : target.createdAt;
+    target.lastObservedAt = Number.isFinite(latest) ? new Date(latest).toISOString() : target.lastObservedAt;
+    target.updatedAt = now;
+    applied.push(target.id);
+    for (const id of sourceIds) {
+      if (id !== target.id) effortsById.delete(id);
+    }
+  }
+  const attempted = new Set((Array.isArray(attemptedIds) ? attemptedIds : [])
+    .map(id => cleanText(id, 200))
+    .filter(id => pendingIds.has(id)));
+  for (const id of attempted) {
+    if (consumed.has(id)) continue;
+    const effort = effortsById.get(id);
+    if (!effort) continue;
+    effort.classificationAttempts = Number(effort.classificationAttempts || 0) + 1;
+    effort.updatedAt = now;
+    if (effort.classificationAttempts >= 3) {
+      effort.needsClassification = false;
+      effort.classificationReason = 'Kept separate after Pixel could not classify it confidently.';
+      consumed.add(id);
+      applied.push(id);
+    }
+  }
+  store.efforts = store.efforts.filter(effort => effortsById.has(effort.id));
+  writeStore(store);
+  const remaining = [...pendingIds].filter(id => !consumed.has(id));
+  return {
+    applied: [...new Set(applied)],
+    remaining,
+    remainingAttempted: [...attempted].filter(id => !consumed.has(id)),
+  };
+}
+
+function updateEffort(id, patch = {}) {
+  const store = readStore();
+  const effort = store.efforts.find(entry => entry && entry.id === id);
+  if (!effort) return null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'starred')) effort.starred = patch.starred === true;
+  if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
+    const priority = normalizePriority(patch.priority);
+    if (priority !== effort.priority) recordActivity(store, 'reprioritized', effort.id, effort.title, 'Pixel effort');
+    effort.priority = priority;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'snoozedUntil')) {
+    const parsed = Date.parse(patch.snoozedUntil || '');
+    if (Number.isFinite(parsed) && parsed > Date.now()) {
+      recordActivity(store, 'deferred', effort.id, effort.title, 'Pixel effort');
+    }
+    effort.snoozedUntil = Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+  }
+  if (['done', 'dismissed', 'open'].includes(patch.status)) {
+    if (patch.status === 'done' && effort.status !== 'done') {
+      recordCompletion(store, effort.id, effort.title, 'Pixel effort');
+    }
+    if (patch.status === 'dismissed' && effort.status !== 'dismissed') {
+      recordActivity(store, 'dismissed', effort.id, effort.title, 'Pixel effort');
+    }
+    effort.status = patch.status;
+    for (const observation of effort.observations || []) {
+      const sourceItem = store.items.find(item => item && item.id === observation.id);
+      if (sourceItem) sourceItem.status = patch.status;
+      const commitment = store.commitments.find(item => item && item.id === observation.id);
+      if (commitment) commitment.status = patch.status;
+    }
+  }
+  effort.updatedAt = new Date().toISOString();
+  writeStore(store);
+  return materializeEffort(effort);
+}
+
 function getProgress(open = 0) {
   const store = readStore();
   const start = new Date();
@@ -617,7 +1055,8 @@ function listRecentActivity(hours = 24) {
     const commitment = store.commitments.find(entry => entry && entry.id === recent.id);
     const signalState = store.signalStates[recent.id] || {};
     const dismissedUntil = Date.parse(store.dismissedSignals[recent.id] || '');
-    const target = item || commitment;
+    const effort = store.efforts.find(entry => entry && entry.id === recent.id);
+    const target = item || commitment || effort;
     const hidden = target
       ? ['done', 'dismissed'].includes(target.status) ||
         (target.snoozedUntil && Date.parse(target.snoozedUntil) > Date.now())
@@ -640,7 +1079,8 @@ function restoreRecentActivity(id, action = 'put-back') {
   const store = readStore();
   const item = store.items.find(entry => entry && entry.id === key);
   const commitment = store.commitments.find(entry => entry && entry.id === key);
-  const target = item || commitment;
+  const effort = store.efforts.find(entry => entry && entry.id === key);
+  const target = item || commitment || effort;
   if (action === 'restore-priority') {
     if (target) target.priority = 'normal';
     else {
@@ -655,6 +1095,18 @@ function restoreRecentActivity(id, action = 'put-back') {
       target.status = 'open';
       target.snoozedUntil = null;
       target.updatedAt = new Date().toISOString();
+      if (target === effort) {
+        target.observations = (target.observations || []).filter(observation => {
+          const assignment = observation && store.effortAssignments[observation.key];
+          return !assignment || assignment.effortId === target.id;
+        });
+        for (const observation of target.observations) {
+          const sourceItem = store.items.find(entry => entry && entry.id === observation.id);
+          if (sourceItem) sourceItem.status = 'open';
+          const sourceCommitment = store.commitments.find(entry => entry && entry.id === observation.id);
+          if (sourceCommitment) sourceCommitment.status = 'open';
+        }
+      }
     } else {
       const state = store.signalStates[key] && typeof store.signalStates[key] === 'object'
         ? store.signalStates[key]
@@ -695,6 +1147,7 @@ function applyManualOrder(items) {
 
 module.exports = {
   addItem,
+  applyEffortClassification,
   applyManualOrder,
   businessHoursBetween,
   deriveUrgency,
@@ -705,6 +1158,7 @@ module.exports = {
   commitmentsMatch,
   getProgress,
   getCommitmentSync,
+  getEffortClassificationState,
   getSignalState,
   isSignalDismissed,
   listRecentActivity,
@@ -713,7 +1167,9 @@ module.exports = {
   restoreRecentActivity,
   setManualOrder,
   setCommitmentSync,
+  syncEffortObservations,
   updateCommitment,
+  updateEffort,
   updateSignal,
   upsertCommitments,
   updateItem,
