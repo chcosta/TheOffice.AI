@@ -1724,9 +1724,10 @@
           </header>
           <ol class="setup-steps">
             <li class="setup-step">
-              <h3>Open Microsoft’s add-in setup page</h3>
-              <p>New Outlook manages custom add-ins in a browser. This opens Microsoft’s official sideload page.</p>
-              <button class="setup-action primary-action" id="openOutlookSideload" type="button">Open add-in setup</button>
+              <h3>Install or update Pixel</h3>
+              <p>Pixel can run Microsoft’s installer for you. A terminal shows the result and may ask you to sign in.</p>
+              <button class="setup-action primary-action" id="installOutlookAddin" type="button">Install or update automatically</button>
+              <button class="setup-action" id="openOutlookSideload" type="button">Use Microsoft’s web setup</button>
             </li>
             <li class="setup-step">
               <h3>Add Pixel’s manifest</h3>
@@ -1741,7 +1742,7 @@
               <p>Return to New Outlook, start a message, and choose <strong>Apps → Pixel Writing Coach</strong>. Pin the pane if you want it to remain open across drafts.</p>
             </li>
           </ol>
-          <p class="setup-note">If <strong>Apply rewrite</strong> is missing, remove the older Pixel add-in and reinstall the manifest to grant draft-update permission. If Microsoft’s page does not show <strong>Custom Addins</strong>, your organization has disabled personal sideloading and an administrator must deploy Pixel.</p>
+          <p class="setup-note">Microsoft’s web setup link occasionally opens the general Apps marketplace instead of My add-ins. Use the automatic installer when that happens. If installation is rejected, your organization may require an administrator to deploy Pixel.</p>
         </div>
       </section>
     </section>
@@ -3113,6 +3114,21 @@
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
       }
+      $('installOutlookAddin').addEventListener('click', async () => {
+        $('installOutlookAddin').disabled = true;
+        showOperationStatus('Opening Microsoft’s Pixel installer…');
+        try {
+          await request('/api/dev-buddy/compose/install', {
+            method: 'POST',
+            body: '{}',
+          });
+          showOperationStatus('Installer opened. Follow the instructions in its window.', 'done', 3500);
+        } catch (error) {
+          showOperationStatus(error.message || 'Pixel could not open the installer.', 'error', 4500);
+        } finally {
+          $('installOutlookAddin').disabled = false;
+        }
+      });
       $('openOutlookSideload').addEventListener('click', async () => {
         try {
           if (!composeSetup) await loadComposeSetup();

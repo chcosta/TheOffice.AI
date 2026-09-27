@@ -15,17 +15,20 @@ generated.
 
 ## Install for local use
 
-1. Install and trust the per-user localhost certificate:
+1. In Pixel, open **Setup** and choose **Install or update automatically**.
+   Pixel uses Microsoft's supported M365 Agents Toolkit installer. If that
+   installer isn't available, continue with the manual steps below.
+2. Install and trust the per-user localhost certificate:
    `npx --yes office-addin-dev-certs@2.0.10 install --days 3650`
-2. Restart TheOffice.AI. Pixel exposes the compose pane only on
+3. Restart TheOffice.AI. Pixel exposes the compose pane only on
    `https://localhost:3849`.
-3. In Outlook, open **Get Add-ins** or **Apps**.
-4. Choose **My add-ins** > **Add a custom add-in** > **Add from file**.
-5. Select `outlook-addin/manifest.xml` from a source checkout, or the packaged
+4. In Outlook, open **Get Add-ins** or **Apps**.
+5. Choose **My add-ins** > **Add a custom add-in** > **Add from file**.
+6. Select `outlook-addin/manifest.xml` from a source checkout, or the packaged
    manifest at
    `%LOCALAPPDATA%\TheOffice.AI\server\outlook-addin\manifest.xml`.
-6. Open a new message and select **Pixel** > **Writing coach** from the ribbon.
-7. Pin the task pane if you want it available in each compose window.
+7. Open a new message and select **Pixel** > **Writing coach** from the ribbon.
+8. Pin the task pane if you want it available in each compose window.
 
 Version 1.1 adds one-click draft updates and therefore requests Outlook's
 `ReadWriteMailbox` permission. Remove and reinstall an older sideloaded version

@@ -4894,6 +4894,50 @@ app.get('/api/dev-buddy/compose/setup', (req, res) => {
   });
 });
 
+app.post('/api/dev-buddy/compose/install', async (req, res) => {
+  if (!_devBuddyIsLoopbackRequest(req)) {
+    return res.status(403).json({ error: 'Outlook coach installation is available only on this device.' });
+  }
+  if (process.platform !== 'win32') {
+    return res.status(400).json({ error: 'Automatic Outlook installation is currently available on Windows.' });
+  }
+  const manifestPath = path.join(__dirname, 'outlook-addin', 'manifest.xml');
+  if (!fs.existsSync(manifestPath)) {
+    return res.status(404).json({ error: 'Pixel’s Outlook manifest is not installed.' });
+  }
+  const quote = value => `"${String(value).replace(/"/g, '""')}"`;
+  const launcher = path.join(require('os').tmpdir(), `install-pixel-outlook-${Date.now().toString(36)}.cmd`);
+  const command = [
+    '@echo off',
+    'title Install Pixel Writing Coach',
+    'where npx >nul 2>&1',
+    'if errorlevel 1 goto nonpx',
+    'echo Installing or updating Pixel Writing Coach...',
+    `call npx --yes @microsoft/m365agentstoolkit-cli@1.1.17 install --xml-path ${quote(manifestPath)}`,
+    'if errorlevel 1 goto failed',
+    'echo.',
+    'echo Pixel Writing Coach is installed. Reopen your Outlook draft, then open and pin Pixel from Apps.',
+    'goto done',
+    ':nonpx',
+    'echo ERROR: Microsoft setup requires npx, but it was not found on this computer.',
+    'echo Use the web setup option in Pixel instead.',
+    'goto done',
+    ':failed',
+    'echo.',
+    'echo Installation did not complete. Use the web setup option in Pixel or contact your Microsoft 365 administrator.',
+    ':done',
+    'echo.',
+    'pause',
+  ].join('\r\n') + '\r\n';
+  try {
+    fs.writeFileSync(launcher, command);
+    const pid = await _openAgentCliWindow(launcher, __dirname);
+    res.json({ ok: true, pid });
+  } catch (error) {
+    res.status(500).json({ error: `Pixel could not open the Microsoft installer: ${error.message}` });
+  }
+});
+
 app.post('/api/dev-buddy/insight', async (req, res) => {
   const id = String(req.body && req.body.id || '').trim();
   if (!id) return res.status(400).json({ error: 'id is required' });

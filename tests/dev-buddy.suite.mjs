@@ -123,10 +123,12 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
   'the desktop sidecar exposes the task pane through trusted loopback HTTPS');
   const pixel = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
   t.ok(/data-view-target="setup"/.test(pixel) &&
-    /Open add-in setup/.test(pixel) &&
+    /Install or update automatically/.test(pixel) &&
     /copyOutlookManifest/.test(pixel) &&
-    /app\.get\('\/api\/dev-buddy\/compose\/setup'/.test(server),
-  'Pixel keeps a discoverable New Outlook walkthrough and installed manifest location');
+    /app\.get\('\/api\/dev-buddy\/compose\/setup'/.test(server) &&
+    /app\.post\('\/api\/dev-buddy\/compose\/install'/.test(server) &&
+    /@microsoft\/m365agentstoolkit-cli@1\.1\.17/.test(server),
+  'Pixel keeps a discoverable New Outlook walkthrough with automatic and manual installation');
 });
 
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
