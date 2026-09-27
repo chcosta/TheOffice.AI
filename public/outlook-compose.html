@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pixel Writing Coach</title>
+  <script>
+    (() => {
+      const param = new URLSearchParams(window.location.search).get("scoutTheme");
+      const theme =
+        param || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+      document.documentElement.setAttribute("data-theme", theme);
+    })();
+  </script>
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <style>
+    :root {
+      color-scheme: light;
+      --cp-bg: #f7f4ef;
+      --cp-bg-elevated: #fcfbf8;
+      --cp-surface: #ffffff;
+      --cp-surface-soft: #f5f5f5;
+      --cp-border: #dedede;
+      --cp-border-strong: #919191;
+      --cp-text: #242424;
+      --cp-text-muted: #5c5c5c;
+      --cp-text-soft: #6f6f6f;
+      --cp-accent: #b11f4b;
+      --cp-accent-hover: #9a1a41;
+      --cp-accent-soft: rgba(177, 31, 75, 0.08);
+      --cp-accent-fg: #ffffff;
+      --cp-success: #16a34a;
+      --cp-danger: #dc2626;
+      --cp-warning: #f59e0b;
+      --cp-link: #0078d4;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.12);
+      --cp-overlay: rgba(255, 255, 255, 0.8);
+      --cp-panel: rgba(255, 255, 255, 0.86);
+      --cp-panel-strong: rgba(255, 255, 255, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.55);
+      --cp-highlight: rgba(177, 31, 75, 0.12);
+    }
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --cp-bg: #3d3b3a;
+      --cp-bg-elevated: #343231;
+      --cp-surface: #292929;
+      --cp-surface-soft: #2e2e2e;
+      --cp-border: #474747;
+      --cp-border-strong: #5f5f5f;
+      --cp-text: #dedede;
+      --cp-text-muted: #919191;
+      --cp-text-soft: #b0b0b0;
+      --cp-accent: #fd8ea1;
+      --cp-accent-hover: #fb7b91;
+      --cp-accent-soft: rgba(253, 142, 161, 0.14);
+      --cp-accent-fg: #1a1a1a;
+      --cp-success: #4ade80;
+      --cp-danger: #f87171;
+      --cp-warning: #fbbf24;
+      --cp-link: #4da6ff;
+      --cp-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
+      --cp-overlay: rgba(41, 41, 41, 0.88);
+      --cp-panel: rgba(41, 41, 41, 0.72);
+      --cp-panel-strong: rgba(41, 41, 41, 0.96);
+      --cp-sheen: rgba(255, 255, 255, 0.04);
+      --cp-highlight: rgba(253, 142, 161, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      font-family: "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 14px;
+    }
+    main { padding: 16px; }
+    header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    h1, h2, p { margin-top: 0; }
+    h1 { margin-bottom: 4px; font-size: 20px; }
+    h2 { margin-bottom: 8px; font-size: 14px; }
+    .muted { color: var(--cp-text-muted); font-size: 12px; line-height: 1.45; }
+    .control {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--cp-text-muted);
+      white-space: nowrap;
+    }
+    select, button {
+      border: 1px solid var(--cp-border);
+      border-radius: 0.625rem;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font: inherit;
+    }
+    select { padding: 7px 28px 7px 9px; }
+    button {
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--cp-border-strong); }
+    button.primary {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+    }
+    button.primary:hover { background: var(--cp-accent-hover); }
+    button:disabled { cursor: default; opacity: 0.55; }
+    .status {
+      min-height: 36px;
+      margin-bottom: 12px;
+      padding: 10px 12px;
+      border-left: 3px solid var(--cp-accent);
+      background: var(--cp-accent-soft);
+      color: var(--cp-text);
+      line-height: 1.4;
+    }
+    .status[data-state="error"] { border-left-color: var(--cp-danger); }
+    .status[data-state="ready"] { border-left-color: var(--cp-success); }
+    .card {
+      margin-bottom: 12px;
+      border: 1px solid var(--cp-border);
+      border-radius: 16px;
+      background: var(--cp-surface);
+      box-shadow: 0 0 2px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.14);
+      overflow: hidden;
+    }
+    .card-head {
+      padding: 11px 13px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+    }
+    .card-body { padding: 13px; }
+    .rewrite {
+      min-height: 150px;
+      white-space: pre-wrap;
+      line-height: 1.55;
+      user-select: text;
+    }
+    .actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+    ul { margin: 8px 0 0; padding-left: 20px; }
+    li { margin: 4px 0; line-height: 1.4; }
+    .empty { color: var(--cp-text-muted); }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Pixel writing coach</h1>
+        <div class="muted">Only the current unsent draft is analyzed. Pixel never sends or changes it.</div>
+      </div>
+      <label class="control"><input id="live" type="checkbox" checked> Live</label>
+    </header>
+    <div class="control" style="margin-bottom:12px">
+      <label for="style">Rewrite style</label>
+      <select id="style">
+        <option value="balanced">Professional and inclusive</option>
+        <option value="warmer">Warmer and collaborative</option>
+        <option value="concise">Concise and direct</option>
+      </select>
+    </div>
+    <div id="status" class="status">Connecting to the current Outlook draft…</div>
+    <section class="card">
+      <div class="card-head"><h2>How the current draft may land</h2></div>
+      <div id="read" class="card-body empty">Start writing and Pixel will offer a second perspective.</div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Suggested rewrite</h2></div>
+      <div class="card-body">
+        <div id="rewrite" class="rewrite empty">Your rewrite will appear here after you pause.</div>
+        <div class="actions">
+          <button id="copy" class="primary" type="button" disabled>Copy rewrite</button>
+          <button id="refresh" type="button">Rewrite now</button>
+        </div>
+      </div>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>What Pixel changed</h2></div>
+      <div id="changes" class="card-body empty">No suggestions yet.</div>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const $ = id => document.getElementById(id);
+      let ready = false;
+      let lastDraft = '';
+      let lastRequested = '';
+      let latestRewrite = '';
+      let timer = null;
+      let requestSequence = 0;
+      let activeController = null;
+
+      function setStatus(text, state = '') {
+        $('status').textContent = text;
+        $('status').dataset.state = state;
+      }
+
+      function officeValue(accessor, coercionType) {
+        return new Promise((resolve, reject) => {
+          const callback = result => result.status === Office.AsyncResultStatus.Succeeded
+            ? resolve(String(result.value || ''))
+            : reject(new Error(result.error && result.error.message || 'Outlook could not read the draft.'));
+          coercionType ? accessor.getAsync(coercionType, callback) : accessor.getAsync(callback);
+        });
+      }
+
+      async function readDraft() {
+        const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
+        if (!item || !item.body) throw new Error('Open this add-in while composing an email.');
+        const [body, subject] = await Promise.all([
+          officeValue(item.body, Office.CoercionType.Text),
+          item.subject ? officeValue(item.subject) : Promise.resolve(''),
+        ]);
+        return { body: body.trim(), subject: subject.trim() };
+      }
+
+      function renderResult(result) {
+        latestRewrite = result.rewrite || '';
+        $('rewrite').textContent = latestRewrite || 'Pixel did not suggest a rewrite.';
+        $('rewrite').classList.toggle('empty', !latestRewrite);
+        $('read').textContent = result.read || 'The draft already reads clearly and respectfully.';
+        $('read').classList.remove('empty');
+        const changes = Array.isArray(result.changes) ? result.changes : [];
+        $('changes').innerHTML = changes.length
+          ? `<ul>${changes.map(change => `<li>${escapeHtml(change)}</li>`).join('')}</ul>`
+          : 'No material tone changes were needed.';
+        $('changes').classList.toggle('empty', !changes.length);
+        $('copy').disabled = !latestRewrite;
+        setStatus(result.cached ? 'Rewrite ready from the local cache.' : 'Rewrite ready.', 'ready');
+      }
+
+      function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, character => ({
+          '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+        })[character]);
+      }
+
+      async function rewrite(force = false) {
+        if (!ready || !$('live').checked && !force) return;
+        let draft;
+        try {
+          draft = await readDraft();
+        } catch (error) {
+          setStatus(error.message, 'error');
+          return;
+        }
+        const signature = `${$('style').value}\n${draft.subject}\n${draft.body}`;
+        if (!force && signature === lastRequested) return;
+        if (draft.body.length < 20) {
+          lastRequested = '';
+          latestRewrite = '';
+          $('copy').disabled = true;
+          setStatus('Write a little more and pause. Pixel will then suggest a revision.');
+          return;
+        }
+        lastRequested = signature;
+        const sequence = ++requestSequence;
+        if (activeController) activeController.abort();
+        activeController = new AbortController();
+        setStatus('Reading for clarity, tone, and inclusion…');
+        try {
+          const response = await fetch('/api/dev-buddy/compose/rewrite', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ body: draft.body, subject: draft.subject, style: $('style').value }),
+            signal: activeController.signal,
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Pixel could not revise this draft.');
+          if (sequence === requestSequence) renderResult(result);
+        } catch (error) {
+          if (error.name !== 'AbortError' && sequence === requestSequence) {
+            lastRequested = '';
+            setStatus(error.message, 'error');
+          }
+        }
+      }
+
+      async function poll() {
+        if (!ready || !$('live').checked) return;
+        try {
+          const draft = await readDraft();
+          const signature = `${draft.subject}\n${draft.body}`;
+          if (signature !== lastDraft) {
+            lastDraft = signature;
+            requestSequence++;
+            if (activeController) activeController.abort();
+            clearTimeout(timer);
+            setStatus('Draft changed. Waiting for you to pause…');
+            timer = setTimeout(() => rewrite(false), 1400);
+          }
+        } catch (error) {
+          setStatus(error.message, 'error');
+        }
+      }
+
+      $('style').addEventListener('change', () => rewrite(true));
+      $('live').addEventListener('change', () => {
+        localStorage.setItem('pixel-compose-live', $('live').checked ? '1' : '0');
+        if ($('live').checked) rewrite(true);
+        else setStatus('Live coaching is paused.');
+      });
+      $('refresh').addEventListener('click', () => rewrite(true));
+      $('copy').addEventListener('click', async () => {
+        if (!latestRewrite) return;
+        try {
+          await navigator.clipboard.writeText(latestRewrite);
+        } catch {
+          const area = document.createElement('textarea');
+          area.value = latestRewrite;
+          document.body.appendChild(area);
+          area.select();
+          document.execCommand('copy');
+          area.remove();
+        }
+        setStatus('Rewrite copied. Paste it into Outlook when you are ready.', 'ready');
+      });
+
+      $('live').checked = localStorage.getItem('pixel-compose-live') !== '0';
+      Office.onReady(info => {
+        if (info.host !== Office.HostType.Outlook) {
+          setStatus('Pixel writing coach must be opened from an Outlook compose window.', 'error');
+          return;
+        }
+        ready = true;
+        setStatus('Connected. Start writing and pause for a suggestion.');
+        poll();
+        setInterval(poll, 1000);
+      });
+    })();
+  </script>
+</body>
+</html>

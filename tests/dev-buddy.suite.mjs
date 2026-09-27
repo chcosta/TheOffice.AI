@@ -89,6 +89,36 @@ await t.test('reading pane builds grounded dossiers and optional AI plans', () =
   'PR, build, and session items carry factual workflow context');
 });
 
+await t.test('Outlook compose coaching is live, local, and read-only', () => {
+  const pane = readFileSync(path.join(process.cwd(), 'public', 'outlook-compose.html'), 'utf8');
+  const manifest = readFileSync(path.join(process.cwd(), 'outlook-addin', 'manifest.xml'), 'utf8');
+  const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  t.ok(/Office\.onReady/.test(pane) &&
+    /mailbox\.item/.test(pane) &&
+    /Office\.CoercionType\.Text/.test(pane) &&
+    /setInterval\(poll, 1000\)/.test(pane),
+  'the task pane watches only the active Outlook compose draft');
+  t.ok(/\/api\/dev-buddy\/compose\/rewrite/.test(pane) &&
+    /Copy rewrite/.test(pane) &&
+    !/body\.setAsync/.test(pane),
+  'live suggestions are copied explicitly and never modify or send the draft');
+  t.ok(/app\.post\('\/api\/dev-buddy\/compose\/rewrite'/.test(server) &&
+    /_devBuddyIsLoopbackRequest/.test(server) &&
+    /category: 'compose-coach'/.test(server) &&
+    /record: false/.test(server),
+  'draft rewriting is local-only and excluded from recorded chat history');
+  t.ok(/<Permissions>ReadItem<\/Permissions>/.test(manifest) &&
+    /https:\/\/localhost:3849\/public\/outlook-compose\.html/.test(manifest) &&
+    /VersionOverridesV1_1/.test(manifest) &&
+    /MessageComposeCommandSurface/.test(manifest) &&
+    /SupportsPinning>true/.test(manifest),
+  'the Outlook add-in is compose-only, pinnable, and requests read-only item access');
+  t.ok(/bindOutlookAddinHttps/.test(server) &&
+    /\.office-addin-dev-certs/.test(server) &&
+    /createServer/.test(server),
+  'the desktop sidecar exposes the task pane through trusted loopback HTTPS');
+});
+
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
   const item = buddy.addItem({ title: 'Finish the review', detail: 'Two threads remain', priority: 'high' });
   t.eq(buddy.listItems()[0].title, 'Finish the review', 'new memory is returned from durable storage');
