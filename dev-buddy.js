@@ -6,11 +6,12 @@ const STORE_PATH = dataPath('dev-buddy.json');
 
 function blankStore() {
   return {
-    version: 4,
+    version: 5,
     items: [],
     commitments: [],
     efforts: [],
     effortAssignments: {},
+    effortSeparations: {},
     commitmentSync: { lastAttemptAt: null, lastSuccessAt: null, error: '' },
     dismissedSignals: {},
     signalStates: {},
@@ -26,12 +27,17 @@ function readStore() {
     return {
       ...blankStore(),
       ...(parsed && typeof parsed === 'object' ? parsed : {}),
+      version: blankStore().version,
       items: Array.isArray(parsed && parsed.items) ? parsed.items : [],
       commitments: Array.isArray(parsed && parsed.commitments) ? parsed.commitments : [],
       efforts: Array.isArray(parsed && parsed.efforts) ? parsed.efforts : [],
       effortAssignments: parsed && parsed.effortAssignments &&
         typeof parsed.effortAssignments === 'object' && !Array.isArray(parsed.effortAssignments)
         ? parsed.effortAssignments
+        : {},
+      effortSeparations: parsed && parsed.effortSeparations &&
+        typeof parsed.effortSeparations === 'object' && !Array.isArray(parsed.effortSeparations)
+        ? parsed.effortSeparations
         : {},
       commitmentSync: parsed && parsed.commitmentSync && typeof parsed.commitmentSync === 'object'
         ? { ...blankStore().commitmentSync, ...parsed.commitmentSync }
@@ -820,14 +826,17 @@ function syncEffortObservations(input = []) {
     }
     if (!Array.isArray(effort.observations)) effort.observations = [];
     const index = effort.observations.findIndex(item => item && item.key === observation.key);
+    const materialChanged = index >= 0 &&
+      effort.observations[index].signature !== observation.signature;
     if (index < 0 ||
-        effort.observations[index].signature !== observation.signature ||
+        materialChanged ||
         effort.observations[index].presentationSignature !== observation.presentationSignature) {
       const missingSince = index >= 0 ? effort.observations[index].missingSince : null;
       if (index < 0) effort.observations.push(observation);
       else effort.observations[index] = missingSince ? { ...observation, missingSince } : observation;
       effort.updatedAt = now;
       effort.lastObservedAt = observation.trackedAt || now;
+      if (materialChanged) effort.evidenceEpoch = Number(effort.evidenceEpoch || 0) + 1;
       if (observation.starred) effort.starred = true;
       changed = true;
     }
@@ -889,6 +898,7 @@ function getEffortClassificationState() {
     title: effort.title || '',
     summary: effort.summary || '',
     createdAt: effort.createdAt || null,
+    evidenceEpoch: Number(effort.evidenceEpoch || 0),
     observations: (effort.observations || []).slice(-12).map(observation => ({
       key: observation.key,
       kind: observation.kind,
@@ -905,6 +915,23 @@ function getEffortClassificationState() {
   };
 }
 
+function effortSeparationKey(leftKey, rightKey) {
+  return crypto.createHash('sha1')
+    .update([cleanText(leftKey, 500), cleanText(rightKey, 500)].sort().join('\0'))
+    .digest('hex');
+}
+
+function effortsAreSeparated(store, left, right) {
+  for (const leftObservation of left && left.observations || []) {
+    for (const rightObservation of right && right.observations || []) {
+      if (store.effortSeparations[effortSeparationKey(leftObservation.key, rightObservation.key)]) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 function applyEffortClassification(groups = [], attemptedIds = null) {
   const store = readStore();
   const effortsById = new Map(store.efforts.filter(Boolean).map(effort => [effort.id, effort]));
@@ -914,20 +941,35 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
   const consumed = new Set();
   const applied = [];
   const now = new Date().toISOString();
+  const attemptedEpochs = new Map((Array.isArray(attemptedIds) ? attemptedIds : []).map(entry =>
+    typeof entry === 'string'
+      ? [cleanText(entry, 200), null]
+      : [cleanText(entry && entry.id, 200), Number(entry && entry.evidenceEpoch || 0)]));
+  const epochMatches = id => {
+    if (!attemptedEpochs.has(id) || attemptedEpochs.get(id) == null) return true;
+    return Number(effortsById.get(id) && effortsById.get(id).evidenceEpoch || 0) === attemptedEpochs.get(id);
+  };
   for (const group of Array.isArray(groups) ? groups : []) {
     const sourceIds = [...new Set((group && Array.isArray(group.provisionalIds) ? group.provisionalIds : [])
       .map(id => cleanText(id, 200))
-      .filter(id => pendingIds.has(id) && !consumed.has(id)))];
+      .filter(id => pendingIds.has(id) && !consumed.has(id) && epochMatches(id)))];
     if (!sourceIds.length) continue;
     const confidence = Number(group.confidence);
     const requestedTarget = cleanText(group.targetEffortId, 200);
     const establishedTarget = requestedTarget && effortsById.get(requestedTarget);
+    const provisionalEfforts = sourceIds.map(id => effortsById.get(id)).filter(Boolean);
+    const provisionalConflict = provisionalEfforts.some((effort, index) =>
+      provisionalEfforts.slice(index + 1).some(other => effortsAreSeparated(store, effort, other)));
+    const establishedConflict = !!(establishedTarget &&
+      provisionalEfforts.some(effort => effortsAreSeparated(store, effort, establishedTarget)));
+    const blockedBySeparation = provisionalConflict || establishedConflict;
     const canMergeExisting = establishedTarget &&
       establishedTarget.needsClassification !== true &&
       !['done', 'dismissed'].includes(establishedTarget.status) &&
+      !establishedConflict &&
       Number.isFinite(confidence) && confidence >= 0.72;
     const canMergeProvisionals = sourceIds.length === 1 ||
-      (Number.isFinite(confidence) && confidence >= 0.72);
+      (!provisionalConflict && Number.isFinite(confidence) && confidence >= 0.72);
     if (!canMergeProvisionals) {
       for (const id of sourceIds) {
         const source = effortsById.get(id);
@@ -935,7 +977,9 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
         consumed.add(id);
         source.needsClassification = false;
         source.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
-        source.classificationReason = cleanText(group.reason, 600);
+        source.classificationReason = provisionalConflict
+          ? 'Kept separate because you marked this evidence unrelated.'
+          : cleanText(group.reason, 600);
         source.updatedAt = now;
         applied.push(id);
       }
@@ -975,18 +1019,20 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
     target.starred = starred;
     target.needsClassification = false;
     target.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
-    target.classificationReason = cleanText(group.reason, 600);
+    target.classificationReason = blockedBySeparation
+      ? 'Kept separate because you marked this evidence unrelated.'
+      : cleanText(group.reason, 600);
     target.createdAt = Number.isFinite(earliest) ? new Date(earliest).toISOString() : target.createdAt;
     target.lastObservedAt = Number.isFinite(latest) ? new Date(latest).toISOString() : target.lastObservedAt;
     target.updatedAt = now;
+    target.evidenceEpoch = Number(target.evidenceEpoch || 0) + 1;
     applied.push(target.id);
     for (const id of sourceIds) {
       if (id !== target.id) effortsById.delete(id);
     }
   }
-  const attempted = new Set((Array.isArray(attemptedIds) ? attemptedIds : [])
-    .map(id => cleanText(id, 200))
-    .filter(id => pendingIds.has(id)));
+  const attempted = new Set([...attemptedEpochs.keys()]
+    .filter(id => pendingIds.has(id) && epochMatches(id)));
   for (const id of attempted) {
     if (consumed.has(id)) continue;
     const effort = effortsById.get(id);
@@ -1007,6 +1053,62 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
     applied: [...new Set(applied)],
     remaining,
     remainingAttempted: [...attempted].filter(id => !consumed.has(id)),
+  };
+}
+
+function detachEffortObservation(effortId, observationKey) {
+  const store = readStore();
+  const effort = store.efforts.find(entry =>
+    entry && entry.id === effortId && !['done', 'dismissed'].includes(entry.status));
+  if (!effort) return null;
+  const observations = Array.isArray(effort.observations) ? effort.observations : [];
+  const observation = observations.find(entry => entry && entry.key === observationKey);
+  if (!observation) return null;
+  const remaining = observations.filter(entry => entry && entry.key !== observationKey);
+  if (!remaining.length) throw new Error('This is the only evidence on the effort.');
+  const now = new Date().toISOString();
+  for (const other of remaining) {
+    store.effortSeparations[effortSeparationKey(observation.key, other.key)] = {
+      markedAt: now,
+      reason: 'user-marked-unrelated',
+      leftKey: observation.key,
+      rightKey: other.key,
+    };
+  }
+  effort.observations = remaining;
+  effort.title = remaining[0].title || effort.title;
+  effort.summary = remaining[0].detail || effort.summary;
+  effort.needsClassification = true;
+  effort.classificationAttempts = 0;
+  effort.evidenceEpoch = Number(effort.evidenceEpoch || 0) + 1;
+  effort.classificationReason = 'Re-triaging after unrelated evidence was removed.';
+  effort.updatedAt = now;
+  const detached = {
+    id: `effort-${crypto.randomUUID()}`,
+    title: observation.title || 'Review detached evidence',
+    summary: observation.detail || 'Pixel is re-triaging this evidence.',
+    status: 'open',
+    priority: null,
+    starred: observation.starred === true,
+    snoozedUntil: null,
+    observations: [observation],
+    needsClassification: true,
+    classificationAttempts: 0,
+    classificationReason: 'Detached by the user for separate triage.',
+    evidenceEpoch: 0,
+    createdAt: now,
+    updatedAt: now,
+    lastObservedAt: observation.trackedAt || observation.observedAt || now,
+  };
+  store.efforts.push(detached);
+  store.effortAssignments[observation.key] = {
+    effortId: detached.id,
+    signature: observation.signature || '',
+  };
+  writeStore(store);
+  return {
+    effort: materializeEffort(effort),
+    detached: materializeEffort(detached),
   };
 }
 
@@ -1205,6 +1307,7 @@ module.exports = {
   deriveUrgency,
   deriveMood,
   describeAge,
+  detachEffortObservation,
   dismissSignal,
   completeCommitment,
   commitmentsMatch,

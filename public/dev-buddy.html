@@ -2060,6 +2060,9 @@
             <div class="context-row-title">${escapeHtml(entry.title || '')}</div>
             ${entry.detail ? `<div class="context-row-detail">${escapeHtml(entry.detail)}</div>` : ''}
             ${entry.url ? `<button class="context-row-link" type="button" data-context-url="${escapeHtml(entry.url)}">Open evidence</button>` : ''}
+            ${entry.canMarkUnrelated && entry.observationKey
+              ? `<button class="context-row-link" type="button" data-evidence-unrelated="${escapeHtml(entry.observationKey)}">Not related</button>`
+              : ''}
           </div>`).join('');
       }
 
@@ -2939,7 +2942,7 @@
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) return;
         const fn = invoke();
-        if (fn) fn('restore_dev_buddy_floating').catch(() => {});
+        if (fn) fn('restore_dev_buddy_floating', { workspace: panelOpen }).catch(() => {});
       });
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
@@ -3387,6 +3390,23 @@
             showOperationStatus('Source evidence opened.', 'done', 1800);
           } catch {
             showOperationStatus('I couldn’t open that source evidence.', 'error', 3500);
+          }
+          return;
+        }
+        const unrelatedKey = event.target.closest('[data-evidence-unrelated]')?.dataset.evidenceUnrelated;
+        if (unrelatedKey && item) {
+          showOperationStatus('Separating that evidence and asking Pixel to re-triage it…');
+          try {
+            await request('/api/dev-buddy/efforts/' + encodeURIComponent(item.id) + '/evidence/unrelated', {
+              method: 'POST',
+              body: JSON.stringify({ observationKey: unrelatedKey }),
+            });
+            detailContexts.delete(item.id);
+            detailInsights.delete(item.id);
+            await load(true);
+            showOperationStatus('Evidence separated. Pixel is re-triaging both efforts.');
+          } catch (error) {
+            showOperationStatus(error.message || 'Pixel could not separate that evidence.', 'error');
           }
           return;
         }

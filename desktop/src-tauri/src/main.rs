@@ -448,6 +448,49 @@ fn set_dev_buddy_bounds(
         .map_err(|e| e.to_string())
 }
 
+#[cfg(windows)]
+fn set_dev_buddy_topmost(window: &tauri::WebviewWindow, topmost: bool) -> Result<(), String> {
+    use std::ffi::c_void;
+
+    unsafe extern "system" {
+        fn SetWindowPos(
+            hwnd: *mut c_void,
+            hwnd_insert_after: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+            flags: u32,
+        ) -> i32;
+    }
+
+    const SWP_NOSIZE: u32 = 0x0001;
+    const SWP_NOMOVE: u32 = 0x0002;
+    const SWP_NOACTIVATE: u32 = 0x0010;
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    let insert_after = if topmost { -1isize } else { -2isize } as *mut c_void;
+    let result = unsafe {
+        SetWindowPos(
+            hwnd.0,
+            insert_after,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE,
+        )
+    };
+    if result == 0 {
+        return Err(std::io::Error::last_os_error().to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn set_dev_buddy_topmost(window: &tauri::WebviewWindow, topmost: bool) -> Result<(), String> {
+    window.set_always_on_top(topmost).map_err(|e| e.to_string())
+}
+
 fn ensure_dev_buddy_window(app: &tauri::AppHandle, base_url: &str) -> Result<tauri::WebviewWindow, String> {
     if let Some(window) = app.get_webview_window("dev-buddy") {
         return Ok(window);
@@ -535,6 +578,7 @@ fn ensure_dev_buddy_alert_window(
 fn show_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
     position_dev_buddy(&window, 160, 180, None, true)?;
+    set_dev_buddy_topmost(&window, true)?;
     window.show().map_err(|e| e.to_string())?;
     window.eval("location.reload()").map_err(|e| e.to_string())
 }
@@ -587,6 +631,11 @@ fn set_dev_buddy_mode(
         _ => None,
     };
     let placement = position_dev_buddy(&window, width, height, anchor, true)?;
+    let workspace = mode == "workspace";
+    set_dev_buddy_topmost(&window, !workspace)?;
+    window
+        .set_skip_taskbar(!workspace)
+        .map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
     Ok(placement)
 }
@@ -601,9 +650,16 @@ fn minimize_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn restore_dev_buddy_floating(app: tauri::AppHandle) -> Result<(), String> {
+fn restore_dev_buddy_floating(
+    app: tauri::AppHandle,
+    workspace: Option<bool>,
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("dev-buddy") {
-        window.set_skip_taskbar(true).map_err(|e| e.to_string())?;
+        let is_workspace = workspace.unwrap_or(false);
+        window
+            .set_skip_taskbar(!is_workspace)
+            .map_err(|e| e.to_string())?;
+        set_dev_buddy_topmost(&window, !is_workspace)?;
     }
     Ok(())
 }

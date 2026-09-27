@@ -3300,7 +3300,7 @@ function _devBuddyQueueEffortClassification() {
     if (result && result.fallback) throw new Error('The configured execution model is unavailable.');
     const parsed = _connectExtractJson(acc.trim() || result.output || '');
     if (!parsed || !Array.isArray(parsed.groups)) throw new Error('Pixel returned an invalid effort classification.');
-    const applied = devBuddy.applyEffortClassification(parsed.groups, pending.map(effort => effort.id));
+    const applied = devBuddy.applyEffortClassification(parsed.groups, pending);
     broadcastSSE('dev-buddy-changed', {
       action: 'efforts-classified',
       efforts: applied.applied,
@@ -4618,6 +4618,8 @@ async function _devBuddyEffortContext(item) {
     ].filter(Boolean).join(' · '),
     state: ['high'].includes(observation.priority) ? 'attention' : 'neutral',
     url: observation.link || '',
+    observationKey: observation.key || '',
+    canMarkUnrelated: observations.length > 1,
   }));
   const settled = await Promise.allSettled(observations.slice(0, 8).map(observation =>
     _devBuddySourceContext({ ...observation, id: observation.id || observation.key })));
@@ -4956,6 +4958,25 @@ app.put('/api/dev-buddy/efforts/:id', (req, res) => {
     effort,
   });
   res.json({ effort });
+});
+
+app.post('/api/dev-buddy/efforts/:id/evidence/unrelated', (req, res) => {
+  try {
+    const observationKey = String(req.body && req.body.observationKey || '').trim();
+    if (!observationKey) return res.status(400).json({ error: 'observationKey is required.' });
+    const result = devBuddy.detachEffortObservation(req.params.id, observationKey);
+    if (!result) return res.status(404).json({ error: 'Effort evidence was not found.' });
+    broadcastSSE('dev-buddy-changed', {
+      action: 'effort-evidence-detached',
+      effort: result.effort,
+      detached: result.detached,
+    });
+    _devBuddyEffortClassificationLastAttempt = 0;
+    setTimeout(_devBuddyQueueEffortClassification, 0);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not detach this evidence.' });
+  }
 });
 
 app.put('/api/dev-buddy/order', (req, res) => {

@@ -38,6 +38,12 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /"move_dev_buddy_aside"/.test(desktopPermissions) &&
     /monitor_containing_anchor/.test(desktop),
   'right-click moves Pixel aside without leaving the current monitor');
+  t.ok(/set_dev_buddy_topmost\(&window, !workspace\)/.test(desktop) &&
+    /set_dev_buddy_topmost\(&window, true\)/.test(desktop) &&
+    /if topmost \{ -1isize \} else \{ -2isize \}/.test(desktop) &&
+    /set_skip_taskbar\(!workspace\)/.test(desktop) &&
+    /restore_dev_buddy_floating', \{ workspace: panelOpen \}/.test(html),
+  'the full workspace layers normally while idle Pixel and its peek remain always on top');
   t.ok(!/data-view-target="catchup"/.test(html) && !/data-action="dismiss"/.test(html),
     'Catch up and work-item dismissal are removed');
 });
@@ -437,6 +443,87 @@ await t.test('effort classification gates uncertain and established merges', () 
     'repeatedly omitted work is kept separate instead of retried forever');
 });
 
+await t.test('user-separated evidence is re-triaged without being regrouped', () => {
+  const observations = [
+    {
+      id: 'separation-pr-a',
+      reminderKey: 'separation-pr-a',
+      kind: 'pull-request',
+      title: 'Review queue depth anomaly alert',
+      detail: 'Review the queue depth alert change.',
+      source: 'Code Flow',
+      trackedAt: '2026-09-27T08:00:00Z',
+    },
+    {
+      id: 'separation-pr-b',
+      reminderKey: 'separation-pr-b',
+      kind: 'pull-request',
+      title: 'Reject duplicate JSON properties',
+      detail: 'Review an unrelated test utility change.',
+      source: 'Code Flow',
+      trackedAt: '2026-09-27T08:05:00Z',
+    },
+  ];
+  let state = buddy.syncEffortObservations(observations);
+  const ids = observations.map(observation => state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observation.reminderKey)).id);
+  buddy.applyEffortClassification([{
+    provisionalIds: ids,
+    targetEffortId: '',
+    title: 'Review queue depth changes',
+    summary: 'Review both proposed changes.',
+    confidence: 0.95,
+    reason: 'Initially classified together.',
+  }]);
+  state = buddy.syncEffortObservations(observations);
+  const grouped = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observations[0].reminderKey));
+  t.eq(grouped.observations.length, 2, 'setup groups both observations');
+
+  const separated = buddy.detachEffortObservation(grouped.id, observations[1].reminderKey);
+  t.eq(separated.effort.observations.length, 1, 'unrelated evidence leaves the original effort');
+  t.eq(separated.detached.observations.length, 1, 'unrelated evidence becomes a separate provisional effort');
+  t.ok(separated.effort.provisional && separated.detached.provisional,
+    'both sides return to classification for corrected titles and summaries');
+  t.eq(separated.effort.title, observations[0].title,
+    'the original effort immediately drops the stale combined title');
+
+  const keptPending = buddy.getEffortClassificationState().pending.find(entry =>
+    entry.id === separated.effort.id);
+  buddy.applyEffortClassification([{
+    provisionalIds: [separated.effort.id],
+    targetEffortId: '',
+    title: 'Stale title from the removed evidence',
+    summary: 'Stale summary from an in-flight classification.',
+    confidence: 0.98,
+    reason: 'Old model response.',
+  }], [{
+    id: separated.effort.id,
+    evidenceEpoch: keptPending.evidenceEpoch - 1,
+  }]);
+  state = buddy.syncEffortObservations(observations);
+  const afterStaleResult = state.efforts.find(effort => effort.id === separated.effort.id);
+  t.ok(afterStaleResult.provisional, 'a classification started before separation cannot cancel re-triage');
+  t.eq(afterStaleResult.title, observations[0].title, 'a stale classification cannot restore the removed title');
+
+  buddy.applyEffortClassification([{
+    provisionalIds: [separated.effort.id, separated.detached.id],
+    targetEffortId: '',
+    title: 'Incorrectly regrouped reviews',
+    summary: 'The classifier tried to restore the old association.',
+    confidence: 0.99,
+    reason: 'Model retry.',
+  }]);
+  state = buddy.syncEffortObservations(observations);
+  const first = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observations[0].reminderKey));
+  const second = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observations[1].reminderKey));
+  t.ok(first.id !== second.id, 'a user-marked unrelated pair cannot be merged again');
+  t.eq(first.context.classificationReason, 'Kept separate because you marked this evidence unrelated.',
+    'the retained effort explains why the classifier kept the evidence separate');
+});
+
 await t.test('efforts preserve urgency, reconcile cleared evidence, and complete source records', () => {
   const critical = {
     id: 'effort-critical-signal',
@@ -499,6 +586,10 @@ await t.test('effort APIs and UI route work-list actions through durable efforts
     /\/api\/dev-buddy\/efforts\//.test(html) &&
     /status\?\.efforts/.test(html),
   'work-list actions and optimistic state updates include effort records');
+  t.ok(/data-evidence-unrelated/.test(html) &&
+    /evidence\/unrelated/.test(html) &&
+    /app\.post\('\/api\/dev-buddy\/efforts\/:id\/evidence\/unrelated'/.test(server),
+  'connected evidence can be marked unrelated and sent back through triage');
   t.ok(/resolveModel\('execution', null\)/.test(server) &&
     /category: 'effort-classification'/.test(server),
   'effort classification uses the configured execution model');
