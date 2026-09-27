@@ -102,10 +102,12 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
     /Apply rewrite/.test(pane) &&
     /Copy rewrite/.test(pane) &&
     /body\.setAsync/.test(pane) &&
+    /range\.setStartBefore\(boundary\)/.test(pane) &&
+    /range\.cloneContents\(\)/.test(pane) &&
     /#_MailAutoSig/.test(pane) &&
     /#divRplyFwdMsg/.test(pane) &&
     /The draft changed after this suggestion/.test(pane),
-  'live suggestions preserve marked signatures and threads and refuse stale updates');
+  'live suggestions replace authored content, preserve marked signatures and threads, and refuse stale updates');
   t.ok(/app\.post\('\/api\/dev-buddy\/compose\/rewrite'/.test(server) &&
     /_devBuddyIsLoopbackRequest/.test(server) &&
     /category: 'compose-coach'/.test(server) &&

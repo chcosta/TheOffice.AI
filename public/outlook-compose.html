@@ -271,18 +271,14 @@
           '.gmail_quote',
           'hr',
         ].join(','));
-        let preservedRoot = null;
+        let preservedContent = null;
         if (boundary) {
-          let cursor = boundary;
-          while (cursor.parentElement && cursor.parentElement !== documentCopy.body) {
-            while (cursor.previousSibling) cursor.previousSibling.remove();
-            cursor = cursor.parentElement;
-          }
-          while (cursor.previousSibling) cursor.previousSibling.remove();
-          preservedRoot = cursor;
-        } else {
-          documentCopy.body.replaceChildren();
+          const range = documentCopy.createRange();
+          range.setStartBefore(boundary);
+          range.setEnd(documentCopy.body, documentCopy.body.childNodes.length);
+          preservedContent = range.cloneContents();
         }
+        documentCopy.body.replaceChildren();
         const fragment = documentCopy.createDocumentFragment();
         for (const line of String(rewrite || '').replace(/\r/g, '').split('\n')) {
           const row = documentCopy.createElement('div');
@@ -290,7 +286,8 @@
           else row.appendChild(documentCopy.createElement('br'));
           fragment.appendChild(row);
         }
-        documentCopy.body.insertBefore(fragment, preservedRoot);
+        documentCopy.body.appendChild(fragment);
+        if (preservedContent) documentCopy.body.appendChild(preservedContent);
         return documentCopy.body.innerHTML;
       }
 
