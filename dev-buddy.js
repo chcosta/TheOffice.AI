@@ -63,6 +63,16 @@ function cleanText(value, max = 240) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function cleanMessage(value, max = 8000) {
+  return String(value || '')
+    .replace(/\0/g, '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+    .slice(0, max);
+}
+
 function normalizePriority(value) {
   return ['high', 'normal', 'low'].includes(value) ? value : 'normal';
 }
@@ -357,6 +367,12 @@ function upsertCommitments(list) {
       source,
       title,
       detail: cleanText(raw.detail, 600),
+      message: cleanMessage(raw.message, 8000),
+      sender: cleanText(raw.sender, 300),
+      subject: cleanText(raw.subject, 500),
+      sentAt: Number.isFinite(Date.parse(raw.sentAt || ''))
+        ? new Date(Date.parse(raw.sentAt)).toISOString()
+        : null,
       link: cleanText(raw.link, 1200),
       dueAt: Number.isFinite(due) ? new Date(due).toISOString() : null,
       observedAt: Number.isFinite(observed) ? new Date(observed).toISOString() : now,
@@ -408,6 +424,10 @@ function upsertCommitments(list) {
         // the item actionable. Prefer the newest exact link, then the existing
         // primary link, then any previously merged source link.
         link: normalized.link || current.link || (links[0] && links[0].url) || '',
+        message: normalized.message || current.message || '',
+        sender: normalized.sender || current.sender || '',
+        subject: normalized.subject || current.subject || '',
+        sentAt: normalized.sentAt || current.sentAt || null,
         externalId: current.externalId || externalId,
         externalIds,
         sources,
@@ -486,6 +506,28 @@ function updateCommitment(id, patch = {}) {
   item.updatedAt = new Date().toISOString();
   writeStore(store);
   return item;
+}
+
+function enrichCommitment(id, patch = {}) {
+  const store = readStore();
+  const item = store.commitments.find(entry => entry && entry.id === id);
+  if (!item) return null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'message')) {
+    item.message = cleanMessage(patch.message, 8000) || item.message || '';
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'sender')) {
+    item.sender = cleanText(patch.sender, 300) || item.sender || '';
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'subject')) {
+    item.subject = cleanText(patch.subject, 500) || item.subject || '';
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'sentAt')) {
+    const parsed = Date.parse(patch.sentAt || '');
+    if (Number.isFinite(parsed)) item.sentAt = new Date(parsed).toISOString();
+  }
+  item.updatedAt = new Date().toISOString();
+  writeStore(store);
+  return { ...item };
 }
 
 function getCommitmentSync() {
@@ -578,6 +620,7 @@ function effortObservationSnapshot(item, key) {
   const snapshot = {
     key,
     id: cleanText(item && item.id, 500),
+    externalId: cleanText(item && item.externalId, 800),
     kind: cleanText(item && item.kind, 80) || 'work',
     title: cleanText(item && item.title, 240) || 'Tracked work',
     detail: cleanText(item && (item.semanticComment || item.attentionBlurb || item.detail), 1200),
@@ -594,6 +637,10 @@ function effortObservationSnapshot(item, key) {
     observedAt: item && item.observedAt || null,
     dueAt: item && item.dueAt || null,
     confidence: cleanText(item && item.confidence, 80),
+    message: cleanMessage(item && item.message, 8000),
+    sender: cleanText(item && item.sender, 300),
+    subject: cleanText(item && item.subject, 500),
+    sentAt: item && item.sentAt || null,
     urgency: item && item.urgency && typeof item.urgency === 'object'
       ? {
           score: Number(item.urgency.score) || 0,
@@ -619,6 +666,7 @@ function effortObservationSnapshot(item, key) {
   }
   snapshot.signature = crypto.createHash('sha1').update(JSON.stringify({
     key: snapshot.key,
+    externalId: snapshot.externalId,
     kind: snapshot.kind,
     title: snapshot.title,
     detail: cleanText(item && (item.detail || item.attentionBlurb), 1200),
@@ -643,6 +691,10 @@ function effortObservationSnapshot(item, key) {
     slaBusinessHours: snapshot.slaBusinessHours,
     semanticAttention: snapshot.semanticAttention,
     attentionBlurb: snapshot.attentionBlurb,
+    message: snapshot.message,
+    sender: snapshot.sender,
+    subject: snapshot.subject,
+    sentAt: snapshot.sentAt,
     context: snapshot.context,
   })).digest('hex');
   return snapshot;
@@ -1169,6 +1221,7 @@ module.exports = {
   setCommitmentSync,
   syncEffortObservations,
   updateCommitment,
+  enrichCommitment,
   updateEffort,
   updateSignal,
   upsertCommitments,

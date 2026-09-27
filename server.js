@@ -3818,6 +3818,11 @@ function _devBuddyCommitmentSignals() {
         confidence: item.confidence || '',
         observedAt: item.observedAt || item.createdAt || null,
         dueAt: item.dueAt || null,
+        externalId: item.externalId || '',
+        message: item.message || '',
+        sender: item.sender || '',
+        subject: item.subject || '',
+        sentAt: item.sentAt || null,
       },
     };
   }).filter(Boolean);
@@ -4446,8 +4451,84 @@ function _devBuddySessionContext(item) {
   };
 }
 
-function _devBuddyCommitmentContext(item) {
+const _devBuddyMessageHydration = new Map();
+
+async function _devBuddyHydrateCommitmentMessage(item) {
+  const context = item.context && typeof item.context === 'object' ? item.context : {};
+  if (item.kind !== 'email' || item.message || context.message) return null;
+  const s = settings.getSettings();
+  if (!s.connectConsent || !s.connectCollectionEnabled) return null;
+  const id = String(item.id || item.externalId || context.externalId || item.link || item.title || '').trim();
+  if (!id) return null;
+  if (_devBuddyMessageHydration.has(id)) return _devBuddyMessageHydration.get(id);
+  const task = (async () => {
+    const prompt = [
+      'Source scope: email only.',
+      'Retrieve the exact source email for this existing Pixel commitment.',
+      `Commitment title: ${item.title || ''}`,
+      `Source entity id: ${item.externalId || context.externalId || ''}`,
+      `Observed at: ${item.observedAt || item.trackedAt || context.observedAt || ''}`,
+      `Source URL: ${item.link || ''}`,
+      'Use WorkIQ to locate and read that exact email. Do not infer or summarize the body.',
+      'Return ONLY one JSON object shaped:',
+      '{"message":"plain-text email body, up to 8000 characters","sender":"display name and address when available","subject":"email subject","sentAt":"ISO 8601 timestamp"}',
+      'If the exact email cannot be retrieved, return the same object with an empty message.',
+    ].join('\n');
+    const text = await _connectRunAgent('dev-buddy-collector', prompt, { timeoutMs: 90 * 1000 });
+    const parsed = _connectExtractJson(text);
+    const result = Array.isArray(parsed) ? parsed[0] : parsed;
+    if (!result || !String(result.message || '').trim()) return null;
+    return devBuddy.enrichCommitment(item.id, {
+      message: result.message,
+      sender: result.sender,
+      subject: result.subject,
+      sentAt: result.sentAt,
+    });
+  })().catch(error => {
+    console.warn('[dev-buddy] Email message retrieval failed:', error.message);
+    return null;
+  }).finally(() => {
+    _devBuddyMessageHydration.delete(id);
+  });
+  _devBuddyMessageHydration.set(id, task);
+  return task;
+}
+
+async function _devBuddyCommitmentContext(item) {
+  const hydrated = await _devBuddyHydrateCommitmentMessage(item);
+  if (hydrated) item = { ...item, ...hydrated };
   const links = Array.isArray(item.links) ? item.links : [];
+  const context = item.context && typeof item.context === 'object' ? item.context : {};
+  const message = _devBuddyClip(item.message || context.message || '', 8000);
+  const sender = _devBuddyClip(item.sender || context.sender || '', 300);
+  const subject = _devBuddyClip(item.subject || context.subject || item.title || '', 500);
+  const sentAt = item.sentAt || context.sentAt || item.observedAt || item.trackedAt || '';
+  const sections = [];
+  if (item.kind === 'email' && message) {
+    sections.push({
+      title: 'Email message',
+      text: [
+        sender ? `From: ${sender}` : '',
+        subject ? `Subject: ${subject}` : '',
+        sentAt ? `Received: ${sentAt}` : '',
+        '',
+        message,
+      ].filter((line, index, lines) => line || (index > 0 && lines[index - 1])).join('\n'),
+    });
+  }
+  if (links.length) {
+    sections.push({
+      title: 'Source conversations',
+      items: links.map(link => ({
+        title: link.source || item.kind,
+        detail: message
+          ? 'Open the original source if you need the complete conversation.'
+          : 'The message text was not retained during the last collection. Try the source link or refresh M365.',
+        state: 'neutral',
+        url: link.url || '',
+      })),
+    });
+  }
   return {
     kind: item.kind,
     overview: _devBuddyClip(item.detail || 'The collector identified an open commitment but did not retain more source text.', 5000),
@@ -4457,16 +4538,10 @@ function _devBuddyCommitmentContext(item) {
       { label: 'Due', value: item.dueAt || 'No explicit date' },
       { label: 'Confidence', value: item.confidence || 'normal' },
     ],
-    sections: links.length ? [{
-      title: 'Source conversations',
-      items: links.map(link => ({
-        title: link.source || item.kind,
-        detail: 'Open the exact source conversation.',
-        state: 'neutral',
-        url: link.url || '',
-      })),
-    }] : [],
-    notice: links.length || item.link ? '' : 'The collector did not provide a direct source link for this commitment.',
+    sections,
+    notice: message
+      ? ''
+      : 'The message text was not retained during the last collection. Refresh M365 to capture it; the source link remains available when provided.',
   };
 }
 
@@ -4599,7 +4674,7 @@ async function _devBuddySourceContext(item) {
   else if (item.kind === 'pull-request') value = await _devBuddyPrContext(item);
   else if (item.kind === 'build') value = await _devBuddyBuildContext(item);
   else if (item.kind === 'session') value = _devBuddySessionContext(item);
-  else if (['email', 'teams', 'meeting', 'calendar'].includes(item.kind)) value = _devBuddyCommitmentContext(item);
+  else if (['email', 'teams', 'meeting', 'calendar'].includes(item.kind)) value = await _devBuddyCommitmentContext(item);
   else if (item.kind === 'agenda') value = _devBuddyAgendaContext(item);
   else value = {
     kind: item.kind || 'work',
@@ -14282,7 +14357,7 @@ async function _devBuddyCollectCommitments({ manual = false, force = false } = {
     const scopes = [
       {
         name: 'email',
-        prompt: `Source scope: email only. Find credible still-open requests directed to me and commitments I made from ${recent.start} through ${recent.end}. Current datetime: ${now}.`,
+        prompt: `Source scope: email only. Find credible still-open requests directed to me and commitments I made from ${recent.start} through ${recent.end}. Current datetime: ${now}. For every returned email, the message, sender, subject, and sentAt fields are required; retain the readable source message body instead of only summarizing it.`,
       },
       {
         name: 'teams',

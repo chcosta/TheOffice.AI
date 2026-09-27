@@ -200,6 +200,10 @@ await t.test('commitment source links survive weaker collection refreshes', () =
     externalId,
     source: 'email',
     title: 'Reply to the launch question',
+    message: 'Could you confirm whether the launch is still scheduled for Friday?\n\nThanks,\nAdele',
+    sender: 'Adele <adele@example.com>',
+    subject: 'Launch timing',
+    sentAt: '2026-09-25T09:58:00Z',
     link: outlookUrl,
     observedAt: '2026-09-25T10:00:00Z',
   }]);
@@ -212,6 +216,16 @@ await t.test('commitment source links survive weaker collection refreshes', () =
   }]);
   const item = buddy.listCommitments().find(entry => entry.externalId === externalId);
   t.eq(item.link, outlookUrl, 'an empty refresh cannot erase the direct Outlook link');
+  t.ok(item.message.includes('launch is still scheduled') && item.message.includes('\n\nThanks'),
+    'email message text is retained with readable paragraph breaks');
+  t.eq(item.sender, 'Adele <adele@example.com>', 'email sender metadata survives a weaker refresh');
+  t.eq(item.subject, 'Launch timing', 'email subject survives a weaker refresh');
+  buddy.enrichCommitment(item.id, {
+    message: 'Updated source message.\n\nPlease reply today.',
+    sender: 'Adele <adele@example.com>',
+  });
+  t.ok(buddy.listCommitments().find(entry => entry.id === item.id).message.includes('Please reply today'),
+    'lazy source retrieval can enrich an existing commitment');
 });
 
 await t.test('signals support lower priority, dismissal, and completion rewards', () => {
@@ -475,6 +489,9 @@ await t.test('efforts preserve urgency, reconcile cleared evidence, and complete
 await t.test('effort APIs and UI route work-list actions through durable efforts', () => {
   const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
   const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  const collector = readFileSync(
+    path.join(process.cwd(), 'builtin-plugins', 'connect', 'agents', 'dev-buddy-collector.agent.md'),
+    'utf8');
   t.ok(/app\.put\('\/api\/dev-buddy\/efforts\/:id'/.test(server) &&
     /syncEffortObservations\(observations\)/.test(server),
   'status materializes durable efforts and exposes an effort update route');
@@ -485,6 +502,12 @@ await t.test('effort APIs and UI route work-list actions through durable efforts
   t.ok(/resolveModel\('execution', null\)/.test(server) &&
     /category: 'effort-classification'/.test(server),
   'effort classification uses the configured execution model');
+  t.ok(/title: 'Email message'/.test(server) &&
+    /context\.message/.test(server) &&
+    /_devBuddyHydrateCommitmentMessage/.test(server) &&
+    /value = await _devBuddyCommitmentContext\(item\)/.test(server) &&
+    /Every returned item MUST include `message`/.test(collector),
+  'email evidence retains, lazily retrieves, and displays the source message instead of relying on its link');
 });
 
 try { rmSync(dir, { recursive: true, force: true }); } catch {}
