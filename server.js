@@ -4881,6 +4881,19 @@ app.post('/api/dev-buddy/compose/rewrite', async (req, res) => {
   }
 });
 
+app.get('/api/dev-buddy/compose/setup', (req, res) => {
+  if (!_devBuddyIsLoopbackRequest(req)) {
+    return res.status(403).json({ error: 'Outlook coach setup is available only on this device.' });
+  }
+  const manifestPath = path.join(__dirname, 'outlook-addin', 'manifest.xml');
+  res.json({
+    ok: true,
+    manifestPath,
+    manifestAvailable: fs.existsSync(manifestPath),
+    sideloadUrl: 'https://aka.ms/olksideload',
+  });
+});
+
 app.post('/api/dev-buddy/insight', async (req, res) => {
   const id = String(req.body && req.body.id || '').trim();
   if (!id) return res.status(400).json({ error: 'id is required' });

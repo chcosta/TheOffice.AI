@@ -1457,6 +1457,108 @@
       color: var(--cp-accent-fg);
       cursor: pointer;
     }
+    .setup-page {
+      height: 100%;
+      overflow: auto;
+      padding: 24px clamp(20px, 5vw, 64px) 40px;
+      background: var(--cp-bg);
+      user-select: text;
+    }
+    .setup-intro {
+      max-width: 760px;
+      margin-bottom: 24px;
+    }
+    .setup-eyebrow {
+      margin-bottom: 6px;
+      color: var(--cp-accent);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+    .setup-intro h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+    .setup-intro p,
+    .setup-step p,
+    .setup-note {
+      color: var(--cp-text-muted);
+      line-height: 1.55;
+    }
+    .setup-steps {
+      max-width: 820px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: setup-step;
+    }
+    .setup-step {
+      position: relative;
+      padding: 18px 20px 18px 58px;
+      border-top: 1px solid var(--cp-border);
+      counter-increment: setup-step;
+    }
+    .setup-step::before {
+      content: counter(setup-step);
+      position: absolute;
+      left: 16px;
+      top: 18px;
+      width: 24px;
+      color: var(--cp-accent);
+      font-size: 18px;
+      font-weight: 700;
+      text-align: center;
+    }
+    .setup-step h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+    }
+    .setup-step p { margin: 0 0 12px; }
+    .setup-action {
+      padding: 8px 12px;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 8px;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .setup-action.primary-action {
+      border-color: var(--cp-accent);
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+    }
+    .setup-action:disabled {
+      cursor: wait;
+      opacity: .55;
+    }
+    .manifest-location {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      max-width: 760px;
+    }
+    .manifest-location code {
+      min-width: 0;
+      flex: 1;
+      overflow-wrap: anywhere;
+      padding: 9px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface-soft);
+      color: var(--cp-text);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      font-size: 11px;
+    }
+    .setup-note {
+      max-width: 760px;
+      margin: 18px 0 0 58px;
+      padding-top: 16px;
+      border-top: 1px solid var(--cp-border);
+      font-size: 12px;
+    }
     .resize-handle {
       position: absolute;
       left: 16px;
@@ -1554,6 +1656,7 @@
         <button class="view-link active" type="button" data-view-target="work">Work</button>
         <button class="view-link" type="button" data-view-target="map">Map</button>
         <button class="view-link" type="button" data-view-target="memory">Memory</button>
+        <button class="view-link" type="button" data-view-target="setup">Setup</button>
       </nav>
       <section class="panel-view" id="workView">
         <div class="work-toolbar">
@@ -1611,6 +1714,35 @@
           <input id="newMemory" maxlength="400" placeholder="Something Pixel should know…" aria-label="New learned memory">
           <button class="primary" type="submit">Remember</button>
         </form>
+      </section>
+      <section class="panel-view" id="setupView" hidden>
+        <div class="setup-page">
+          <header class="setup-intro">
+            <div class="setup-eyebrow">New Outlook</div>
+            <h2>Set up Pixel Writing Coach</h2>
+            <p>Install Pixel once, then open it from the Apps menu whenever you are composing a message.</p>
+          </header>
+          <ol class="setup-steps">
+            <li class="setup-step">
+              <h3>Open Microsoft’s add-in setup page</h3>
+              <p>New Outlook manages custom add-ins in a browser. This opens Microsoft’s official sideload page.</p>
+              <button class="setup-action primary-action" id="openOutlookSideload" type="button">Open add-in setup</button>
+            </li>
+            <li class="setup-step">
+              <h3>Add Pixel’s manifest</h3>
+              <p>Choose <strong>My add-ins</strong>, then <strong>Custom Addins → Add a custom add-in → Add from file</strong>. Select the file below and accept the unverified-add-in warning.</p>
+              <div class="manifest-location">
+                <code id="outlookManifestPath">Finding the installed manifest…</code>
+                <button class="setup-action" id="copyOutlookManifest" type="button" disabled>Copy location</button>
+              </div>
+            </li>
+            <li class="setup-step">
+              <h3>Open Pixel while composing</h3>
+              <p>Return to New Outlook, start a message, and choose <strong>Apps → Pixel Writing Coach</strong>. Pin the pane if you want it to remain open across drafts.</p>
+            </li>
+          </ol>
+          <p class="setup-note">If Microsoft’s page does not show <strong>Custom Addins</strong>, your organization has disabled personal sideloading and an administrator must deploy Pixel.</p>
+        </div>
       </section>
     </section>
     <aside class="hover-preview" id="hoverPreview" aria-label="Top work items">
@@ -1703,6 +1835,7 @@
       let mapRelationshipSignature = '';
       let mapGroupingBusy = false;
       let chatBusy = false;
+      let composeSetup = null;
       let windowPlacement = { anchorX: 'left', anchorY: 'top', buddyLeft: 14, buddyTop: 8 };
       let chatHistory = [];
       try {
@@ -2515,11 +2648,12 @@
       }
 
       async function setView(view, resize = true) {
-        currentView = ['work', 'map', 'memory'].includes(view) ? view : 'work';
+        currentView = ['work', 'map', 'memory', 'setup'].includes(view) ? view : 'work';
         localStorage.setItem('dev-buddy-view', currentView);
         $('workView').hidden = currentView !== 'work';
         $('mapView').hidden = currentView !== 'map';
         $('memoryView').hidden = currentView !== 'memory';
+        $('setupView').hidden = currentView !== 'setup';
         for (const button of document.querySelectorAll('[data-view-target]')) {
           button.classList.toggle('active', button.dataset.viewTarget === currentView);
         }
@@ -2530,6 +2664,38 @@
             else setTimeout(fitMap, 80);
           }
         }
+        if (currentView === 'setup' && !composeSetup) loadComposeSetup();
+      }
+
+      async function loadComposeSetup() {
+        const pathElement = $('outlookManifestPath');
+        const copyButton = $('copyOutlookManifest');
+        try {
+          composeSetup = await request('/api/dev-buddy/compose/setup');
+          pathElement.textContent = composeSetup.manifestPath;
+          copyButton.disabled = !composeSetup.manifestAvailable;
+          if (!composeSetup.manifestAvailable) {
+            pathElement.textContent = 'Pixel’s Outlook manifest is not installed yet. Update and restart TheOffice.AI.';
+          }
+        } catch (error) {
+          pathElement.textContent = error.message || 'Pixel could not find the Outlook manifest.';
+          copyButton.disabled = true;
+        }
+      }
+
+      async function copyText(value) {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(value);
+          return;
+        }
+        const input = document.createElement('textarea');
+        input.value = value;
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        input.remove();
       }
 
       async function load(refresh = false) {
@@ -2947,6 +3113,29 @@
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
       }
+      $('openOutlookSideload').addEventListener('click', async () => {
+        try {
+          if (!composeSetup) await loadComposeSetup();
+          await request('/api/open-external', {
+            method: 'POST',
+            body: JSON.stringify({ url: composeSetup?.sideloadUrl || 'https://aka.ms/olksideload' }),
+          });
+          showOperationStatus('Microsoft’s add-in setup page is open.', 'done', 2200);
+        } catch (error) {
+          showOperationStatus(error.message || 'Pixel could not open the setup page.', 'error', 3500);
+        }
+      });
+      $('copyOutlookManifest').addEventListener('click', async () => {
+        if (!composeSetup?.manifestPath) return;
+        try {
+          await copyText(composeSetup.manifestPath);
+          $('copyOutlookManifest').textContent = 'Copied';
+          showOperationStatus('Manifest location copied.', 'done', 1800);
+          setTimeout(() => { $('copyOutlookManifest').textContent = 'Copy location'; }, 1800);
+        } catch (_) {
+          showOperationStatus('Pixel could not copy the manifest location.', 'error', 3500);
+        }
+      });
       $('panel').querySelector('.panel-head').addEventListener('pointerdown', event => {
         if (event.button !== 0 || event.target.closest('button, input, select')) return;
         event.preventDefault();
