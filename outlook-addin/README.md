@@ -30,11 +30,10 @@ generated.
 7. Open a new message and select **Pixel** > **Writing coach** from the ribbon.
 8. Pin the task pane if you want it available in each compose window.
 
-Version 1.1 adds one-click draft updates and therefore requests Outlook's
-`ReadWriteMailbox` permission. Remove and reinstall an older sideloaded version
-of the manifest so Outlook grants the updated permission. Pixel's automatic
-installer performs that clean replacement and then instructs the user to reopen
-the task pane.
+Version 2 adds one-click draft updates and therefore requests Outlook's
+`ReadWriteMailbox` permission. It uses a distinct add-in ID so Outlook grants
+that permission as a fresh installation instead of reusing a delayed, read-only
+registration.
 
 The manifest targets a trusted, loopback-only HTTPS listener. The rewrite
 endpoint also rejects non-loopback clients. The certificate and private key stay

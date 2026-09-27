@@ -127,9 +127,9 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
     /copyOutlookManifest/.test(pixel) &&
     /app\.get\('\/api\/dev-buddy\/compose\/setup'/.test(server) &&
     /app\.post\('\/api\/dev-buddy\/compose\/install'/.test(server) &&
-    /uninstall -i false --mode manifest-id/.test(server) &&
+    !/uninstall -i false --mode manifest-id/.test(server) &&
     /@microsoft\/m365agentstoolkit-cli@1\.1\.17/.test(server),
-  'Pixel keeps a discoverable New Outlook walkthrough with clean automatic replacement and manual installation');
+  'Pixel keeps a discoverable New Outlook walkthrough with automatic and manual installation');
 });
 
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {

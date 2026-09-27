@@ -4,8 +4,8 @@
            xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
            xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
            xsi:type="MailApp">
-  <Id>8de57af2-5cde-47dd-a512-4dd4f1db5282</Id>
-  <Version>1.1.0.0</Version>
+  <Id>de21fe55-1988-4794-b906-fbc0b19d0333</Id>
+  <Version>2.0.0.0</Version>
   <ProviderName>TheOffice.AI</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Pixel Writing Coach"/>
