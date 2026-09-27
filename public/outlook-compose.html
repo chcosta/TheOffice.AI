@@ -383,7 +383,13 @@
           latestSource = null;
           setStatus('Rewrite applied. Your signature and quoted thread were preserved.', 'ready');
         } catch (error) {
-          setStatus(error.message || 'Pixel could not apply this rewrite.', 'error');
+          const message = String(error.message || '');
+          setStatus(
+            /elevated permission/i.test(message)
+              ? 'Outlook is still using Pixel’s older read-only registration. In Pixel Setup, run Install or update automatically, then reopen Outlook.'
+              : message || 'Pixel could not apply this rewrite.',
+            'error',
+          );
         } finally {
           $('apply').disabled = !latestRewrite || !latestSource;
         }
