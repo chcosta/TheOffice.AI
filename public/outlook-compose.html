@@ -124,6 +124,7 @@
     }
     .status[data-state="error"] { border-left-color: var(--cp-danger); }
     .status[data-state="ready"] { border-left-color: var(--cp-success); }
+    .status[data-state="attention"] { border-left-color: var(--cp-warning); }
     .card {
       margin-bottom: 12px;
       border: 1px solid var(--cp-border);
@@ -147,6 +148,15 @@
     .actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
     ul { margin: 8px 0 0; padding-left: 20px; }
     li { margin: 4px 0; line-height: 1.4; }
+    .attention-card { border-left: 3px solid var(--cp-warning); }
+    .gap + .gap {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--cp-border);
+    }
+    .gap-title { margin-bottom: 4px; font-weight: 600; }
+    .gap-detail { line-height: 1.45; }
+    .gap-action { margin-top: 5px; color: var(--cp-text-muted); line-height: 1.45; }
     .empty { color: var(--cp-text-muted); }
   </style>
 </head>
@@ -171,6 +181,10 @@
     <section class="card">
       <div class="card-head"><h2>How the current draft may land</h2></div>
       <div id="read" class="card-body empty">Start writing and Pixel will offer a second perspective.</div>
+    </section>
+    <section id="strengthCard" class="card attention-card" hidden>
+      <div class="card-head"><h2>Strengthen this message before sending</h2></div>
+      <div id="gaps" class="card-body"></div>
     </section>
     <section class="card">
       <div class="card-head"><h2>Suggested rewrite</h2></div>
@@ -232,6 +246,15 @@
         $('rewrite').classList.toggle('empty', !latestRewrite);
         $('read').textContent = result.read || 'The draft already reads clearly and respectfully.';
         $('read').classList.remove('empty');
+        const gaps = Array.isArray(result.gaps) ? result.gaps : [];
+        $('strengthCard').hidden = !gaps.length;
+        $('gaps').innerHTML = gaps.map(gap => `
+          <div class="gap">
+            <div class="gap-title">${escapeHtml(gap.title || 'Clarity gap')}</div>
+            <div class="gap-detail">${escapeHtml(gap.detail || '')}</div>
+            ${gap.action ? `<div class="gap-action"><strong>Strengthen it:</strong> ${escapeHtml(gap.action)}</div>` : ''}
+          </div>
+        `).join('');
         const changes = Array.isArray(result.changes) ? result.changes : [];
         $('changes').innerHTML = changes.length
           ? `<ul>${changes.map(change => `<li>${escapeHtml(change)}</li>`).join('')}</ul>`
@@ -239,7 +262,12 @@
         $('changes').classList.toggle('empty', !changes.length);
         $('apply').disabled = !latestRewrite;
         $('copy').disabled = !latestRewrite;
-        setStatus(result.cached ? 'Rewrite ready from the local cache.' : 'Rewrite ready.', 'ready');
+        setStatus(
+          gaps.length
+            ? `Rewrite ready. Pixel found ${gaps.length} message-strength ${gaps.length === 1 ? 'gap' : 'gaps'} to consider.`
+            : result.cached ? 'Rewrite ready from the local cache.' : 'Rewrite ready.',
+          gaps.length ? 'attention' : 'ready',
+        );
       }
 
       function escapeHtml(value) {
@@ -258,9 +286,8 @@
         });
       }
 
-      function appliedBodyHtml(originalHtml, rewrite) {
-        const documentCopy = new DOMParser().parseFromString(originalHtml || '', 'text/html');
-        const boundary = documentCopy.body.querySelector([
+      function preservationBoundary(root) {
+        return root.querySelector([
           '#divRplyFwdMsg',
           '#appendonsend',
           '#Signature',
@@ -271,6 +298,33 @@
           '.gmail_quote',
           'hr',
         ].join(','));
+      }
+
+      function fragmentText(documentCopy, fragment) {
+        const container = documentCopy.createElement('div');
+        container.appendChild(fragment);
+        return String(container.innerText || container.textContent || '').trim();
+      }
+
+      function draftSections(originalHtml, fallbackBody) {
+        const documentCopy = new DOMParser().parseFromString(originalHtml || '', 'text/html');
+        const boundary = preservationBoundary(documentCopy.body);
+        if (!boundary) return { authored: String(fallbackBody || '').trim(), context: '' };
+        const authoredRange = documentCopy.createRange();
+        authoredRange.setStart(documentCopy.body, 0);
+        authoredRange.setEndBefore(boundary);
+        const contextRange = documentCopy.createRange();
+        contextRange.setStartBefore(boundary);
+        contextRange.setEnd(documentCopy.body, documentCopy.body.childNodes.length);
+        return {
+          authored: fragmentText(documentCopy, authoredRange.cloneContents()),
+          context: fragmentText(documentCopy, contextRange.cloneContents()),
+        };
+      }
+
+      function appliedBodyHtml(originalHtml, rewrite) {
+        const documentCopy = new DOMParser().parseFromString(originalHtml || '', 'text/html');
+        const boundary = preservationBoundary(documentCopy.body);
         let preservedContent = null;
         if (boundary) {
           const range = documentCopy.createRange();
@@ -300,9 +354,10 @@
           setStatus(error.message, 'error');
           return;
         }
-        const signature = `${$('style').value}\n${draft.subject}\n${draft.body}`;
+        const sections = draftSections(draft.html, draft.body);
+        const signature = `${$('style').value}\n${draft.subject}\n${sections.authored}\n${sections.context}`;
         if (!force && signature === lastRequested) return;
-        if (draft.body.length < 20) {
+        if (sections.authored.length < 20) {
           lastRequested = '';
           latestRewrite = '';
           latestSource = null;
@@ -320,7 +375,12 @@
           const response = await fetch('/api/dev-buddy/compose/rewrite', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ body: draft.body, subject: draft.subject, style: $('style').value }),
+            body: JSON.stringify({
+              body: sections.authored,
+              context: sections.context,
+              subject: draft.subject,
+              style: $('style').value,
+            }),
             signal: activeController.signal,
           });
           const result = await response.json();

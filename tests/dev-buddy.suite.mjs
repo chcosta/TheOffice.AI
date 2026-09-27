@@ -101,6 +101,9 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
   t.ok(/\/api\/dev-buddy\/compose\/rewrite/.test(pane) &&
     /Apply rewrite/.test(pane) &&
     /Copy rewrite/.test(pane) &&
+    /Strengthen this message before sending/.test(pane) &&
+    /result\.gaps/.test(pane) &&
+    /draftSections\(draft\.html, draft\.body\)/.test(pane) &&
     /body\.setAsync/.test(pane) &&
     /range\.setStartBefore\(boundary\)/.test(pane) &&
     /range\.cloneContents\(\)/.test(pane) &&
@@ -111,8 +114,11 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
   t.ok(/app\.post\('\/api\/dev-buddy\/compose\/rewrite'/.test(server) &&
     /_devBuddyIsLoopbackRequest/.test(server) &&
     /category: 'compose-coach'/.test(server) &&
+    /unsupported conclusions/.test(server) &&
+    /missing rationale or examples/.test(server) &&
+    /gaps:\s*\(Array\.isArray\(parsed\.gaps\)/.test(server) &&
     /record: false/.test(server),
-  'draft rewriting is local-only and excluded from recorded chat history');
+  'draft coaching evaluates message strength, stays local, and is excluded from recorded chat history');
   t.ok(/<Permissions>ReadWriteMailbox<\/Permissions>/.test(manifest) &&
     /https:\/\/localhost:3849\/public\/outlook-compose\.html/.test(manifest) &&
     /VersionOverridesV1_1/.test(manifest) &&
