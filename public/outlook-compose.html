@@ -155,7 +155,7 @@
     <header>
       <div>
         <h1>Pixel writing coach</h1>
-        <div class="muted">Only the current unsent draft is analyzed. Pixel never sends or changes it.</div>
+        <div class="muted">Only the current unsent draft is analyzed. Pixel changes it only when you choose Apply rewrite, and never sends it.</div>
       </div>
       <label class="control"><input id="live" type="checkbox" checked> Live</label>
     </header>
@@ -177,7 +177,8 @@
       <div class="card-body">
         <div id="rewrite" class="rewrite empty">Your rewrite will appear here after you pause.</div>
         <div class="actions">
-          <button id="copy" class="primary" type="button" disabled>Copy rewrite</button>
+          <button id="apply" class="primary" type="button" disabled>Apply rewrite</button>
+          <button id="copy" type="button" disabled>Copy rewrite</button>
           <button id="refresh" type="button">Rewrite now</button>
         </div>
       </div>
@@ -194,6 +195,7 @@
       let lastDraft = '';
       let lastRequested = '';
       let latestRewrite = '';
+      let latestSource = null;
       let timer = null;
       let requestSequence = 0;
       let activeController = null;
@@ -212,18 +214,20 @@
         });
       }
 
-      async function readDraft() {
+      async function readDraft(includeHtml = false) {
         const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
         if (!item || !item.body) throw new Error('Open this add-in while composing an email.');
         const [body, subject] = await Promise.all([
           officeValue(item.body, Office.CoercionType.Text),
           item.subject ? officeValue(item.subject) : Promise.resolve(''),
         ]);
-        return { body: body.trim(), subject: subject.trim() };
+        const html = includeHtml ? await officeValue(item.body, Office.CoercionType.Html) : '';
+        return { body: body.trim(), subject: subject.trim(), html };
       }
 
-      function renderResult(result) {
+      function renderResult(result, draft) {
         latestRewrite = result.rewrite || '';
+        latestSource = latestRewrite ? draft : null;
         $('rewrite').textContent = latestRewrite || 'Pixel did not suggest a rewrite.';
         $('rewrite').classList.toggle('empty', !latestRewrite);
         $('read').textContent = result.read || 'The draft already reads clearly and respectfully.';
@@ -233,6 +237,7 @@
           ? `<ul>${changes.map(change => `<li>${escapeHtml(change)}</li>`).join('')}</ul>`
           : 'No material tone changes were needed.';
         $('changes').classList.toggle('empty', !changes.length);
+        $('apply').disabled = !latestRewrite;
         $('copy').disabled = !latestRewrite;
         setStatus(result.cached ? 'Rewrite ready from the local cache.' : 'Rewrite ready.', 'ready');
       }
@@ -243,11 +248,57 @@
         })[character]);
       }
 
+      function officeSetBody(html) {
+        const item = Office.context && Office.context.mailbox && Office.context.mailbox.item;
+        return new Promise((resolve, reject) => {
+          item.body.setAsync(html, { coercionType: Office.CoercionType.Html }, result => {
+            if (result.status === Office.AsyncResultStatus.Succeeded) resolve();
+            else reject(new Error(result.error && result.error.message || 'Outlook could not update the draft.'));
+          });
+        });
+      }
+
+      function appliedBodyHtml(originalHtml, rewrite) {
+        const documentCopy = new DOMParser().parseFromString(originalHtml || '', 'text/html');
+        const boundary = documentCopy.body.querySelector([
+          '#divRplyFwdMsg',
+          '#appendonsend',
+          '#Signature',
+          '#_MailAutoSig',
+          '[id*="signature" i]',
+          '[class*="signature" i]',
+          'blockquote[type="cite"]',
+          '.gmail_quote',
+          'hr',
+        ].join(','));
+        let preservedRoot = null;
+        if (boundary) {
+          let cursor = boundary;
+          while (cursor.parentElement && cursor.parentElement !== documentCopy.body) {
+            while (cursor.previousSibling) cursor.previousSibling.remove();
+            cursor = cursor.parentElement;
+          }
+          while (cursor.previousSibling) cursor.previousSibling.remove();
+          preservedRoot = cursor;
+        } else {
+          documentCopy.body.replaceChildren();
+        }
+        const fragment = documentCopy.createDocumentFragment();
+        for (const line of String(rewrite || '').replace(/\r/g, '').split('\n')) {
+          const row = documentCopy.createElement('div');
+          if (line) row.textContent = line;
+          else row.appendChild(documentCopy.createElement('br'));
+          fragment.appendChild(row);
+        }
+        documentCopy.body.insertBefore(fragment, preservedRoot);
+        return documentCopy.body.innerHTML;
+      }
+
       async function rewrite(force = false) {
         if (!ready || !$('live').checked && !force) return;
         let draft;
         try {
-          draft = await readDraft();
+          draft = await readDraft(true);
         } catch (error) {
           setStatus(error.message, 'error');
           return;
@@ -257,6 +308,8 @@
         if (draft.body.length < 20) {
           lastRequested = '';
           latestRewrite = '';
+          latestSource = null;
+          $('apply').disabled = true;
           $('copy').disabled = true;
           setStatus('Write a little more and pause. Pixel will then suggest a revision.');
           return;
@@ -275,7 +328,7 @@
           });
           const result = await response.json();
           if (!response.ok) throw new Error(result.error || 'Pixel could not revise this draft.');
-          if (sequence === requestSequence) renderResult(result);
+          if (sequence === requestSequence) renderResult(result, draft);
         } catch (error) {
           if (error.name !== 'AbortError' && sequence === requestSequence) {
             lastRequested = '';
@@ -291,6 +344,8 @@
           const signature = `${draft.subject}\n${draft.body}`;
           if (signature !== lastDraft) {
             lastDraft = signature;
+            latestSource = null;
+            $('apply').disabled = true;
             requestSequence++;
             if (activeController) activeController.abort();
             clearTimeout(timer);
@@ -309,6 +364,30 @@
         else setStatus('Live coaching is paused.');
       });
       $('refresh').addEventListener('click', () => rewrite(true));
+      $('apply').addEventListener('click', async () => {
+        if (!latestRewrite || !latestSource) return;
+        $('apply').disabled = true;
+        setStatus('Checking that the draft has not changed…');
+        try {
+          const current = await readDraft(true);
+          if (current.body !== latestSource.body || current.subject !== latestSource.subject) {
+            throw new Error('The draft changed after this suggestion. Pause for an updated rewrite before applying it.');
+          }
+          clearTimeout(timer);
+          requestSequence++;
+          if (activeController) activeController.abort();
+          await officeSetBody(appliedBodyHtml(current.html, latestRewrite));
+          const applied = await readDraft();
+          lastDraft = `${applied.subject}\n${applied.body}`;
+          lastRequested = `${$('style').value}\n${applied.subject}\n${applied.body}`;
+          latestSource = null;
+          setStatus('Rewrite applied. Your signature and quoted thread were preserved.', 'ready');
+        } catch (error) {
+          setStatus(error.message || 'Pixel could not apply this rewrite.', 'error');
+        } finally {
+          $('apply').disabled = !latestRewrite || !latestSource;
+        }
+      });
       $('copy').addEventListener('click', async () => {
         if (!latestRewrite) return;
         try {

@@ -89,7 +89,7 @@ await t.test('reading pane builds grounded dossiers and optional AI plans', () =
   'PR, build, and session items carry factual workflow context');
 });
 
-await t.test('Outlook compose coaching is live, local, and read-only', () => {
+await t.test('Outlook compose coaching is live, local, and user-controlled', () => {
   const pane = readFileSync(path.join(process.cwd(), 'public', 'outlook-compose.html'), 'utf8');
   const manifest = readFileSync(path.join(process.cwd(), 'outlook-addin', 'manifest.xml'), 'utf8');
   const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
@@ -99,15 +99,19 @@ await t.test('Outlook compose coaching is live, local, and read-only', () => {
     /setInterval\(poll, 1000\)/.test(pane),
   'the task pane watches only the active Outlook compose draft');
   t.ok(/\/api\/dev-buddy\/compose\/rewrite/.test(pane) &&
+    /Apply rewrite/.test(pane) &&
     /Copy rewrite/.test(pane) &&
-    !/body\.setAsync/.test(pane),
-  'live suggestions are copied explicitly and never modify or send the draft');
+    /body\.setAsync/.test(pane) &&
+    /#_MailAutoSig/.test(pane) &&
+    /#divRplyFwdMsg/.test(pane) &&
+    /The draft changed after this suggestion/.test(pane),
+  'live suggestions preserve marked signatures and threads and refuse stale updates');
   t.ok(/app\.post\('\/api\/dev-buddy\/compose\/rewrite'/.test(server) &&
     /_devBuddyIsLoopbackRequest/.test(server) &&
     /category: 'compose-coach'/.test(server) &&
     /record: false/.test(server),
   'draft rewriting is local-only and excluded from recorded chat history');
-  t.ok(/<Permissions>ReadItem<\/Permissions>/.test(manifest) &&
+  t.ok(/<Permissions>ReadWriteMailbox<\/Permissions>/.test(manifest) &&
     /https:\/\/localhost:3849\/public\/outlook-compose\.html/.test(manifest) &&
     /VersionOverridesV1_1/.test(manifest) &&
     /MessageComposeCommandSurface/.test(manifest) &&

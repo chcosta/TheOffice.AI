@@ -5,7 +5,7 @@
            xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
            xsi:type="MailApp">
   <Id>8de57af2-5cde-47dd-a512-4dd4f1db5282</Id>
-  <Version>1.0.0.0</Version>
+  <Version>1.1.0.0</Version>
   <ProviderName>TheOffice.AI</ProviderName>
   <DefaultLocale>en-US</DefaultLocale>
   <DisplayName DefaultValue="Pixel Writing Coach"/>
@@ -31,7 +31,7 @@
       </DesktopSettings>
     </Form>
   </FormSettings>
-  <Permissions>ReadItem</Permissions>
+  <Permissions>ReadWriteMailbox</Permissions>
   <Rule xsi:type="RuleCollection" Mode="Or">
     <Rule xsi:type="ItemIs" ItemType="Message" FormType="Edit"/>
   </Rule>

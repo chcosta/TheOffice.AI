@@ -8,8 +8,10 @@ TheOffice.AI server and displays:
 - a professional and inclusive rewrite; and
 - a short explanation of meaningful changes.
 
-Pixel never sends or modifies the message. The rewrite can be copied and pasted
-into Outlook explicitly.
+Pixel never sends the message. The rewrite can be applied with one button or
+copied explicitly. Apply preserves Outlook signatures and quoted history when
+present, and refuses to overwrite a draft that changed after the suggestion was
+generated.
 
 ## Install for local use
 
@@ -24,6 +26,10 @@ into Outlook explicitly.
    `%LOCALAPPDATA%\TheOffice.AI\server\outlook-addin\manifest.xml`.
 6. Open a new message and select **Pixel** > **Writing coach** from the ribbon.
 7. Pin the task pane if you want it available in each compose window.
+
+Version 1.1 adds one-click draft updates and therefore requests Outlook's
+`ReadWriteMailbox` permission. Remove and reinstall an older sideloaded version
+of the manifest so Outlook grants the updated permission.
 
 The manifest targets a trusted, loopback-only HTTPS listener. The rewrite
 endpoint also rejects non-loopback clients. The certificate and private key stay
