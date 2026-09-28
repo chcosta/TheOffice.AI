@@ -98,12 +98,12 @@
       border: 0;
       padding: 0;
       background: var(--cp-clear);
-      cursor: pointer;
+      cursor: grab;
       filter: drop-shadow(0 10px 14px var(--cp-border-strong));
       animation: buddy-float 3.2s ease-in-out infinite;
       z-index: 4;
     }
-    .buddy:focus-visible { outline: 2px solid var(--cp-accent); outline-offset: 2px; border-radius: 16px; }
+    .buddy:focus-within { border-radius: 16px; }
     .antenna {
       position: absolute;
       width: 4px;
@@ -254,19 +254,111 @@
       animation: buddy-drag .48s ease-in-out infinite;
       filter: drop-shadow(0 16px 18px var(--cp-border-strong));
     }
-    .arm {
+    .buddy-arm-action {
       position: absolute;
-      top: 108px;
+      top: 92px;
+      width: 46px;
+      height: 54px;
+      padding: 0;
+      border: 0;
+      background: var(--cp-clear);
+      cursor: pointer;
+      z-index: 6;
+    }
+    .buddy-arm-action.left { left: 0; }
+    .buddy-arm-action.right { right: 0; }
+    .buddy-arm-action:focus-visible {
+      outline: 2px solid var(--cp-accent);
+      outline-offset: 1px;
+      border-radius: 10px;
+    }
+    .arm-visual {
+      position: absolute;
+      top: 16px;
       width: 31px;
       height: 10px;
       border: 3px solid var(--cp-border-strong);
       border-radius: 8px;
       background: var(--cp-bg-elevated);
+      transition: transform .18s ease, background-color .18s ease;
     }
-    .arm.left { left: 12px; transform: rotate(-22deg); }
-    .arm.right { right: 10px; transform: rotate(24deg); }
-    .buddy.dragging .arm.left { transform: rotate(-38deg) translateY(-2px); }
-    .buddy.dragging .arm.right { transform: rotate(40deg) translateY(-2px); }
+    .buddy-arm-action.left .arm-visual { left: 12px; transform: rotate(-22deg); }
+    .buddy-arm-action.right .arm-visual { right: 10px; transform: rotate(24deg); }
+    .buddy-arm-action.left:hover .arm-visual,
+    .buddy-arm-action.left:focus-visible .arm-visual {
+      background: var(--cp-accent-soft);
+      animation: left-arm-invite .55s ease-in-out infinite alternate;
+    }
+    .buddy-arm-action.right:hover .arm-visual,
+    .buddy-arm-action.right:focus-visible .arm-visual {
+      background: var(--cp-accent-soft);
+      animation: right-arm-invite .55s ease-in-out infinite alternate;
+    }
+    .buddy.dragging .buddy-arm-action.left .arm-visual { transform: rotate(-38deg) translateY(-2px); }
+    .buddy.dragging .buddy-arm-action.right .arm-visual { transform: rotate(40deg) translateY(-2px); }
+    .arm-cue {
+      position: absolute;
+      top: -8px;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-panel-strong);
+      box-shadow: 0 0 2px var(--cp-border-strong);
+      color: var(--cp-accent);
+      font-size: 17px;
+      font-weight: 700;
+      line-height: 1;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(5px) scale(.88);
+      transition: opacity .16s ease, transform .16s ease;
+    }
+    .buddy-arm-action.left .arm-cue { left: 0; }
+    .buddy-arm-action.right .arm-cue { right: 0; }
+    .buddy-arm-action:hover .arm-cue,
+    .buddy-arm-action:focus-visible .arm-cue {
+      opacity: 1;
+      transform: none;
+    }
+    .buddy-minimize {
+      position: absolute;
+      right: 0;
+      top: 0;
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-panel-strong);
+      box-shadow: 0 0 2px var(--cp-border-strong);
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 700;
+      line-height: 1;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity .16s ease, transform .16s ease, color .16s ease;
+      z-index: 8;
+    }
+    .buddy:hover .buddy-minimize,
+    .buddy:focus-within .buddy-minimize {
+      opacity: 1;
+      pointer-events: auto;
+      transform: none;
+    }
+    .buddy-minimize:hover,
+    .buddy-minimize:focus-visible {
+      color: var(--cp-accent);
+      outline: 2px solid var(--cp-accent);
+      outline-offset: 1px;
+    }
     .attention-dot {
       position: absolute;
       left: 8px;
@@ -433,7 +525,6 @@
     }
     .panel-pin,
     .panel-size,
-    .panel-minimize,
     .panel-close {
       width: 30px;
       height: 30px;
@@ -1855,6 +1946,14 @@
     @keyframes buddy-hustle { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-3px) rotate(2deg); } }
     @keyframes buddy-happy { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-9px) rotate(2deg); } }
     @keyframes buddy-drag { 0%, 100% { transform: translateY(-4px) rotate(-3deg) scale(.97); } 50% { transform: translateY(-7px) rotate(3deg) scale(.97); } }
+    @keyframes left-arm-invite {
+      from { transform: rotate(-22deg) translate(0, 0); }
+      to { transform: rotate(-40deg) translate(-3px, -3px); }
+    }
+    @keyframes right-arm-invite {
+      from { transform: rotate(24deg) translate(0, 0); }
+      to { transform: rotate(43deg) translate(3px, -3px); }
+    }
     @keyframes blink { 0%, 44%, 48%, 100% { transform: scaleY(1); } 46% { transform: scaleY(.08); } }
     @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.22); } }
     @keyframes antenna-alert { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.55); } }
@@ -1900,7 +1999,6 @@
           <div class="panel-sub" id="panelSub">Keeping the loose ends together</div>
         </div>
         <div class="panel-tools">
-          <button class="panel-minimize" id="minimizePixel" type="button" aria-label="Minimize Pixel to taskbar" title="Minimize Pixel to taskbar">−</button>
           <button class="panel-close" id="closePanel" type="button" aria-label="Close">×</button>
         </div>
       </header>
@@ -2064,7 +2162,8 @@
       <div class="bubble-detail" id="bubbleDetail"></div>
     </aside>
 
-    <button class="buddy" id="buddy" type="button" aria-label="Open Dev Buddy" data-mood="calm">
+    <div class="buddy" id="buddy" role="group" aria-label="Pixel controls" data-mood="calm">
+      <button class="buddy-minimize" id="minimizePixel" type="button" data-buddy-action="minimize" aria-label="Minimize Pixel to taskbar" title="Minimize Pixel to taskbar">↓</button>
       <span class="antenna"></span>
       <span class="head">
         <span class="screen">
@@ -2072,8 +2171,14 @@
           <span class="eye right"></span>
         </span>
       </span>
-      <span class="arm left"></span>
-      <span class="arm right"></span>
+      <button class="buddy-arm-action left" id="quickPixel" type="button" data-buddy-action="quick" aria-label="Open Pixel quick view" title="Quick view">
+        <span class="arm-visual" aria-hidden="true"></span>
+        <span class="arm-cue" aria-hidden="true">≡</span>
+      </button>
+      <button class="buddy-arm-action right" id="fullPixel" type="button" data-buddy-action="full" aria-label="Open full Pixel workspace" title="Full workspace">
+        <span class="arm-visual" aria-hidden="true"></span>
+        <span class="arm-cue" aria-hidden="true">↗</span>
+      </button>
       <span class="body"><span class="body-count" id="bodyCount">0</span></span>
       <span class="work-bars" id="workBars" aria-hidden="true">
         <span class="work-bar open" id="openBar"></span>
@@ -2081,7 +2186,7 @@
         <span class="work-bar addressed" id="addressedBar"></span>
       </span>
       <span class="attention-dot" id="attentionDot"></span>
-    </button>
+    </div>
     <aside class="reward" id="reward" aria-live="polite">Nice work — one less loose end.</aside>
   </main>
 
@@ -3450,13 +3555,6 @@
         if (peekOpen && !panelOpen) $('hoverPreview').classList.add('show');
       }
 
-      function schedulePeek() {
-        if (panelOpen || manipulatingWindow) return;
-        clearTimeout(closeTimer);
-        clearTimeout(peekTimer);
-        peekTimer = setTimeout(showPeek, 260);
-      }
-
       async function hidePeek() {
         clearTimeout(peekTimer);
         if (!peekOpen) return;
@@ -3629,12 +3727,9 @@
         }
       }
 
-      function togglePanel() {
-        if (panelOpen) {
-          closePanel();
-        } else {
-          openPanel();
-        }
+      async function toggleQuickView() {
+        if (peekOpen) await hidePeek();
+        else await showPeek();
       }
       function finishBuddyDrag() {
         clearTimeout(buddyDragSafety);
@@ -3643,6 +3738,7 @@
       }
       $('buddy').addEventListener('pointerdown', event => {
         if (event.button !== 0) return;
+        if (event.target.closest('[data-buddy-action]')) return;
         const fn = invoke();
         if (!fn) return;
         event.preventDefault();
@@ -3680,8 +3776,6 @@
         try { $('buddy').releasePointerCapture(event.pointerId); } catch (_) {}
         if (gesture.dragging) {
           setTimeout(finishBuddyDrag, 180);
-        } else {
-          togglePanel();
         }
       });
       $('buddy').addEventListener('pointercancel', event => {
@@ -3690,19 +3784,18 @@
         buddyGesture = null;
         if (wasDragging) setTimeout(finishBuddyDrag, 1500);
       });
-      $('buddy').addEventListener('click', event => {
-        if (invoke()) {
-          event.preventDefault();
-          return;
-        }
-        togglePanel();
-      });
       $('buddy').addEventListener('contextmenu', event => {
         event.preventDefault();
         movePixelAside();
       });
-      $('buddy').addEventListener('mouseenter', schedulePeek);
-      $('buddy').addEventListener('focus', schedulePeek);
+      $('quickPixel').addEventListener('click', event => {
+        event.stopPropagation();
+        toggleQuickView();
+      });
+      $('fullPixel').addEventListener('click', event => {
+        event.stopPropagation();
+        openPanel();
+      });
       $('stage').addEventListener('mouseenter', () => clearTimeout(closeTimer));
       $('stage').addEventListener('mouseleave', () => {
         clearTimeout(closeTimer);

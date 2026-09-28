@@ -21,10 +21,10 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
   t.ok(/id="workSort"/.test(html) && /value="urgency"/.test(html) && /value="arrival"/.test(html),
     'work list exposes urgency and arrival sorting');
   t.ok(/id="hoverPreview"/.test(html) && /class="preview-list"/.test(html),
-    'hover preview exposes the complete scrollable list');
+    'quick view exposes the complete scrollable list');
   t.ok(/function resetPeekAfterAction\(\)/.test(html) &&
     /if \(action === 'done'\) await resetPeekAfterAction\(\)/.test(html),
-  'completing a hover item resets the native peek window for the next hover');
+  'completing a quick-view item resets the native peek window for its next opening');
   t.ok(/function renderWorkNotes\(item\)/.test(html) &&
     /function renderNotesMarkdown\(markdown\)/.test(html) &&
     /data-note-task-line/.test(html) &&
@@ -32,15 +32,22 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
   'work items expose persistent Markdown notes with interactive task checkboxes');
   t.ok(/"peek"\s*=>\s*\(400,\s*u32::MAX\)/.test(desktop) &&
     /max-height:\s*calc\(100vh - var\(--buddy-top\) - 208px\)/.test(html),
-  'hover preview uses the available monitor height');
+  'quick view uses the available monitor height');
   t.ok(/const pendingStarStates = new Map\(\)/.test(html) &&
     /preservePendingStars/.test(html),
   'status refreshes preserve optimistic stars until persistence is confirmed');
-  t.ok(/id="minimizePixel"/.test(html) &&
+  t.ok(/class="buddy-minimize" id="minimizePixel"/.test(html) &&
+    !/class="panel-minimize"/.test(html) &&
     /minimize_dev_buddy/.test(desktop) &&
     /"minimize_dev_buddy"/.test(desktopPermissions) &&
     /set_skip_taskbar\(false\)/.test(desktop),
-  'Pixel can be minimized to the taskbar');
+  'Pixel exposes its taskbar minimize control only on the character');
+  t.ok(/id="quickPixel"/.test(html) &&
+    /id="fullPixel"/.test(html) &&
+    /toggleQuickView\(\)/.test(html) &&
+    /\$\('fullPixel'\)\.addEventListener\('click'/.test(html) &&
+    !/addEventListener\('mouseenter', schedulePeek\)/.test(html),
+  'Pixel arms open distinct quick and full experiences without hover-opening a window');
   t.ok(/contextmenu/.test(html) &&
     /move_dev_buddy_aside/.test(desktop) &&
     /"move_dev_buddy_aside"/.test(desktopPermissions) &&
