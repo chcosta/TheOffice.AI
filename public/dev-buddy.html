@@ -1979,7 +1979,7 @@
             </header>
             <textarea class="scratchpad-input" id="scratchpadInput" maxlength="12000" placeholder="Paste or draft your message here…"></textarea>
             <div class="scratchpad-actions">
-              <button class="primary" id="scratchpadImprove" type="button">Review and improve</button>
+              <button class="primary" id="scratchpadImprove" type="button">Review now</button>
               <button id="scratchpadCopy" type="button" disabled>Copy Pixel's version</button>
               <button id="scratchpadClear" type="button">Clear</button>
               <span class="scratchpad-status" id="scratchpadStatus">Your draft is saved locally and is not added to Pixel's recorded chat history.</span>
@@ -2140,6 +2140,8 @@
       let scratchpadRewrite = '';
       let scratchpadSequence = 0;
       let scratchpadResult = null;
+      let scratchpadReviewTimer = null;
+      let scratchpadAbortController = null;
       let composeSetup = null;
       let windowPlacement = { anchorX: 'left', anchorY: 'top', buddyLeft: 14, buddyTop: 8 };
       let chatHistory = [];
@@ -3169,6 +3171,38 @@
         $('scratchpadCopy').disabled = true;
       }
 
+      function cancelScratchpadReview() {
+        if (scratchpadReviewTimer) {
+          clearTimeout(scratchpadReviewTimer);
+          scratchpadReviewTimer = null;
+        }
+        if (scratchpadAbortController) {
+          scratchpadAbortController.abort();
+          scratchpadAbortController = null;
+        }
+        scratchpadSequence++;
+        scratchpadBusy = false;
+      }
+
+      function scheduleScratchpadReview(delay = 900) {
+        cancelScratchpadReview();
+        const body = $('scratchpadInput').value.trim();
+        $('scratchpadImprove').disabled = false;
+        $('scratchpadImprove').textContent = 'Review now';
+        if (body.length < 20) {
+          $('scratchpadStatus').textContent = body
+            ? 'Add a little more text so Pixel has enough context to help.'
+            : 'Start writing. Pixel reviews automatically when you pause.';
+          return;
+        }
+        renderScratchpadResult(quickScratchpadReview(body));
+        $('scratchpadStatus').textContent = 'Draft saved. Pixel will review when you pause.';
+        scratchpadReviewTimer = setTimeout(() => {
+          scratchpadReviewTimer = null;
+          improveScratchpad();
+        }, delay);
+      }
+
       function renderScratchpadResult(result) {
         scratchpadResult = result;
         scratchpadRewrite = String(result?.rewrite || '');
@@ -3186,8 +3220,44 @@
           ? `<ul class="scratchpad-changes">${changes.map(change => `<li>${escapeHtml(change)}</li>`).join('')}</ul>`
           : '<div class="scratchpad-muted">Pixel kept the message close to your original.</div>';
         $('scratchpadRewrite').textContent = scratchpadRewrite;
+        $('scratchpadRewrite').closest('.scratchpad-card').hidden = result?.quick === true;
         $('scratchpadResults').hidden = false;
-        $('scratchpadCopy').disabled = !scratchpadRewrite;
+        $('scratchpadCopy').disabled = !scratchpadRewrite || result?.quick === true;
+      }
+
+      function quickScratchpadReview(body) {
+        const gaps = [];
+        if (/\b(not (?:well )?grounded|doesn['’]t make sense|bad|wrong|weak|unclear|poorly)\b/i.test(body)) {
+          gaps.push({
+            title: 'Name the specific concern',
+            detail: 'The message makes an evaluation without showing the recipient what led to it.',
+            action: 'Point to the missing evidence, questionable assumption, or concrete risk.',
+          });
+        }
+        if (!/[?]/.test(body) &&
+            !/\b(please|could you|would you|can you|i need|we need|next step|recommend|request)\b/i.test(body)) {
+          gaps.push({
+            title: 'Make the next step explicit',
+            detail: 'The recipient may understand the observation but not what response or decision you need.',
+            action: 'Add the action, owner, question, or decision that should follow.',
+          });
+        }
+        if (/\b(obviously|clearly|simply|everyone knows|you should have|you failed to)\b/i.test(body)) {
+          gaps.push({
+            title: 'Use neutral framing',
+            detail: 'A certainty or blame phrase may make the reader defensive.',
+            action: 'Describe the observable fact and its impact without assuming intent or shared knowledge.',
+          });
+        }
+        return {
+          quick: true,
+          rewrite: body,
+          read: gaps.length
+            ? 'Quick scan: the core point is visible, but the message may need more specificity before the recipient can act confidently.'
+            : 'Quick scan: the message is direct and readable. Pixel is checking the deeper rationale, tone, and rewrite now.',
+          gaps,
+          changes: ['Immediate clarity scan complete. The full AI review is updating automatically.'],
+        };
       }
 
       async function improveScratchpad() {
@@ -3196,19 +3266,24 @@
           $('scratchpadStatus').textContent = 'Add a little more text so Pixel has enough context to help.';
           return;
         }
+        cancelScratchpadReview();
         const sequence = ++scratchpadSequence;
+        const controller = new AbortController();
+        scratchpadAbortController = controller;
         scratchpadBusy = true;
         $('scratchpadImprove').disabled = true;
         $('scratchpadImprove').textContent = 'Reviewing…';
-        $('scratchpadStatus').textContent = 'Pixel is checking tone, clarity, inclusion, and message strength…';
+        $('scratchpadStatus').textContent = 'Pixel is reviewing as you pause…';
         try {
           const result = await request('/api/dev-buddy/compose/rewrite', {
             method: 'POST',
+            signal: controller.signal,
             body: JSON.stringify({
               body,
               context: '',
               subject: '',
               style: $('scratchpadStyle').value,
+              mode: 'scratchpad',
             }),
           });
           if (sequence !== scratchpadSequence || $('scratchpadInput').value.trim() !== body) return;
@@ -3217,15 +3292,17 @@
           renderScratchpadResult(saved);
           $('scratchpadStatus').textContent = result.cached
             ? 'Restored Pixel’s review for this text.'
-            : 'Review complete. Copy Pixel’s version when it is ready to use.';
+            : 'Review complete. Keep editing and Pixel will update it automatically.';
         } catch (error) {
           if (sequence !== scratchpadSequence) return;
+          if (error?.name === 'AbortError') return;
           $('scratchpadStatus').textContent = error.message || 'Pixel could not review this text.';
         } finally {
           if (sequence === scratchpadSequence) {
             scratchpadBusy = false;
+            scratchpadAbortController = null;
             $('scratchpadImprove').disabled = false;
-            $('scratchpadImprove').textContent = 'Review and improve';
+            $('scratchpadImprove').textContent = 'Review now';
           }
         }
       }
@@ -3666,20 +3743,17 @@
         renderScratchpadResult(scratchpadResult);
       } else {
         clearScratchpadResult();
+        if ($('scratchpadInput').value.trim()) scheduleScratchpadReview(350);
       }
       $('scratchpadInput').addEventListener('input', () => {
         localStorage.setItem('dev-buddy-scratchpad', $('scratchpadInput').value);
-        scratchpadSequence++;
-        scratchpadBusy = false;
-        $('scratchpadImprove').disabled = false;
-        $('scratchpadImprove').textContent = 'Review and improve';
-        $('scratchpadStatus').textContent = 'Draft saved locally. Review again when you are ready.';
         clearScratchpadResult();
+        scheduleScratchpadReview();
       });
       $('scratchpadStyle').addEventListener('change', () => {
         localStorage.setItem('dev-buddy-scratchpad-style', $('scratchpadStyle').value);
         clearScratchpadResult();
-        $('scratchpadStatus').textContent = 'Style changed. Review again for an updated version.';
+        scheduleScratchpadReview(350);
       });
       $('scratchpadImprove').addEventListener('click', improveScratchpad);
       $('scratchpadCopy').addEventListener('click', async () => {
@@ -3688,14 +3762,13 @@
         $('scratchpadStatus').textContent = 'Pixel’s version is copied and ready to paste.';
       });
       $('scratchpadClear').addEventListener('click', () => {
-        scratchpadSequence++;
-        scratchpadBusy = false;
+        cancelScratchpadReview();
         $('scratchpadInput').value = '';
         $('scratchpadImprove').disabled = false;
-        $('scratchpadImprove').textContent = 'Review and improve';
+        $('scratchpadImprove').textContent = 'Review now';
         localStorage.removeItem('dev-buddy-scratchpad');
         clearScratchpadResult();
-        $('scratchpadStatus').textContent = 'Scratchpad cleared.';
+        $('scratchpadStatus').textContent = 'Scratchpad cleared. Pixel will review when you start writing again.';
         $('scratchpadInput').focus();
       });
       $('installOutlookAddin').addEventListener('click', async () => {
@@ -3908,10 +3981,22 @@
         };
       }
 
-      function lowerPriorityLocally(row, item, priority) {
+      function urgencyForScore(score) {
+        const bounded = Math.max(0, Math.min(3, Math.round(Number(score) || 0)));
+        const level = ['low', 'medium', 'high', 'critical'][bounded];
+        return {
+          score: bounded,
+          level,
+          label: level.charAt(0).toUpperCase() + level.slice(1),
+          reason: 'Lowered by you.',
+        };
+      }
+
+      function lowerPriorityLocally(row, item, priority, urgencyScore) {
         const previousStatus = status;
+        const urgency = urgencyForScore(urgencyScore);
         const update = entries => (entries || []).map(entry =>
-          entry.id === item.id ? { ...entry, priority } : entry);
+          entry.id === item.id ? { ...entry, priority, urgency } : entry);
         const progress = status?.progress || {};
         const alreadyCounted = (status?.recentActivity || []).some(entry =>
           entry.id === item.id && (entry.actions || []).includes('reprioritized'));
@@ -4124,11 +4209,14 @@
           }
           return;
         }
-        const priorities = ['low', 'normal', 'high'];
-        const currentPriority = Math.max(0, priorities.indexOf(item.priority || 'normal'));
+        const currentUrgency = Number.isFinite(Number(item.urgency?.score))
+          ? Number(item.urgency.score)
+          : (item.priority === 'high' ? 2 : item.priority === 'low' ? 0 : 1);
+        const nextUrgency = Math.max(0, currentUrgency - 1);
+        const nextPriority = nextUrgency >= 2 ? 'high' : nextUrgency === 1 ? 'normal' : 'low';
         const body = action === 'done'
           ? { status: 'done' }
-          : { priority: priorities[Math.max(0, currentPriority - 1)] };
+          : { priority: nextPriority, urgencyScore: nextUrgency };
         if (action === 'done') {
           const restore = removeListItemLocally(row, item, 'completed');
           celebrate(item.title);
@@ -4141,8 +4229,7 @@
           }
           return;
         }
-        const nextPriority = body.priority;
-        const restore = lowerPriorityLocally(row, item, nextPriority);
+        const restore = lowerPriorityLocally(row, item, nextPriority, nextUrgency);
         try {
           await updateListItem(item, body, false);
           void load();

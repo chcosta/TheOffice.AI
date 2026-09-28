@@ -101,6 +101,7 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
   const pane = readFileSync(path.join(process.cwd(), 'public', 'outlook-compose.html'), 'utf8');
   const manifest = readFileSync(path.join(process.cwd(), 'outlook-addin', 'manifest.xml'), 'utf8');
   const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  const composeWorker = readFileSync(path.join(process.cwd(), 'compose-coach-worker.js'), 'utf8');
   t.ok(/Office\.onReady/.test(pane) &&
     /mailbox\.item/.test(pane) &&
     /Office\.CoercionType\.Text/.test(pane) &&
@@ -121,11 +122,11 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
   'live suggestions replace authored content, preserve marked signatures and threads, and refuse stale updates');
   t.ok(/app\.post\('\/api\/dev-buddy\/compose\/rewrite'/.test(server) &&
     /_devBuddyIsLoopbackRequest/.test(server) &&
-    /category: 'compose-coach'/.test(server) &&
+    /category: 'compose-coach'/.test(composeWorker) &&
     /unsupported conclusions/.test(server) &&
     /missing rationale or examples/.test(server) &&
     /gaps:\s*\(Array\.isArray\(parsed\.gaps\)/.test(server) &&
-    /record: false/.test(server),
+    /record: false/.test(composeWorker),
   'draft coaching evaluates message strength, stays local, and is excluded from recorded chat history');
   t.ok(/<Permissions>ReadWriteMailbox<\/Permissions>/.test(manifest) &&
     /https:\/\/localhost:3849\/public\/outlook-compose\.html/.test(manifest) &&
@@ -153,6 +154,15 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
     /dev-buddy-scratchpad/.test(pixel) &&
     /Copy Pixel's version/.test(pixel),
   'Pixel exposes a persistent scratchpad that reuses the full Outlook coaching contract');
+  t.ok(/function scheduleScratchpadReview\(delay = 900\)/.test(pixel) &&
+    /new AbortController\(\)/.test(pixel) &&
+    /signal: controller\.signal/.test(pixel) &&
+    /mode: 'scratchpad'/.test(pixel) &&
+    /scheduleScratchpadReview\(350\)/.test(pixel) &&
+    /quickScratchpadReview\(body\)/.test(pixel) &&
+    /new Worker\(path\.join\(__dirname, 'compose-coach-worker\.js'\)/.test(server) &&
+    /worker\.terminate\(\)/.test(server),
+  'the scratchpad shows an immediate scan, reviews automatically, and isolates deeper coaching');
 });
 
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
@@ -397,6 +407,8 @@ await t.test('efforts durably group related observations and preserve user state
     title: 'Roll out autoscaler safeguards',
     detail: 'PR adds staged rollout safeguards',
     source: 'GitHub',
+    priority: 'high',
+    urgency: buddy.deriveUrgency({ priority: 'high' }),
     trackedAt: '2026-09-26T08:00:00Z',
     context: { repository: 'example/autoscaler', state: 'open', headSha: 'abc123' },
   };
@@ -434,6 +446,12 @@ await t.test('efforts durably group related observations and preserve user state
   t.eq(effort.title, 'Stabilize the autoscaler rollout', 'AI-derived effort title persists');
   t.ok(effort.starred, 'a star on merged evidence promotes to the effort');
   t.ok(!effort.provisional, 'classified effort remains established across refreshes');
+  t.eq(effort.urgency.level, 'high', 'high-priority evidence initially surfaces high urgency');
+
+  buddy.updateEffort(effort.id, { priority: 'normal', urgencyScore: 1 });
+  const lowered = buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id);
+  t.eq(lowered.urgency.level, 'medium', 'lowering priority immediately lowers visible urgency by one level');
+  t.eq(lowered.urgency.reason, 'Lowered by you.', 'the user urgency choice survives observation synchronization');
 
   buddy.updateEffort(effort.id, { status: 'done' });
   const unchanged = buddy.syncEffortObservations([first, second]);

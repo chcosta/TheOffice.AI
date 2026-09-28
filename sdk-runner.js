@@ -1021,6 +1021,10 @@ class SdkRunner {
   async _execute(opts, prompt, sessionId, onChunk, onStep) {
     const timeoutMs = Number.isFinite(opts.__timeoutMs) && opts.__timeoutMs > 0 ? opts.__timeoutMs : this._timeoutMs;
     const deadline = Date.now() + timeoutMs;
+    const boundedCleanup = promise => Promise.race([
+      Promise.resolve(promise).catch(() => {}),
+      new Promise(resolve => setTimeout(resolve, 1500)),
+    ]);
     const bounded = (promise, label, onLate) => {
       const remaining = Math.max(1, deadline - Date.now());
       let timer;
@@ -1231,7 +1235,7 @@ class SdkRunner {
             completionReason = await Promise.race([finished, send.then(() => finished)]);
             if ((completionReason === 'terminal-message' || completionReason === 'completion-check') &&
                 !keepAlive && typeof session.abort === 'function') {
-              try { await session.abort(); } catch (_) { /* disconnect below is the final cleanup */ }
+              await boundedCleanup(session.abort());
             }
           } finally {
             if (timeoutId) clearTimeout(timeoutId);
@@ -1246,7 +1250,7 @@ class SdkRunner {
         code = 1;
         error = e && e.message ? e.message : String(e);
         if (!keepAlive && session && typeof session.abort === 'function') {
-          try { await session.abort(); } catch (_) { /* disconnect below is the final cleanup */ }
+          await boundedCleanup(session.abort());
         }
       }
 
@@ -1414,7 +1418,7 @@ class SdkRunner {
       if (!keepAlive) this._cancelledOneShots.delete(sessionId);
       if (session && !keepAlive) {
         if (this._oneShotSessions.get(sessionId) === session) this._oneShotSessions.delete(sessionId);
-        try { await session.disconnect(); } catch (_) { /* preserves disk */ }
+        await boundedCleanup(session.disconnect());
       }
     }
   }

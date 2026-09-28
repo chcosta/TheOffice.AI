@@ -4792,13 +4792,49 @@ app.post('/api/dev-buddy/context', async (req, res) => {
 
 const _devBuddyComposeRewriteCache = new Map();
 const _devBuddyComposeRewriteRuns = new Map();
+const _devBuddyComposeWorkers = new Map();
 
 function _devBuddyIsLoopbackRequest(req) {
   const address = String(req.socket && req.socket.remoteAddress || '').toLowerCase();
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
-async function _devBuddyRewriteDraft({ body, context, subject, style }) {
+function _devBuddyRunComposeWorker({ prompt, mode, sessionId }) {
+  const { Worker } = require('worker_threads');
+  const timeoutMs = mode === 'scratchpad' ? 20000 : 60000;
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(path.join(__dirname, 'compose-coach-worker.js'), {
+      workerData: { prompt, mode, sessionId, timeoutMs, cwd: __dirname },
+    });
+    _devBuddyComposeWorkers.set(sessionId, worker);
+    let settled = false;
+    const finish = (error, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (_devBuddyComposeWorkers.get(sessionId) === worker) _devBuddyComposeWorkers.delete(sessionId);
+      void worker.terminate();
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const timer = setTimeout(() => {
+      finish(new Error('Pixel’s deeper review took too long. The quick review is still available.'));
+    }, timeoutMs + 2500);
+    worker.once('message', message => {
+      if (!message || message.ok !== true) {
+        finish(new Error(message && message.error || 'Pixel could not complete the deeper review.'));
+        return;
+      }
+      finish(null, message);
+    });
+    worker.once('error', error => finish(error));
+    worker.once('exit', code => {
+      if (!settled && code !== 0) finish(new Error(`Pixel’s review worker stopped (${code}).`));
+    });
+  });
+}
+
+async function _devBuddyRewriteDraft({ body, context, subject, style, mode, sessionId }) {
   const normalizedStyle = ['balanced', 'warmer', 'concise'].includes(style) ? style : 'balanced';
   const signature = require('crypto').createHash('sha256')
     .update(JSON.stringify(['message-strength-v2', body, context, subject, normalizedStyle]))
@@ -4836,22 +4872,14 @@ async function _devBuddyRewriteDraft({ body, context, subject, style }) {
       'Quoted thread context, if available:',
       JSON.stringify(context || ''),
     ].join('\n');
-    let acc = '';
-    const result = await sdkRunner.runChat({
-      config: null,
+    const workerResult = await _devBuddyRunComposeWorker({
       prompt,
-      sessionId: require('crypto').randomUUID(),
-      resume: false,
-      cwd: __dirname,
-      availableTools: [],
-      timeoutMs: 60 * 1000,
-      model: (settings.resolveModel && settings.resolveModel('chat', null)) || undefined,
-      modelCategory: 'chat',
-      meta: { source: 'dev-buddy', category: 'compose-coach', record: false },
-      onChunk: chunk => { acc += chunk; },
+      sessionId: sessionId || require('crypto').randomUUID(),
+      mode,
     });
+    const result = workerResult.result || {};
     if (result && result.fallback) throw new Error('The configured chat model is unavailable.');
-    const parsed = _connectExtractJson(acc.trim() || result.output || '');
+    const parsed = _connectExtractJson(workerResult.output || result.output || '');
     const rewrite = _devBuddyClip(parsed && parsed.rewrite, 16000);
     if (!rewrite) throw new Error('Pixel did not return a usable rewrite.');
     const value = {
@@ -4892,15 +4920,30 @@ app.post('/api/dev-buddy/compose/rewrite', async (req, res) => {
   const subject = String(req.body && req.body.subject || '').replace(/\s+/g, ' ').trim().slice(0, 500);
   if (body.length < 20) return res.status(400).json({ error: 'Write a little more before Pixel suggests a revision.' });
   if (body.length > 12000) return res.status(413).json({ error: 'This draft is too long for live coaching.' });
+  const sessionId = require('crypto').randomUUID();
+  let finished = false;
+  res.on('close', () => {
+    if (!finished && !res.writableEnded) {
+      const worker = _devBuddyComposeWorkers.get(sessionId);
+      if (worker) {
+        _devBuddyComposeWorkers.delete(sessionId);
+        void worker.terminate();
+      }
+    }
+  });
   try {
     res.json({ ok: true, ...(await _devBuddyRewriteDraft({
       body,
       context,
       subject,
       style: String(req.body && req.body.style || ''),
+      mode: req.body && req.body.mode === 'scratchpad' ? 'scratchpad' : 'outlook',
+      sessionId,
     })) });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Pixel could not rewrite this draft.' });
+  } finally {
+    finished = true;
   }
 });
 

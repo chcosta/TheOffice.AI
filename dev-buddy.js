@@ -722,6 +722,20 @@ function effortPriority(observations, explicit) {
     (rank[b && b.priority] || 2) - (rank[a && a.priority] || 2))[0]?.priority || 'normal';
 }
 
+function urgencyOverride(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const score = Number(value);
+  if (!Number.isFinite(score)) return null;
+  const bounded = Math.max(0, Math.min(3, Math.round(score)));
+  const level = ['low', 'medium', 'high', 'critical'][bounded];
+  return {
+    score: bounded,
+    level,
+    label: level.charAt(0).toUpperCase() + level.slice(1),
+    reason: 'Lowered by you.',
+  };
+}
+
 function materializeEffort(effort) {
   const observations = [...(Array.isArray(effort.observations) ? effort.observations : [])]
     .sort((a, b) => Date.parse(b.trackedAt || 0) - Date.parse(a.trackedAt || 0));
@@ -744,6 +758,7 @@ function materializeEffort(effort) {
   const trackedAt = trackedDates.length
     ? new Date(Math.min(...trackedDates)).toISOString()
     : effort.createdAt || null;
+  const explicitUrgency = urgencyOverride(effort.urgencyOverrideScore);
   return {
     id: effort.id,
     effortId: effort.id,
@@ -760,7 +775,7 @@ function materializeEffort(effort) {
     route: primary.route || '',
     trackedAt,
     dueAt: dueDates.length ? new Date(Math.min(...dueDates)).toISOString() : null,
-    urgency: mostUrgent.urgency || null,
+    urgency: explicitUrgency || mostUrgent.urgency || null,
     slaBusinessHours: mostUrgent.slaBusinessHours || null,
     semanticAttention: observations.some(item => item.semanticAttention !== false),
     attentionBlurb: mostUrgent.attentionBlurb || mostUrgent.detail || '',
@@ -1063,6 +1078,8 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
     const mergedObservations = new Map((target.observations || [])
       .filter(Boolean).map(observation => [observation.key, observation]));
     let starred = target.starred === true;
+    const urgencyOverrides = [urgencyOverride(target.urgencyOverrideScore)]
+      .filter(Boolean).map(entry => entry.score);
     const mergedNotes = [cleanMessage(target.notes, 12000)].filter(Boolean);
     let earliest = Date.parse(target.createdAt || now);
     let latest = Date.parse(target.lastObservedAt || target.updatedAt || now);
@@ -1071,6 +1088,8 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       if (!source) continue;
       consumed.add(id);
       starred = starred || source.starred === true;
+      const sourceUrgency = urgencyOverride(source.urgencyOverrideScore);
+      if (sourceUrgency) urgencyOverrides.push(sourceUrgency.score);
       const sourceNotes = cleanMessage(source.notes, 12000);
       if (sourceNotes && !mergedNotes.includes(sourceNotes)) mergedNotes.push(sourceNotes);
       const sourceCreatedAt = Date.parse(source.createdAt || '');
@@ -1094,6 +1113,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       target.summary = cleanText(group.summary, 1200) || target.summary;
     }
     target.starred = starred;
+    target.urgencyOverrideScore = urgencyOverrides.length ? Math.min(...urgencyOverrides) : null;
     target.notes = mergedNotes.join('\n\n---\n\n');
     target.needsClassification = false;
     target.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
@@ -1240,6 +1260,11 @@ function mergeEfforts(sourceId, targetId, options = {}) {
   target.observations = [...observations.values()].slice(-80);
   target.notes = notes.join('\n\n---\n\n');
   target.starred = target.starred === true || source.starred === true;
+  const urgencyOverrides = [target, source]
+    .map(effort => urgencyOverride(effort.urgencyOverrideScore))
+    .filter(Boolean)
+    .map(entry => entry.score);
+  target.urgencyOverrideScore = urgencyOverrides.length ? Math.min(...urgencyOverrides) : null;
   target.priority = priorityRank[sourcePriority] > priorityRank[targetPriority]
     ? sourcePriority
     : target.priority;
@@ -1321,12 +1346,26 @@ function updateEffort(id, patch = {}) {
   const store = readStore();
   const effort = store.efforts.find(entry => entry && entry.id === id);
   if (!effort) return null;
+  let reprioritized = false;
   if (Object.prototype.hasOwnProperty.call(patch, 'notes')) effort.notes = cleanMessage(patch.notes, 12000);
   if (Object.prototype.hasOwnProperty.call(patch, 'starred')) effort.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
-    if (priority !== effort.priority) recordActivity(store, 'reprioritized', effort.id, effort.title, 'Pixel effort');
+    if (priority !== effort.priority) {
+      recordActivity(store, 'reprioritized', effort.id, effort.title, 'Pixel effort');
+      reprioritized = true;
+    }
     effort.priority = priority;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'urgencyScore')) {
+    const nextUrgency = urgencyOverride(patch.urgencyScore);
+    const previousUrgency = urgencyOverride(effort.urgencyOverrideScore);
+    if (nextUrgency && nextUrgency.score !== previousUrgency?.score) {
+      if (!reprioritized) {
+        recordActivity(store, 'reprioritized', effort.id, effort.title, 'Pixel effort');
+      }
+      effort.urgencyOverrideScore = nextUrgency.score;
+    }
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'snoozedUntil')) {
     const parsed = Date.parse(patch.snoozedUntil || '');
