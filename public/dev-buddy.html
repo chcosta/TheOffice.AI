@@ -1097,7 +1097,37 @@
       background: var(--cp-highlight);
       border-left-color: var(--cp-warning);
     }
-    .item.dragging { opacity: .38; }
+    .item.dragging {
+      opacity: .24;
+      background: var(--cp-accent-soft);
+      outline: 1px dashed var(--cp-accent);
+      outline-offset: -2px;
+    }
+    .drag-ghost {
+      position: fixed;
+      left: 0;
+      top: 0;
+      margin: 0;
+      border: 1px solid var(--cp-accent);
+      border-left: 3px solid var(--cp-accent);
+      border-radius: 8px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+      opacity: .96;
+      pointer-events: none;
+      transform: translate3d(var(--drag-x), var(--drag-y), 0) rotate(-.5deg) scale(1.01);
+      transform-origin: center;
+      z-index: 100;
+    }
+    .drag-ghost::after {
+      content: "Move to combine";
+      position: absolute;
+      right: 9px;
+      bottom: 5px;
+      color: var(--cp-accent);
+      font-size: 9px;
+      font-weight: 700;
+    }
     .item.merging-away {
       pointer-events: none;
       z-index: 3;
@@ -4307,6 +4337,7 @@
       function clearItemDrag() {
         draggedId = '';
         suppressItemOpenUntil = Date.now() + 350;
+        document.querySelector('.drag-ghost')?.remove();
         for (const item of $('itemList').querySelectorAll(
           '.dragging, .merge-target, .reorder-before, .reorder-after'
         )) {
@@ -4321,15 +4352,19 @@
           throw new Error('Only tracked work items can be combined.');
         }
         showOperationStatus(`Combining “${source.title}” into “${target.title}”…`);
-        const animation = animateMerge(sourceId, targetId);
-        const result = await request('/api/dev-buddy/efforts/' + encodeURIComponent(target.effortId) + '/merge', {
-          method: 'POST',
-          body: JSON.stringify({ sourceId: source.effortId }),
-        });
-        await animation;
-        optimisticMerge(sourceId, targetId, result.target);
-        showOperationStatus('Combined. The dragged item is now evidence of the target item.', 'done', 2600);
-        setTimeout(() => load(), 900);
+        await animateMerge(sourceId, targetId);
+        optimisticMerge(sourceId, targetId);
+        try {
+          await request('/api/dev-buddy/efforts/' + encodeURIComponent(target.effortId) + '/merge', {
+            method: 'POST',
+            body: JSON.stringify({ sourceId: source.effortId }),
+          });
+          showOperationStatus('Combined. The dragged item is now evidence of the target item.', 'done', 2600);
+          setTimeout(() => load(), 900);
+        } catch (error) {
+          await load();
+          throw error;
+        }
       }
 
       $('itemList').addEventListener('pointerdown', event => {
@@ -4350,6 +4385,10 @@
           target: null,
           intent: '',
           after: false,
+          ghost: null,
+          offsetX: 0,
+          offsetY: 0,
+          lastScrollAt: 0,
         };
         try { handle.setPointerCapture(event.pointerId); } catch (_) {}
       });
@@ -4358,20 +4397,40 @@
         const drag = dragPointer;
         if (!drag || drag.id !== event.pointerId) return;
         if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
-        drag.moved = true;
-        drag.row.classList.add('dragging');
-        const listBounds = $('itemList').getBoundingClientRect();
-        if (event.clientY < listBounds.top + 36) $('itemList').scrollTop -= 14;
-        else if (event.clientY > listBounds.bottom - 36) $('itemList').scrollTop += 14;
-        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.item');
-        for (const item of $('itemList').querySelectorAll(
-          '.merge-target, .reorder-before, .reorder-after'
-        )) {
-          item.classList.remove('merge-target', 'reorder-before', 'reorder-after');
+        if (!drag.moved) {
+          drag.moved = true;
+          drag.row.classList.add('dragging');
+          const bounds = drag.row.getBoundingClientRect();
+          drag.offsetX = event.clientX - bounds.left;
+          drag.offsetY = event.clientY - bounds.top;
+          drag.ghost = drag.row.cloneNode(true);
+          drag.ghost.classList.remove('selected', 'starred', 'dragging');
+          drag.ghost.classList.add('drag-ghost');
+          drag.ghost.removeAttribute('id');
+          drag.ghost.setAttribute('aria-hidden', 'true');
+          drag.ghost.style.width = `${bounds.width}px`;
+          drag.ghost.style.height = `${bounds.height}px`;
+          document.body.appendChild(drag.ghost);
         }
-        drag.target = null;
-        drag.intent = '';
+        drag.ghost?.style.setProperty('--drag-x', `${event.clientX - drag.offsetX}px`);
+        drag.ghost?.style.setProperty('--drag-y', `${event.clientY - drag.offsetY}px`);
+        const listBounds = $('itemList').getBoundingClientRect();
+        if (performance.now() - drag.lastScrollAt > 32) {
+          if (event.clientY < listBounds.top + 36) $('itemList').scrollTop -= 10;
+          else if (event.clientY > listBounds.bottom - 36) $('itemList').scrollTop += 10;
+          drag.lastScrollAt = performance.now();
+        }
+        const target = document.elementFromPoint(event.clientX, event.clientY)?.closest('.item');
         if (!target || target === drag.row || target.parentNode !== $('itemList')) {
+          if (drag.target || drag.intent) {
+            for (const item of $('itemList').querySelectorAll(
+              '.merge-target, .reorder-before, .reorder-after'
+            )) {
+              item.classList.remove('merge-target', 'reorder-before', 'reorder-after');
+            }
+          }
+          drag.target = null;
+          drag.intent = '';
           clearOperationStatus();
           return;
         }
@@ -4381,14 +4440,21 @@
         const relativeY = (event.clientY - bounds.top) / Math.max(1, bounds.height);
         const canMerge = !!(sourceItem?.effortId && targetItem?.effortId);
         const mergeIntent = canMerge && (workSort !== 'manual' || (relativeY >= .25 && relativeY <= .75));
+        const nextIntent = mergeIntent ? 'merge' : workSort === 'manual' ? 'reorder' : '';
+        const nextAfter = nextIntent === 'reorder' && relativeY > .5;
+        if (drag.target === target && drag.intent === nextIntent && drag.after === nextAfter) return;
+        for (const item of $('itemList').querySelectorAll(
+          '.merge-target, .reorder-before, .reorder-after'
+        )) {
+          item.classList.remove('merge-target', 'reorder-before', 'reorder-after');
+        }
         drag.target = target;
-        if (mergeIntent) {
-          drag.intent = 'merge';
+        drag.intent = nextIntent;
+        drag.after = nextAfter;
+        if (nextIntent === 'merge') {
           target.classList.add('merge-target');
           showOperationStatus(`Release to make this evidence of “${targetItem.title}”.`);
-        } else if (workSort === 'manual') {
-          drag.intent = 'reorder';
-          drag.after = relativeY > .5;
+        } else if (nextIntent === 'reorder') {
           target.classList.add(drag.after ? 'reorder-after' : 'reorder-before');
         }
       });

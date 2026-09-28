@@ -1121,7 +1121,7 @@ function detachEffortObservation(effortId, observationKey) {
   };
 }
 
-function mergeEfforts(sourceId, targetId) {
+function mergeEfforts(sourceId, targetId, options = {}) {
   const sourceKey = cleanText(sourceId, 200);
   const targetKey = cleanText(targetId, 200);
   if (!sourceKey || !targetKey || sourceKey === targetKey) {
@@ -1175,7 +1175,7 @@ function mergeEfforts(sourceId, targetId) {
   target.needsClassification = false;
   target.classificationAttempts = 0;
   target.classificationConfidence = 1;
-  target.classificationReason = 'Combined manually by the user.';
+  target.classificationReason = cleanText(options.reason, 600) || 'Combined manually by the user.';
   target.evidenceEpoch = Number(target.evidenceEpoch || 0) + 1;
   target.createdAt = createdTimes.length ? new Date(Math.min(...createdTimes)).toISOString() : target.createdAt;
   target.lastObservedAt = observedTimes.length ? new Date(Math.max(...observedTimes)).toISOString() : now;
@@ -1184,6 +1184,66 @@ function mergeEfforts(sourceId, targetId) {
   store.manualOrder = store.manualOrder.filter(id => id !== source.id);
   writeStore(store);
   return { sourceId: source.id, target: materializeEffort(target) };
+}
+
+function effortTitleTerms(value) {
+  return new Set(cleanText(value, 500)
+    .toLowerCase()
+    .replace(/\brca\b/g, 'root cause analysis')
+    .replace(/\bpostmortem\b/g, 'root cause analysis')
+    .split(/[^a-z0-9]+/)
+    .filter(term => term.length > 2 && !['and', 'the', 'for', 'with', 'from', 'into'].includes(term)));
+}
+
+function equivalentEffortTitleScore(left, right) {
+  const leftTerms = effortTitleTerms(left);
+  const rightTerms = effortTitleTerms(right);
+  if (!leftTerms.size || !rightTerms.size) return { shared: 0, containment: 0, jaccard: 0 };
+  const shared = [...leftTerms].filter(term => rightTerms.has(term)).length;
+  return {
+    shared,
+    containment: shared / Math.min(leftTerms.size, rightTerms.size),
+    jaccard: shared / new Set([...leftTerms, ...rightTerms]).size,
+  };
+}
+
+function reconcileEquivalentEfforts(limit = 10) {
+  const merged = [];
+  for (let pass = 0; pass < Math.max(1, Math.min(25, Number(limit) || 10)); pass++) {
+    const store = readStore();
+    const efforts = store.efforts.filter(effort =>
+      effort &&
+      effort.needsClassification !== true &&
+      !['done', 'dismissed'].includes(effort.status));
+    let candidate = null;
+    for (let leftIndex = 0; leftIndex < efforts.length; leftIndex++) {
+      for (let rightIndex = leftIndex + 1; rightIndex < efforts.length; rightIndex++) {
+        const left = efforts[leftIndex];
+        const right = efforts[rightIndex];
+        if (effortsAreSeparated(store, left, right)) continue;
+        const score = equivalentEffortTitleScore(left.title, right.title);
+        if (score.shared < 4 || score.containment < 0.8 || score.jaccard < 0.67) continue;
+        if (!candidate || score.jaccard > candidate.score.jaccard) {
+          candidate = { left, right, score };
+        }
+      }
+    }
+    if (!candidate) break;
+    const leftEvidence = (candidate.left.observations || []).length;
+    const rightEvidence = (candidate.right.observations || []).length;
+    const target = leftEvidence > rightEvidence ||
+      (leftEvidence === rightEvidence &&
+        Date.parse(candidate.left.createdAt || 0) <= Date.parse(candidate.right.createdAt || 0))
+      ? candidate.left
+      : candidate.right;
+    const source = target === candidate.left ? candidate.right : candidate.left;
+    const result = mergeEfforts(source.id, target.id, {
+      reason: 'Automatically combined because both titles describe the same objective.',
+    });
+    if (!result) break;
+    merged.push(result);
+  }
+  return merged;
 }
 
 function updateEffort(id, patch = {}) {
@@ -1395,6 +1455,7 @@ module.exports = {
   listCommitments,
   listItems,
   mergeEfforts,
+  reconcileEquivalentEfforts,
   restoreRecentActivity,
   setManualOrder,
   setCommitmentSync,

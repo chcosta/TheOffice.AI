@@ -631,6 +631,47 @@ await t.test('users can manually combine duplicate efforts', () => {
   'future observation sync preserves the manual grouping');
 });
 
+await t.test('established efforts with equivalent objectives are reconciled', () => {
+  const observations = [
+    {
+      id: 'equivalent-rca-long',
+      reminderKey: 'equivalent-rca-long',
+      kind: 'meeting',
+      title: 'Formalize the root cause analysis process',
+      detail: 'Update the RCA process documentation.',
+      source: 'Meeting',
+      trackedAt: '2026-09-28T08:00:00Z',
+    },
+    {
+      id: 'equivalent-rca-short',
+      reminderKey: 'equivalent-rca-short',
+      kind: 'teams',
+      title: 'Formalize the team RCA process',
+      detail: 'Get team agreement on the updated process.',
+      source: 'Teams',
+      trackedAt: '2026-09-28T08:10:00Z',
+    },
+  ];
+  let state = buddy.syncEffortObservations(observations);
+  const ids = observations.map(observation => state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === observation.reminderKey)).id);
+  buddy.applyEffortClassification(ids.map((id, index) => ({
+    provisionalIds: [id],
+    targetEffortId: '',
+    title: observations[index].title,
+    summary: observations[index].detail,
+    confidence: 1,
+    reason: 'Initially classified in separate batches.',
+  })));
+  const merged = buddy.reconcileEquivalentEfforts();
+  t.ok(merged.some(result => ids.includes(result.sourceId) || ids.includes(result.target.id)),
+    'equivalent established objectives are reconsidered and merged');
+  state = buddy.syncEffortObservations(observations);
+  t.eq(state.efforts.filter(effort =>
+    effort.observations.some(entry => entry.key.startsWith('equivalent-rca-'))).length, 1,
+  'RCA and root cause analysis remain grouped after synchronization');
+});
+
 await t.test('efforts preserve urgency, reconcile cleared evidence, and complete source records', () => {
   const critical = {
     id: 'effort-critical-signal',
@@ -700,11 +741,15 @@ await t.test('effort APIs and UI route work-list actions through durable efforts
   t.ok(/function mergeWorkItems\(sourceId, targetId\)/.test(html) &&
     /classList\.add\('merge-target'\)/.test(html) &&
     /class="drag-bar"/.test(html) &&
+    /classList\.add\('drag-ghost'\)/.test(html) &&
     /function optimisticMerge\(sourceId, targetId, mergedEffort\)/.test(html) &&
     /setTimeout\(\(\) => load\(\), 900\)/.test(html) &&
     !/mergeWorkItems[\s\S]{0,1200}await load\(true\)/.test(html) &&
     /app\.post\('\/api\/dev-buddy\/efforts\/:id\/merge'/.test(server),
   'dragging one work item onto another uses a grab bar and completes optimistically without a full refresh');
+  t.ok(/reconcileEquivalentEfforts\(\)/.test(server) &&
+    /RCA and root cause analysis/.test(server),
+  'established effort duplicates are reconciled and the classifier recognizes acronym paraphrases');
   t.ok(/resolveModel\('execution', null\)/.test(server) &&
     /category: 'effort-classification'/.test(server),
   'effort classification uses the configured execution model');

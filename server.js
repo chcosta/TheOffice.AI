@@ -3272,6 +3272,7 @@ function _devBuddyQueueEffortClassification() {
       'You are Pixel, organizing raw work observations into durable, incident-specific efforts.',
       'Compare every provisional effort against the established efforts and against the other provisional efforts.',
       'Group observations only when they share a concrete objective, rollout, incident, deliverable, or outcome.',
+      'Recognize common acronyms, expanded forms, and close paraphrases as the same objective when the evidence describes the same ownership and deliverable (for example, RCA and root cause analysis).',
       'A shared technology or repository alone is not enough. Keep uncertain work separate.',
       'Use concise action-oriented effort titles that describe the actual work, not the source type.',
       'When matching an established effort, provide its exact id and a confidence from 0 to 1.',
@@ -4065,7 +4066,11 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   const observations = deterministicList
     .map(_devBuddyApplySemantic)
     .filter(item => item.semanticSurface !== false);
-  const effortState = devBuddy.syncEffortObservations(observations);
+  let effortState = devBuddy.syncEffortObservations(observations);
+  const equivalentEffortMerges = devBuddy.reconcileEquivalentEfforts();
+  if (equivalentEffortMerges.length) {
+    effortState = devBuddy.syncEffortObservations(observations);
+  }
   _devBuddyQueueEffortClassification();
   const list = devBuddy.applyManualOrder(effortState.efforts.map(_devBuddyDecorateItem));
   const visibleSignals = observations.filter(item => item.fingerprint);
