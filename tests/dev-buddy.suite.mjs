@@ -146,6 +146,13 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
     !/uninstall -i false --mode manifest-id/.test(server) &&
     /@microsoft\/m365agentstoolkit-cli@1\.1\.17/.test(server),
   'Pixel keeps a discoverable New Outlook walkthrough with automatic and manual installation');
+  t.ok(/data-view-target="scratchpad"/.test(pixel) &&
+    /id="scratchpadInput"/.test(pixel) &&
+    /Strengthen this message/.test(pixel) &&
+    /\/api\/dev-buddy\/compose\/rewrite/.test(pixel) &&
+    /dev-buddy-scratchpad/.test(pixel) &&
+    /Copy Pixel's version/.test(pixel),
+  'Pixel exposes a persistent scratchpad that reuses the full Outlook coaching contract');
 });
 
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
@@ -692,8 +699,12 @@ await t.test('effort APIs and UI route work-list actions through durable efforts
   'connected evidence can be marked unrelated and sent back through triage');
   t.ok(/function mergeWorkItems\(sourceId, targetId\)/.test(html) &&
     /classList\.add\('merge-target'\)/.test(html) &&
+    /class="drag-bar"/.test(html) &&
+    /function optimisticMerge\(sourceId, targetId, mergedEffort\)/.test(html) &&
+    /setTimeout\(\(\) => load\(\), 900\)/.test(html) &&
+    !/mergeWorkItems[\s\S]{0,1200}await load\(true\)/.test(html) &&
     /app\.post\('\/api\/dev-buddy\/efforts\/:id\/merge'/.test(server),
-  'dragging one work item onto another can make it evidence of the target');
+  'dragging one work item onto another uses a grab bar and completes optimistically without a full refresh');
   t.ok(/resolveModel\('execution', null\)/.test(server) &&
     /category: 'effort-classification'/.test(server),
   'effort classification uses the configured execution model');

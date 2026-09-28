@@ -1098,11 +1098,34 @@
       border-left-color: var(--cp-warning);
     }
     .item.dragging { opacity: .38; }
+    .item.merging-away {
+      pointer-events: none;
+      z-index: 3;
+      animation: merge-source-away .34s cubic-bezier(.4, 0, .2, 1) forwards;
+    }
+    .item.merge-receiving {
+      z-index: 2;
+      animation: merge-target-receive .55s cubic-bezier(.2, .8, .2, 1);
+    }
     .item.merge-target {
       z-index: 1;
       background: var(--cp-highlight);
       outline: 2px solid var(--cp-accent);
       outline-offset: -2px;
+    }
+    .item.merge-target::after {
+      content: "Combine here";
+      position: absolute;
+      right: 10px;
+      bottom: 5px;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: var(--cp-accent);
+      color: var(--cp-accent-fg);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .02em;
+      pointer-events: none;
     }
     .item.reorder-before { border-top: 3px solid var(--cp-accent); }
     .item.reorder-after { border-bottom: 3px solid var(--cp-accent); }
@@ -1120,20 +1143,28 @@
     .item-top { display: flex; gap: 7px; align-items: center; }
     .drag-handle {
       flex: none;
-      width: 14px;
+      width: 18px;
+      height: 22px;
+      display: grid;
+      place-content: center;
+      gap: 2px;
       border: 0;
       padding: 0;
       margin-top: 1px;
       background: var(--cp-clear);
       color: var(--cp-text-muted);
       cursor: grab;
-      font-size: 13px;
-      line-height: 18px;
-      text-align: center;
       touch-action: none;
       user-select: none;
     }
     .drag-handle:active { cursor: grabbing; }
+    .drag-bar {
+      width: 11px;
+      height: 2px;
+      border-radius: 2px;
+      background: currentColor;
+      pointer-events: none;
+    }
     .item-copy { min-width: 0; flex: 1; }
     .item-title {
       overflow: hidden;
@@ -1525,6 +1556,112 @@
       color: var(--cp-text);
     }
     .composer input:focus { border-color: var(--cp-accent); }
+    .scratchpad-page {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      padding: 20px clamp(18px, 4vw, 48px) 36px;
+      background: var(--cp-bg-elevated);
+    }
+    .scratchpad-shell {
+      width: 100%;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+    .scratchpad-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 12px;
+    }
+    .scratchpad-head h2 {
+      margin: 0 0 4px;
+      font-size: 20px;
+    }
+    .scratchpad-head p {
+      margin: 0;
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .scratchpad-style {
+      display: grid;
+      gap: 4px;
+      color: var(--cp-text-muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+    .scratchpad-style select {
+      min-height: 32px;
+      padding: 4px 28px 4px 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+    }
+    .scratchpad-input {
+      width: 100%;
+      min-height: 220px;
+      resize: vertical;
+      padding: 13px 14px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      outline: 0;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      font: 13px/1.55 "Segoe UI", Aptos, Calibri, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    .scratchpad-input:focus { border-color: var(--cp-accent); }
+    .scratchpad-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0 14px;
+    }
+    .scratchpad-status {
+      flex: 1;
+      color: var(--cp-text-muted);
+      font-size: 11px;
+    }
+    .scratchpad-results {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+    }
+    .scratchpad-card {
+      min-width: 0;
+      padding: 14px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-surface);
+    }
+    .scratchpad-card.wide { grid-column: 1 / -1; }
+    .scratchpad-card.attention { border-left: 3px solid var(--cp-warning); }
+    .scratchpad-card h3 {
+      margin: 0 0 8px;
+      font-size: 12px;
+    }
+    .scratchpad-copy {
+      white-space: pre-wrap;
+      user-select: text;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .scratchpad-muted {
+      color: var(--cp-text-muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .scratchpad-gap + .scratchpad-gap {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid var(--cp-border);
+    }
+    .scratchpad-gap strong { display: block; margin-bottom: 3px; }
+    .scratchpad-gap span { display: block; margin-top: 4px; color: var(--cp-text-muted); }
+    .scratchpad-changes { margin: 0; padding-left: 18px; }
+    .scratchpad-changes li { margin: 4px 0; }
     .primary {
       padding: 8px 12px;
       border: 1px solid var(--cp-accent);
@@ -1708,6 +1845,16 @@
       14%, 78% { opacity: 1; transform: none; }
       100% { opacity: 0; transform: translateY(-7px) scale(.98); }
     }
+    @keyframes merge-source-away {
+      0% { opacity: .55; transform: translate(0, 0) scale(1); }
+      70% { opacity: .55; transform: translate(var(--merge-x), var(--merge-y)) scale(.34); }
+      100% { opacity: 0; transform: translate(var(--merge-x), var(--merge-y)) scale(.18); }
+    }
+    @keyframes merge-target-receive {
+      0%, 100% { background: inherit; transform: scale(1); }
+      35% { background: var(--cp-highlight); transform: scale(1.015); }
+      65% { background: var(--cp-accent-soft); transform: scale(.995); }
+    }
     @keyframes panel-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { animation: none !important; transition-duration: .01ms !important; }
@@ -1731,6 +1878,7 @@
       <nav class="view-nav" aria-label="Dev Buddy views">
         <button class="view-link active" type="button" data-view-target="work">Work</button>
         <button class="view-link" type="button" data-view-target="map">Map</button>
+        <button class="view-link" type="button" data-view-target="scratchpad">Scratchpad</button>
         <button class="view-link" type="button" data-view-target="memory">Memory</button>
         <button class="view-link" type="button" data-view-target="setup">Setup</button>
       </nav>
@@ -1781,6 +1929,50 @@
           </div>
           <div class="map-help">Drag to pan · wheel or pinch to zoom · select an item to open it</div>
           <svg id="mapSvg" role="img" aria-label="Relationships among tracked work"><g class="map-canvas" id="mapCanvas"></g></svg>
+        </div>
+      </section>
+      <section class="panel-view" id="scratchpadView" hidden>
+        <div class="scratchpad-page">
+          <div class="scratchpad-shell">
+            <header class="scratchpad-head">
+              <div>
+                <h2>Scratchpad</h2>
+                <p>Paste any message for the same clarity, inclusion, and message-strength scrutiny as Pixel's Outlook coach.</p>
+              </div>
+              <label class="scratchpad-style">Rewrite style
+                <select id="scratchpadStyle">
+                  <option value="balanced">Professional and inclusive</option>
+                  <option value="warmer">Warmer and collaborative</option>
+                  <option value="concise">Concise and direct</option>
+                </select>
+              </label>
+            </header>
+            <textarea class="scratchpad-input" id="scratchpadInput" maxlength="12000" placeholder="Paste or draft your message here…"></textarea>
+            <div class="scratchpad-actions">
+              <button class="primary" id="scratchpadImprove" type="button">Review and improve</button>
+              <button id="scratchpadCopy" type="button" disabled>Copy Pixel's version</button>
+              <button id="scratchpadClear" type="button">Clear</button>
+              <span class="scratchpad-status" id="scratchpadStatus">Your draft is saved locally and is not added to Pixel's recorded chat history.</span>
+            </div>
+            <div class="scratchpad-results" id="scratchpadResults" hidden>
+              <section class="scratchpad-card wide">
+                <h3>How this may land</h3>
+                <div class="scratchpad-muted" id="scratchpadRead"></div>
+              </section>
+              <section class="scratchpad-card attention" id="scratchpadGapsCard" hidden>
+                <h3>Strengthen this message</h3>
+                <div id="scratchpadGaps"></div>
+              </section>
+              <section class="scratchpad-card">
+                <h3>What Pixel changed</h3>
+                <div id="scratchpadChanges"></div>
+              </section>
+              <section class="scratchpad-card wide">
+                <h3>Pixel's version</h3>
+                <div class="scratchpad-copy" id="scratchpadRewrite"></div>
+              </section>
+            </div>
+          </div>
         </div>
       </section>
       <section class="panel-view" id="memoryView" hidden>
@@ -1914,12 +2106,20 @@
       let mapRelationshipSignature = '';
       let mapGroupingBusy = false;
       let chatBusy = false;
+      let scratchpadBusy = false;
+      let scratchpadRewrite = '';
+      let scratchpadSequence = 0;
+      let scratchpadResult = null;
       let composeSetup = null;
       let windowPlacement = { anchorX: 'left', anchorY: 'top', buddyLeft: 14, buddyTop: 8 };
       let chatHistory = [];
       try {
         const saved = JSON.parse(localStorage.getItem('dev-buddy-chat') || '[]');
         chatHistory = Array.isArray(saved) ? saved.slice(-12) : [];
+      } catch {}
+      try {
+        const saved = JSON.parse(localStorage.getItem('dev-buddy-scratchpad-result') || 'null');
+        scratchpadResult = saved && typeof saved === 'object' ? saved : null;
       } catch {}
 
       function applyWindowPlacement(placement) {
@@ -1966,6 +2166,45 @@
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
         return data;
+      }
+
+      function optimisticMerge(sourceId, targetId, mergedEffort) {
+        const source = findItemById(sourceId);
+        const target = findItemById(targetId);
+        if (!status || !source || !target) return;
+        const merged = {
+          ...target,
+          ...(mergedEffort || {}),
+          id: target.id,
+          effortId: target.effortId,
+          title: target.title,
+        };
+        const replace = entries => (entries || [])
+          .filter(item => item.id !== sourceId && item.effortId !== source.effortId)
+          .map(item => item.id === targetId || item.effortId === target.effortId ? { ...item, ...merged } : item);
+        status = {
+          ...status,
+          list: replace(status.list),
+          efforts: replace(status.efforts),
+        };
+        selectedItemId = target.id;
+        localStorage.setItem('dev-buddy-selected-item', selectedItemId);
+        render();
+      }
+
+      function animateMerge(sourceId, targetId) {
+        const sourceRow = $('itemList').querySelector(`[data-id="${CSS.escape(sourceId)}"]`);
+        const targetRow = $('itemList').querySelector(`[data-id="${CSS.escape(targetId)}"]`);
+        if (!sourceRow || !targetRow) return Promise.resolve();
+        const sourceRect = sourceRow.getBoundingClientRect();
+        const targetRect = targetRow.getBoundingClientRect();
+        sourceRow.style.setProperty('--merge-x',
+          `${targetRect.left + targetRect.width / 2 - sourceRect.left - sourceRect.width / 2}px`);
+        sourceRow.style.setProperty('--merge-y',
+          `${targetRect.top + targetRect.height / 2 - sourceRect.top - sourceRect.height / 2}px`);
+        sourceRow.classList.add('merging-away');
+        targetRow.classList.add('merge-receiving');
+        return new Promise(resolve => setTimeout(resolve, 360));
       }
 
       function escapeHtml(value) {
@@ -2532,7 +2771,9 @@
         $('itemList').innerHTML = sorted.length ? sorted.map(item => `
           <article class="item ${item.id === selectedItemId ? 'selected' : ''} ${item.starred ? 'starred' : ''}" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" role="button" tabindex="0" aria-selected="${item.id === selectedItemId ? 'true' : 'false'}">
             <div class="item-top">
-              <button class="drag-handle" type="button" title="Drag onto another item to combine evidence${workSort === 'manual' ? '; use its top or bottom edge to reorder' : ''}" aria-label="Drag work item">↕</button>
+              <button class="drag-handle" type="button" title="Drag onto another item to combine evidence${workSort === 'manual' ? '; use its top or bottom edge to reorder' : ''}" aria-label="Grab and move work item">
+                <span class="drag-bar"></span><span class="drag-bar"></span><span class="drag-bar"></span>
+              </button>
               <div class="item-copy">
                 <div class="item-title">${escapeHtml(item.title)}</div>
                 <div class="item-meta">
@@ -2839,10 +3080,11 @@
       }
 
       async function setView(view, resize = true) {
-        currentView = ['work', 'map', 'memory', 'setup'].includes(view) ? view : 'work';
+        currentView = ['work', 'map', 'scratchpad', 'memory', 'setup'].includes(view) ? view : 'work';
         localStorage.setItem('dev-buddy-view', currentView);
         $('workView').hidden = currentView !== 'work';
         $('mapView').hidden = currentView !== 'map';
+        $('scratchpadView').hidden = currentView !== 'scratchpad';
         $('memoryView').hidden = currentView !== 'memory';
         $('setupView').hidden = currentView !== 'setup';
         for (const button of document.querySelectorAll('[data-view-target]')) {
@@ -2887,6 +3129,75 @@
         input.select();
         document.execCommand('copy');
         input.remove();
+      }
+
+      function clearScratchpadResult() {
+        scratchpadResult = null;
+        scratchpadRewrite = '';
+        localStorage.removeItem('dev-buddy-scratchpad-result');
+        $('scratchpadResults').hidden = true;
+        $('scratchpadCopy').disabled = true;
+      }
+
+      function renderScratchpadResult(result) {
+        scratchpadResult = result;
+        scratchpadRewrite = String(result?.rewrite || '');
+        $('scratchpadRead').textContent = result?.read || 'Pixel focused on the rewrite without additional tone feedback.';
+        const gaps = Array.isArray(result?.gaps) ? result.gaps : [];
+        $('scratchpadGapsCard').hidden = !gaps.length;
+        $('scratchpadGaps').innerHTML = gaps.map(gap => `
+          <div class="scratchpad-gap">
+            <strong>${escapeHtml(gap.title)}</strong>
+            <div>${escapeHtml(gap.detail)}</div>
+            ${gap.action ? `<span>${escapeHtml(gap.action)}</span>` : ''}
+          </div>`).join('');
+        const changes = Array.isArray(result?.changes) ? result.changes : [];
+        $('scratchpadChanges').innerHTML = changes.length
+          ? `<ul class="scratchpad-changes">${changes.map(change => `<li>${escapeHtml(change)}</li>`).join('')}</ul>`
+          : '<div class="scratchpad-muted">Pixel kept the message close to your original.</div>';
+        $('scratchpadRewrite').textContent = scratchpadRewrite;
+        $('scratchpadResults').hidden = false;
+        $('scratchpadCopy').disabled = !scratchpadRewrite;
+      }
+
+      async function improveScratchpad() {
+        const body = $('scratchpadInput').value.trim();
+        if (body.length < 20) {
+          $('scratchpadStatus').textContent = 'Add a little more text so Pixel has enough context to help.';
+          return;
+        }
+        const sequence = ++scratchpadSequence;
+        scratchpadBusy = true;
+        $('scratchpadImprove').disabled = true;
+        $('scratchpadImprove').textContent = 'Reviewing…';
+        $('scratchpadStatus').textContent = 'Pixel is checking tone, clarity, inclusion, and message strength…';
+        try {
+          const result = await request('/api/dev-buddy/compose/rewrite', {
+            method: 'POST',
+            body: JSON.stringify({
+              body,
+              context: '',
+              subject: '',
+              style: $('scratchpadStyle').value,
+            }),
+          });
+          if (sequence !== scratchpadSequence || $('scratchpadInput').value.trim() !== body) return;
+          const saved = { ...result, source: body, style: $('scratchpadStyle').value };
+          localStorage.setItem('dev-buddy-scratchpad-result', JSON.stringify(saved));
+          renderScratchpadResult(saved);
+          $('scratchpadStatus').textContent = result.cached
+            ? 'Restored Pixel’s review for this text.'
+            : 'Review complete. Copy Pixel’s version when it is ready to use.';
+        } catch (error) {
+          if (sequence !== scratchpadSequence) return;
+          $('scratchpadStatus').textContent = error.message || 'Pixel could not review this text.';
+        } finally {
+          if (sequence === scratchpadSequence) {
+            scratchpadBusy = false;
+            $('scratchpadImprove').disabled = false;
+            $('scratchpadImprove').textContent = 'Review and improve';
+          }
+        }
       }
 
       async function load(refresh = false) {
@@ -3318,6 +3629,45 @@
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
       }
+      $('scratchpadInput').value = localStorage.getItem('dev-buddy-scratchpad') || '';
+      $('scratchpadStyle').value = localStorage.getItem('dev-buddy-scratchpad-style') || 'balanced';
+      if (scratchpadResult?.source === $('scratchpadInput').value.trim() &&
+          scratchpadResult?.style === $('scratchpadStyle').value) {
+        renderScratchpadResult(scratchpadResult);
+      } else {
+        clearScratchpadResult();
+      }
+      $('scratchpadInput').addEventListener('input', () => {
+        localStorage.setItem('dev-buddy-scratchpad', $('scratchpadInput').value);
+        scratchpadSequence++;
+        scratchpadBusy = false;
+        $('scratchpadImprove').disabled = false;
+        $('scratchpadImprove').textContent = 'Review and improve';
+        $('scratchpadStatus').textContent = 'Draft saved locally. Review again when you are ready.';
+        clearScratchpadResult();
+      });
+      $('scratchpadStyle').addEventListener('change', () => {
+        localStorage.setItem('dev-buddy-scratchpad-style', $('scratchpadStyle').value);
+        clearScratchpadResult();
+        $('scratchpadStatus').textContent = 'Style changed. Review again for an updated version.';
+      });
+      $('scratchpadImprove').addEventListener('click', improveScratchpad);
+      $('scratchpadCopy').addEventListener('click', async () => {
+        if (!scratchpadRewrite) return;
+        await copyText(scratchpadRewrite);
+        $('scratchpadStatus').textContent = 'Pixel’s version is copied and ready to paste.';
+      });
+      $('scratchpadClear').addEventListener('click', () => {
+        scratchpadSequence++;
+        scratchpadBusy = false;
+        $('scratchpadInput').value = '';
+        $('scratchpadImprove').disabled = false;
+        $('scratchpadImprove').textContent = 'Review and improve';
+        localStorage.removeItem('dev-buddy-scratchpad');
+        clearScratchpadResult();
+        $('scratchpadStatus').textContent = 'Scratchpad cleared.';
+        $('scratchpadInput').focus();
+      });
       $('installOutlookAddin').addEventListener('click', async () => {
         $('installOutlookAddin').disabled = true;
         showOperationStatus('Opening Microsoft’s Pixel installer…');
@@ -3971,14 +4321,15 @@
           throw new Error('Only tracked work items can be combined.');
         }
         showOperationStatus(`Combining “${source.title}” into “${target.title}”…`);
-        await request('/api/dev-buddy/efforts/' + encodeURIComponent(target.effortId) + '/merge', {
+        const animation = animateMerge(sourceId, targetId);
+        const result = await request('/api/dev-buddy/efforts/' + encodeURIComponent(target.effortId) + '/merge', {
           method: 'POST',
           body: JSON.stringify({ sourceId: source.effortId }),
         });
-        selectedItemId = target.id;
-        localStorage.setItem('dev-buddy-selected-item', selectedItemId);
-        await load(true);
+        await animation;
+        optimisticMerge(sourceId, targetId, result.target);
         showOperationStatus('Combined. The dragged item is now evidence of the target item.', 'done', 2600);
+        setTimeout(() => load(), 900);
       }
 
       $('itemList').addEventListener('pointerdown', event => {
