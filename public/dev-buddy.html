@@ -552,6 +552,73 @@
       gap: 8px 14px;
       margin-top: 16px;
     }
+    .work-notes {
+      max-width: 980px;
+      margin-top: 18px;
+      padding: 14px 16px;
+      border: 1px solid var(--cp-border);
+      border-left: 3px solid var(--cp-accent);
+      border-radius: 10px;
+      background: var(--cp-surface);
+    }
+    .work-notes-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .work-notes-title { margin: 0; font-size: 13px; }
+    .work-notes-body { color: var(--cp-text); font-size: 13px; line-height: 1.55; }
+    .work-notes-body > :first-child { margin-top: 0; }
+    .work-notes-body > :last-child { margin-bottom: 0; }
+    .work-notes-body h1,
+    .work-notes-body h2,
+    .work-notes-body h3 { margin: 14px 0 6px; font-size: 14px; }
+    .work-notes-body p { margin: 8px 0; }
+    .work-notes-body ul,
+    .work-notes-body ol { margin: 8px 0; padding-left: 22px; }
+    .work-notes-body blockquote {
+      margin: 8px 0;
+      padding-left: 10px;
+      border-left: 2px solid var(--cp-border-strong);
+      color: var(--cp-text-muted);
+    }
+    .work-notes-body pre {
+      overflow: auto;
+      padding: 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-surface-soft);
+      font-family: Consolas, "Courier New", Courier, monospace;
+      white-space: pre-wrap;
+    }
+    .work-notes-body code {
+      font-family: Consolas, "Courier New", Courier, monospace;
+      background: var(--cp-surface-soft);
+    }
+    .note-task {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    .note-task input { margin-top: 4px; }
+    .note-task.done span { color: var(--cp-text-muted); text-decoration: line-through; }
+    .notes-empty { color: var(--cp-text-muted); }
+    .notes-editor {
+      width: 100%;
+      min-height: 150px;
+      resize: vertical;
+      padding: 10px;
+      border: 1px solid var(--cp-border-strong);
+      border-radius: 8px;
+      background: var(--cp-bg-elevated);
+      color: var(--cp-text);
+      font: 13px/1.5 Consolas, "Courier New", Courier, monospace;
+    }
+    .notes-help { margin-top: 7px; color: var(--cp-text-muted); font-size: 11px; }
+    .notes-actions { display: flex; gap: 8px; margin-top: 10px; }
     .detail-tabs {
       display: flex;
       gap: 22px;
@@ -1823,6 +1890,8 @@
       const detailInsights = new Map();
       const detailContexts = new Map();
       const detailTabs = new Map();
+      const noteDrafts = new Map();
+      const notesEditing = new Set();
       let detailInsightSequence = 0;
       let detailContextSequence = 0;
       let mapTransform = { x: 24, y: 24, scale: 1 };
@@ -1894,6 +1963,117 @@
         return String(value || '').replace(/[&<>"']/g, char => ({
           '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
         })[char]);
+      }
+
+      function renderNoteInline(value) {
+        return escapeHtml(value)
+          .replace(/`([^`]+)`/g, '<code>$1</code>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+          .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+          .replace(/_([^_]+)_/g, '<em>$1</em>')
+          .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+            '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      }
+
+      function renderNotesMarkdown(markdown) {
+        const lines = String(markdown || '').replace(/\r/g, '').split('\n');
+        const html = [];
+        for (let index = 0; index < lines.length;) {
+          const line = lines[index];
+          const task = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.*)$/);
+          if (task) {
+            const checked = task[1].toLowerCase() === 'x';
+            html.push(`<label class="note-task ${checked ? 'done' : ''}">
+              <input type="checkbox" data-note-task-line="${index}" ${checked ? 'checked' : ''}>
+              <span>${renderNoteInline(task[2])}</span>
+            </label>`);
+            index++;
+            continue;
+          }
+          if (/^\s*[-*]\s+/.test(line)) {
+            const items = [];
+            while (index < lines.length && /^\s*[-*]\s+/.test(lines[index]) &&
+                !/^\s*[-*]\s+\[[ xX]\]\s+/.test(lines[index])) {
+              items.push(`<li>${renderNoteInline(lines[index].replace(/^\s*[-*]\s+/, ''))}</li>`);
+              index++;
+            }
+            html.push(`<ul>${items.join('')}</ul>`);
+            continue;
+          }
+          if (/^\s*\d+\.\s+/.test(line)) {
+            const items = [];
+            while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
+              items.push(`<li>${renderNoteInline(lines[index].replace(/^\s*\d+\.\s+/, ''))}</li>`);
+              index++;
+            }
+            html.push(`<ol>${items.join('')}</ol>`);
+            continue;
+          }
+          if (/^```/.test(line)) {
+            const code = [];
+            index++;
+            while (index < lines.length && !/^```/.test(lines[index])) code.push(lines[index++]);
+            if (index < lines.length) index++;
+            html.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`);
+            continue;
+          }
+          const heading = line.match(/^(#{1,3})\s+(.*)$/);
+          if (heading) {
+            const level = heading[1].length;
+            html.push(`<h${level}>${renderNoteInline(heading[2])}</h${level}>`);
+            index++;
+            continue;
+          }
+          const quote = line.match(/^>\s?(.*)$/);
+          if (quote) {
+            html.push(`<blockquote>${renderNoteInline(quote[1])}</blockquote>`);
+            index++;
+            continue;
+          }
+          if (/^\s*---+\s*$/.test(line)) {
+            html.push('<hr>');
+            index++;
+            continue;
+          }
+          if (!line.trim()) {
+            index++;
+            continue;
+          }
+          const paragraph = [line];
+          index++;
+          while (index < lines.length && lines[index].trim() &&
+              !/^(#{1,3})\s+|^```|^>\s?|^\s*[-*]\s+|^\s*\d+\.\s+|^\s*---+\s*$/.test(lines[index])) {
+            paragraph.push(lines[index++]);
+          }
+          html.push(`<p>${paragraph.map(renderNoteInline).join('<br>')}</p>`);
+        }
+        return html.join('');
+      }
+
+      function renderWorkNotes(item) {
+        const editing = notesEditing.has(item.id);
+        const notes = noteDrafts.has(item.id) ? noteDrafts.get(item.id) : String(item.notes || '');
+        if (editing) {
+          return `<section class="work-notes" data-notes-for="${escapeHtml(item.id)}">
+            <div class="work-notes-head"><h3 class="work-notes-title">Notes</h3></div>
+            <textarea class="notes-editor" data-notes-editor placeholder="- [ ] Add the next step&#10;&#10;Capture decisions, links, blockers, or context here.">${escapeHtml(notes)}</textarea>
+            <div class="notes-help">Markdown supported: headings, lists, links, emphasis, code, and task checkboxes using <code>- [ ]</code>.</div>
+            <div class="notes-actions">
+              <button class="detail-primary" type="button" data-notes-action="save">Save notes</button>
+              <button class="text-action" type="button" data-notes-action="cancel">Cancel</button>
+            </div>
+          </section>`;
+        }
+        return `<section class="work-notes" data-notes-for="${escapeHtml(item.id)}">
+          <div class="work-notes-head">
+            <h3 class="work-notes-title">Notes</h3>
+            <button class="text-action" type="button" data-notes-action="edit">${notes ? 'Edit' : 'Add notes'}</button>
+          </div>
+          <div class="work-notes-body ${notes ? '' : 'notes-empty'}">
+            ${notes ? renderNotesMarkdown(notes) : 'Add progress, decisions, blockers, or what you need to do next.'}
+          </div>
+        </section>`;
       }
 
       function itemArrival(item) {
@@ -2293,6 +2473,7 @@
                 </label>
                 <button class="text-action" type="button" data-action="remind-at">Set</button>
               </div>
+              ${renderWorkNotes(selected)}
               <nav class="detail-tabs" aria-label="Item detail views">
                 <button class="detail-tab ${detailTab === 'context' ? 'active' : ''}" type="button" data-detail-tab="context">Context</button>
                 <button class="detail-tab ${detailTab === 'tracking' ? 'active' : ''}" type="button" data-detail-tab="tracking">Tracking &amp; plan</button>
@@ -2857,6 +3038,14 @@
         if (!panelOpen) await setMode('idle');
       }
 
+      async function resetPeekAfterAction() {
+        clearTimeout(peekTimer);
+        clearTimeout(closeTimer);
+        peekOpen = false;
+        $('hoverPreview').classList.remove('show');
+        if (!panelOpen) await setMode('idle');
+      }
+
       async function beginWindowAction(command) {
         const fn = invoke();
         if (!fn) return;
@@ -3402,6 +3591,37 @@
         if (reload) await load();
       }
 
+      function setLocalItemNotes(itemId, notes) {
+        const update = entries => (entries || []).map(entry =>
+          entry.id === itemId ? { ...entry, notes } : entry);
+        status = {
+          ...status,
+          list: update(status?.list),
+          signals: update(status?.signals),
+          items: update(status?.items),
+          efforts: update(status?.efforts),
+        };
+      }
+
+      async function saveItemNotes(item, notes) {
+        const previous = String(item.notes || '');
+        setLocalItemNotes(item.id, notes);
+        noteDrafts.delete(item.id);
+        notesEditing.delete(item.id);
+        renderWorkDetail(sortedWorkItems(status?.list || []));
+        try {
+          await updateListItem(item, { notes }, false);
+          void load();
+          showOperationStatus('Notes saved.', 'done', 1600);
+        } catch (error) {
+          setLocalItemNotes(item.id, previous);
+          noteDrafts.set(item.id, notes);
+          notesEditing.add(item.id);
+          renderWorkDetail(sortedWorkItems(status?.list || []));
+          showOperationStatus(error.message || 'Pixel could not save these notes.', 'error', 3500);
+        }
+      }
+
       async function loadItemContext(item, token = ++detailContextSequence, signature = detailContextSignature(item)) {
         if (!item) return;
         const current = detailContexts.get(item.id);
@@ -3571,14 +3791,49 @@
       });
 
       $('itemDetail').addEventListener('change', event => {
+        const task = event.target.closest('[data-note-task-line]');
+        if (task) {
+          const item = findItemById(event.target.closest('[data-detail-id]')?.dataset.detailId);
+          if (!item) return;
+          const lines = String(item.notes || '').replace(/\r/g, '').split('\n');
+          const index = Number(task.dataset.noteTaskLine);
+          if (!Number.isInteger(index) || !lines[index]) return;
+          lines[index] = lines[index].replace(
+            /^(\s*[-*]\s+\[)[ xX](\])/,
+            `$1${task.checked ? 'x' : ' '}$2`
+          );
+          void saveItemNotes(item, lines.join('\n'));
+          return;
+        }
         const select = event.target.closest('[data-reminder-in]');
         const item = findItemById(event.target.closest('[data-detail-id]')?.dataset.detailId);
         if (select) remindIn(select, item, $('itemList').querySelector(`[data-id="${CSS.escape(item?.id || '')}"]`));
+      });
+      $('itemDetail').addEventListener('input', event => {
+        const editor = event.target.closest('[data-notes-editor]');
+        const itemId = event.target.closest('[data-detail-id]')?.dataset.detailId;
+        if (editor && itemId) noteDrafts.set(itemId, editor.value);
       });
       $('itemDetail').addEventListener('click', async event => {
         const tab = event.target.closest('[data-detail-tab]')?.dataset.detailTab;
         const scope = event.target.closest('[data-detail-id]');
         const item = findItemById(scope?.dataset.detailId);
+        const notesAction = event.target.closest('[data-notes-action]')?.dataset.notesAction;
+        if (notesAction && item) {
+          if (notesAction === 'edit') {
+            noteDrafts.set(item.id, String(item.notes || ''));
+            notesEditing.add(item.id);
+            renderWorkDetail(sortedWorkItems(status?.list || []));
+            setTimeout(() => $('itemDetail').querySelector('[data-notes-editor]')?.focus(), 0);
+          } else if (notesAction === 'cancel') {
+            noteDrafts.delete(item.id);
+            notesEditing.delete(item.id);
+            renderWorkDetail(sortedWorkItems(status?.list || []));
+          } else if (notesAction === 'save') {
+            await saveItemNotes(item, String(noteDrafts.get(item.id) || '').trim());
+          }
+          return;
+        }
         if (tab && item) {
           detailTabs.set(item.id, tab === 'tracking' ? 'tracking' : 'context');
           renderWorkDetail(sortedWorkItems(status?.list || []));
@@ -3637,7 +3892,13 @@
         }
         if (action === 'done' || action === 'star') {
           const listRow = $('itemList').querySelector(`[data-id="${CSS.escape(item.id)}"]`);
-          await handleWorkAction(action, item, listRow, row);
+          try {
+            await handleWorkAction(action, item, listRow, row);
+          } catch (error) {
+            showOperationStatus(error.message || 'Pixel could not update that item.', 'error', 3500);
+          } finally {
+            if (action === 'done') await resetPeekAfterAction();
+          }
         }
       });
 

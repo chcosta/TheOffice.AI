@@ -296,6 +296,7 @@ function addItem(input = {}) {
     id: `buddy-${crypto.randomUUID()}`,
     title,
     detail: cleanText(input.detail, 500),
+    notes: cleanMessage(input.notes, 12000),
     priority: normalizePriority(input.priority),
     source: cleanText(input.source, 80) || 'You',
     link: cleanText(input.link, 1200),
@@ -320,6 +321,7 @@ function updateItem(id, patch = {}) {
     item.title = title;
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'detail')) item.detail = cleanText(patch.detail, 500);
+  if (Object.prototype.hasOwnProperty.call(patch, 'notes')) item.notes = cleanMessage(patch.notes, 12000);
   if (Object.prototype.hasOwnProperty.call(patch, 'starred')) item.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
@@ -485,6 +487,7 @@ function updateCommitment(id, patch = {}) {
   const store = readStore();
   const item = store.commitments.find(entry => entry && entry.id === id);
   if (!item) return null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'notes')) item.notes = cleanMessage(patch.notes, 12000);
   if (Object.prototype.hasOwnProperty.call(patch, 'starred')) item.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
@@ -584,6 +587,7 @@ function updateSignal(fingerprint, patch = {}, item = {}) {
     ? store.signalStates[key]
     : {};
   const next = { ...current };
+  if (Object.prototype.hasOwnProperty.call(patch, 'notes')) next.notes = cleanMessage(patch.notes, 12000);
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
     if (priority !== current.priority) recordActivity(store, 'reprioritized', key, item.title, item.source);
@@ -741,6 +745,7 @@ function materializeEffort(effort) {
     kind: 'effort',
     title: effort.title || primary.title || 'Tracked effort',
     detail: effort.summary || primary.detail || 'Pixel is connecting the available evidence.',
+    notes: cleanMessage(effort.notes, 12000),
     priority: effortPriority(observations, effort.priority),
     starred: effort.starred === true,
     status: effort.status || 'open',
@@ -990,6 +995,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
     const mergedObservations = new Map((target.observations || [])
       .filter(Boolean).map(observation => [observation.key, observation]));
     let starred = target.starred === true;
+    const mergedNotes = [cleanMessage(target.notes, 12000)].filter(Boolean);
     let earliest = Date.parse(target.createdAt || now);
     let latest = Date.parse(target.lastObservedAt || target.updatedAt || now);
     for (const id of sourceIds) {
@@ -997,6 +1003,8 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       if (!source) continue;
       consumed.add(id);
       starred = starred || source.starred === true;
+      const sourceNotes = cleanMessage(source.notes, 12000);
+      if (sourceNotes && !mergedNotes.includes(sourceNotes)) mergedNotes.push(sourceNotes);
       const sourceCreatedAt = Date.parse(source.createdAt || '');
       const sourceObservedAt = Date.parse(source.lastObservedAt || source.updatedAt || '');
       if (Number.isFinite(sourceCreatedAt)) earliest = Math.min(earliest, sourceCreatedAt);
@@ -1017,6 +1025,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       target.summary = cleanText(group.summary, 1200) || target.summary;
     }
     target.starred = starred;
+    target.notes = mergedNotes.join('\n\n---\n\n');
     target.needsClassification = false;
     target.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
     target.classificationReason = blockedBySeparation
@@ -1116,6 +1125,7 @@ function updateEffort(id, patch = {}) {
   const store = readStore();
   const effort = store.efforts.find(entry => entry && entry.id === id);
   if (!effort) return null;
+  if (Object.prototype.hasOwnProperty.call(patch, 'notes')) effort.notes = cleanMessage(patch.notes, 12000);
   if (Object.prototype.hasOwnProperty.call(patch, 'starred')) effort.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);

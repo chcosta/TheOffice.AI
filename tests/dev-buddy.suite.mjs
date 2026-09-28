@@ -22,6 +22,14 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     'work list exposes urgency and arrival sorting');
   t.ok(/id="hoverPreview"/.test(html) && /class="preview-list"/.test(html),
     'hover preview exposes the complete scrollable list');
+  t.ok(/function resetPeekAfterAction\(\)/.test(html) &&
+    /if \(action === 'done'\) await resetPeekAfterAction\(\)/.test(html),
+  'completing a hover item resets the native peek window for the next hover');
+  t.ok(/function renderWorkNotes\(item\)/.test(html) &&
+    /function renderNotesMarkdown\(markdown\)/.test(html) &&
+    /data-note-task-line/.test(html) &&
+    /await saveItemNotes\(item/.test(html),
+  'work items expose persistent Markdown notes with interactive task checkboxes');
   t.ok(/"peek"\s*=>\s*\(400,\s*u32::MAX\)/.test(desktop) &&
     /max-height:\s*calc\(100vh - var\(--buddy-top\) - 208px\)/.test(html),
   'hover preview uses the available monitor height');
@@ -148,6 +156,9 @@ await t.test('memory items persist, reprioritize, snooze, and complete', () => {
   t.eq(snoozed.priority, 'low', 'priority update persists');
   t.ok(snoozed.starred, 'starred state persists');
   t.ok(snoozed.snoozed, 'future snooze is active');
+  buddy.updateItem(item.id, { notes: '# Progress\n- [ ] Verify the fix' });
+  t.eq(buddy.listItems()[0].notes, '# Progress\n- [ ] Verify the fix',
+    'work-item Markdown notes persist verbatim');
   buddy.updateItem(item.id, { status: 'done' });
   t.ok(!buddy.listItems().some(entry => entry.id === item.id), 'completed memory leaves the open list');
 });

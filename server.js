@@ -3246,6 +3246,7 @@ function _devBuddyDecorateItem(item) {
   return {
     ...item,
     priority,
+    notes: item.fingerprint ? String(signalState.notes || '') : String(item.notes || ''),
     starred: item.fingerprint ? starState.starred === true : item.starred === true,
     kind: item.kind || 'memory',
     trackedAt,
