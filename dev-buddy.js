@@ -1121,6 +1121,71 @@ function detachEffortObservation(effortId, observationKey) {
   };
 }
 
+function mergeEfforts(sourceId, targetId) {
+  const sourceKey = cleanText(sourceId, 200);
+  const targetKey = cleanText(targetId, 200);
+  if (!sourceKey || !targetKey || sourceKey === targetKey) {
+    throw new Error('Choose two different work items to combine.');
+  }
+  const store = readStore();
+  const source = store.efforts.find(entry =>
+    entry && entry.id === sourceKey && !['done', 'dismissed'].includes(entry.status));
+  const target = store.efforts.find(entry =>
+    entry && entry.id === targetKey && !['done', 'dismissed'].includes(entry.status));
+  if (!source || !target) return null;
+
+  const sourceObservations = (source.observations || []).filter(entry => entry && entry.key);
+  const targetObservations = (target.observations || []).filter(entry => entry && entry.key);
+  const observations = new Map(targetObservations.map(entry => [entry.key, entry]));
+  for (const observation of sourceObservations) {
+    observations.set(observation.key, observation);
+    store.effortAssignments[observation.key] = {
+      effortId: target.id,
+      signature: observation.signature || '',
+    };
+  }
+
+  const sourceObservationKeys = new Set(sourceObservations.map(entry => entry.key));
+  const targetObservationKeys = new Set(targetObservations.map(entry => entry.key));
+  for (const [key, separation] of Object.entries(store.effortSeparations)) {
+    const left = separation && separation.leftKey;
+    const right = separation && separation.rightKey;
+    if ((sourceObservationKeys.has(left) && targetObservationKeys.has(right)) ||
+        (sourceObservationKeys.has(right) && targetObservationKeys.has(left))) {
+      delete store.effortSeparations[key];
+    }
+  }
+
+  const notes = [cleanMessage(target.notes, 12000), cleanMessage(source.notes, 12000)]
+    .filter((value, index, all) => value && all.indexOf(value) === index);
+  const priorityRank = { low: 1, normal: 2, high: 3 };
+  const sourcePriority = normalizePriority(source.priority);
+  const targetPriority = normalizePriority(target.priority);
+  const createdTimes = [target.createdAt, source.createdAt].map(Date.parse).filter(Number.isFinite);
+  const observedTimes = [target.lastObservedAt, source.lastObservedAt, target.updatedAt, source.updatedAt]
+    .map(Date.parse).filter(Number.isFinite);
+  const now = new Date().toISOString();
+
+  target.observations = [...observations.values()].slice(-80);
+  target.notes = notes.join('\n\n---\n\n');
+  target.starred = target.starred === true || source.starred === true;
+  target.priority = priorityRank[sourcePriority] > priorityRank[targetPriority]
+    ? sourcePriority
+    : target.priority;
+  target.needsClassification = false;
+  target.classificationAttempts = 0;
+  target.classificationConfidence = 1;
+  target.classificationReason = 'Combined manually by the user.';
+  target.evidenceEpoch = Number(target.evidenceEpoch || 0) + 1;
+  target.createdAt = createdTimes.length ? new Date(Math.min(...createdTimes)).toISOString() : target.createdAt;
+  target.lastObservedAt = observedTimes.length ? new Date(Math.max(...observedTimes)).toISOString() : now;
+  target.updatedAt = now;
+  store.efforts = store.efforts.filter(entry => entry && entry.id !== source.id);
+  store.manualOrder = store.manualOrder.filter(id => id !== source.id);
+  writeStore(store);
+  return { sourceId: source.id, target: materializeEffort(target) };
+}
+
 function updateEffort(id, patch = {}) {
   const store = readStore();
   const effort = store.efforts.find(entry => entry && entry.id === id);
@@ -1329,6 +1394,7 @@ module.exports = {
   listRecentActivity,
   listCommitments,
   listItems,
+  mergeEfforts,
   restoreRecentActivity,
   setManualOrder,
   setCommitmentSync,

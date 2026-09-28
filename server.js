@@ -5153,6 +5153,23 @@ app.post('/api/dev-buddy/efforts/:id/evidence/unrelated', (req, res) => {
   }
 });
 
+app.post('/api/dev-buddy/efforts/:id/merge', (req, res) => {
+  try {
+    const sourceId = String(req.body && req.body.sourceId || '').trim();
+    if (!sourceId) return res.status(400).json({ error: 'sourceId is required.' });
+    const result = devBuddy.mergeEfforts(sourceId, req.params.id);
+    if (!result) return res.status(404).json({ error: 'One of the work items is no longer available.' });
+    broadcastSSE('dev-buddy-changed', {
+      action: 'efforts-merged',
+      sourceId: result.sourceId,
+      effort: result.target,
+    });
+    res.json({ ok: true, ...result });
+  } catch (error) {
+    res.status(400).json({ error: error.message || 'Could not combine these work items.' });
+  }
+});
+
 app.put('/api/dev-buddy/order', (req, res) => {
   const ids = Array.isArray(req.body && req.body.ids) ? req.body.ids : null;
   if (!ids) return res.status(400).json({ error: 'ids must be an array' });

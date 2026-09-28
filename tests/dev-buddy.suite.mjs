@@ -586,6 +586,44 @@ await t.test('user-separated evidence is re-triaged without being regrouped', ()
     'the retained effort explains why the classifier kept the evidence separate');
 });
 
+await t.test('users can manually combine duplicate efforts', () => {
+  const observations = [
+    {
+      id: 'manual-merge-pr',
+      reminderKey: 'manual-merge-pr',
+      kind: 'pull-request',
+      title: 'Autoscaler rollout change',
+      detail: 'Review the rollout PR.',
+      source: 'Code Flow',
+      trackedAt: '2026-09-28T08:00:00Z',
+    },
+    {
+      id: 'manual-merge-email',
+      reminderKey: 'manual-merge-email',
+      kind: 'email',
+      title: 'Coordinate autoscaler rollout',
+      detail: 'Coordinate deployment timing.',
+      source: 'Outlook',
+      trackedAt: '2026-09-28T08:10:00Z',
+    },
+  ];
+  let state = buddy.syncEffortObservations(observations);
+  const source = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === 'manual-merge-email'));
+  const target = state.efforts.find(effort =>
+    effort.observations.some(entry => entry.key === 'manual-merge-pr'));
+  buddy.updateEffort(source.id, { notes: '- [ ] Follow up with deployment owners', starred: true });
+  const result = buddy.mergeEfforts(source.id, target.id);
+  t.eq(result.target.id, target.id, 'the drop target keeps its identity');
+  t.eq(result.target.observations.length, 2, 'source evidence moves into the target');
+  t.ok(result.target.notes.includes('Follow up with deployment owners') && result.target.starred,
+    'source notes and star state survive the merge');
+  state = buddy.syncEffortObservations(observations);
+  t.eq(state.efforts.filter(effort =>
+    effort.observations.some(entry => ['manual-merge-pr', 'manual-merge-email'].includes(entry.key))).length, 1,
+  'future observation sync preserves the manual grouping');
+});
+
 await t.test('efforts preserve urgency, reconcile cleared evidence, and complete source records', () => {
   const critical = {
     id: 'effort-critical-signal',
@@ -652,6 +690,10 @@ await t.test('effort APIs and UI route work-list actions through durable efforts
     /evidence\/unrelated/.test(html) &&
     /app\.post\('\/api\/dev-buddy\/efforts\/:id\/evidence\/unrelated'/.test(server),
   'connected evidence can be marked unrelated and sent back through triage');
+  t.ok(/function mergeWorkItems\(sourceId, targetId\)/.test(html) &&
+    /classList\.add\('merge-target'\)/.test(html) &&
+    /app\.post\('\/api\/dev-buddy\/efforts\/:id\/merge'/.test(server),
+  'dragging one work item onto another can make it evidence of the target');
   t.ok(/resolveModel\('execution', null\)/.test(server) &&
     /category: 'effort-classification'/.test(server),
   'effort classification uses the configured execution model');
