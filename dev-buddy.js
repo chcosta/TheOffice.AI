@@ -686,6 +686,11 @@ function effortObservationSnapshot(item, key) {
     dueAt: snapshot.dueAt,
     context: materialContext,
   })).digest('hex');
+  snapshot.reopenSignature = crypto.createHash('sha1').update(JSON.stringify({
+    key: snapshot.key,
+    dueAt: snapshot.dueAt,
+    context: materialContext,
+  })).digest('hex');
   snapshot.presentationSignature = crypto.createHash('sha1').update(JSON.stringify({
     detail: snapshot.detail,
     source: snapshot.source,
@@ -792,6 +797,31 @@ function syncEffortObservations(input = []) {
   const activeKeys = new Set(observations.map(observation => observation.key));
   let changed = false;
   const effortsById = new Map(store.efforts.filter(Boolean).map(effort => [effort.id, effort]));
+  const latestCompletions = new Map();
+  for (const activity of store.activity) {
+    if (!activity || activity.type !== 'completed' || !activity.id) continue;
+    const current = latestCompletions.get(activity.id);
+    if (!current || Date.parse(activity.at || 0) > Date.parse(current.at || 0)) {
+      latestCompletions.set(activity.id, activity);
+    }
+  }
+  for (const effort of store.efforts) {
+    if (!effort || effort.completionReopenPolicyVersion === 1) continue;
+    effort.completionReopenPolicyVersion = 1;
+    const completion = latestCompletions.get(effort.id);
+    if (completion && effort.status === 'open') {
+      effort.status = 'done';
+      effort.completedAt = completion.at || now;
+      effort.needsClassification = false;
+      for (const observation of effort.observations || []) {
+        const sourceItem = store.items.find(item => item && item.id === observation.id);
+        if (sourceItem) sourceItem.status = 'done';
+        const commitment = store.commitments.find(item => item && item.id === observation.id);
+        if (commitment) commitment.status = 'done';
+      }
+    }
+    changed = true;
+  }
 
   for (const observation of observations) {
     const savedAssignment = store.effortAssignments[observation.key];
@@ -800,13 +830,44 @@ function syncEffortObservations(input = []) {
       : savedAssignment && typeof savedAssignment === 'object' ? savedAssignment : null;
     let effort = assignment && effortsById.get(assignment.effortId);
     if (effort && ['done', 'dismissed'].includes(effort.status)) {
-      if (effort.autoResolvedAt || assignment.signature !== observation.signature) {
+      const storedObservation = (effort.observations || [])
+        .find(entry => entry && entry.key === observation.key);
+      const priorReopenSignature = assignment.reopenSignature ||
+        storedObservation && storedObservation.reopenSignature || '';
+      const lifecycleChanged = !!(
+        priorReopenSignature &&
+        priorReopenSignature !== observation.reopenSignature
+      );
+      if (effort.autoResolvedAt || lifecycleChanged) {
         effort.status = 'open';
         effort.autoResolvedAt = null;
+        effort.completedAt = null;
         effort.needsClassification = true;
         effort.updatedAt = now;
+        store.activity = store.activity.filter(entry =>
+          !(entry && entry.id === effort.id && entry.type === 'completed'));
+        recordActivity(store, 'reopened', effort.id, effort.title, 'Pixel effort');
         changed = true;
       } else {
+        if (assignment.effortId !== effort.id ||
+            assignment.signature !== observation.signature ||
+            assignment.reopenSignature !== observation.reopenSignature) {
+          store.effortAssignments[observation.key] = {
+            effortId: effort.id,
+            signature: observation.signature,
+            reopenSignature: observation.reopenSignature,
+          };
+          changed = true;
+        }
+        if (storedObservation &&
+            (storedObservation.signature !== observation.signature ||
+             storedObservation.presentationSignature !== observation.presentationSignature ||
+             storedObservation.reopenSignature !== observation.reopenSignature)) {
+          const missingSince = storedObservation.missingSince;
+          Object.assign(storedObservation, observation);
+          if (missingSince) storedObservation.missingSince = missingSince;
+          changed = true;
+        }
         continue;
       }
     }
@@ -850,8 +911,15 @@ function syncEffortObservations(input = []) {
       delete currentObservation.missingSince;
       changed = true;
     }
-    const nextAssignment = { effortId: effort.id, signature: observation.signature };
-    if (!assignment || assignment.effortId !== effort.id || assignment.signature !== observation.signature) {
+    const nextAssignment = {
+      effortId: effort.id,
+      signature: observation.signature,
+      reopenSignature: observation.reopenSignature,
+    };
+    if (!assignment ||
+        assignment.effortId !== effort.id ||
+        assignment.signature !== observation.signature ||
+        assignment.reopenSignature !== observation.reopenSignature) {
       store.effortAssignments[observation.key] = nextAssignment;
       changed = true;
     }
@@ -1015,6 +1083,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
         store.effortAssignments[observation.key] = {
           effortId: target.id,
           signature: observation.signature || '',
+          reopenSignature: observation.reopenSignature || '',
         };
       }
     }
@@ -1113,6 +1182,7 @@ function detachEffortObservation(effortId, observationKey) {
   store.effortAssignments[observation.key] = {
     effortId: detached.id,
     signature: observation.signature || '',
+    reopenSignature: observation.reopenSignature || '',
   };
   writeStore(store);
   return {
@@ -1142,6 +1212,7 @@ function mergeEfforts(sourceId, targetId, options = {}) {
     store.effortAssignments[observation.key] = {
       effortId: target.id,
       signature: observation.signature || '',
+      reopenSignature: observation.reopenSignature || '',
     };
   }
 
@@ -1272,6 +1343,8 @@ function updateEffort(id, patch = {}) {
       recordActivity(store, 'dismissed', effort.id, effort.title, 'Pixel effort');
     }
     effort.status = patch.status;
+    effort.completionReopenPolicyVersion = 1;
+    effort.completedAt = patch.status === 'done' ? new Date().toISOString() : null;
     for (const observation of effort.observations || []) {
       const sourceItem = store.items.find(item => item && item.id === observation.id);
       if (sourceItem) sourceItem.status = patch.status;
@@ -1385,6 +1458,8 @@ function restoreRecentActivity(id, action = 'put-back') {
       target.snoozedUntil = null;
       target.updatedAt = new Date().toISOString();
       if (target === effort) {
+        target.completedAt = null;
+        target.completionReopenPolicyVersion = 1;
         target.observations = (target.observations || []).filter(observation => {
           const assignment = observation && store.effortAssignments[observation.key];
           return !assignment || assignment.effortId === target.id;

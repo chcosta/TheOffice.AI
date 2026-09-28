@@ -672,6 +672,62 @@ await t.test('established efforts with equivalent objectives are reconciled', ()
   'RCA and root cause analysis remain grouped after synchronization');
 });
 
+await t.test('completed efforts ignore refresh-only presentation changes', () => {
+  const observation = {
+    id: 'sticky-completion-build',
+    reminderKey: 'sticky-completion-build',
+    kind: 'build',
+    title: 'Validate the deployment build',
+    detail: 'The build needs review.',
+    source: 'Builds',
+    link: 'https://example.test/build/1',
+    trackedAt: '2026-09-28T08:00:00Z',
+    context: { state: 'running', buildId: 'build-1' },
+  };
+  let state = buddy.syncEffortObservations([observation]);
+  const effort = state.efforts.find(entry =>
+    entry.observations.some(item => item.key === observation.reminderKey));
+  buddy.applyEffortClassification([{
+    provisionalIds: [effort.id],
+    targetEffortId: '',
+    title: observation.title,
+    summary: observation.detail,
+    confidence: 1,
+    reason: 'Keep as a distinct build effort.',
+  }]);
+  buddy.updateEffort(effort.id, { status: 'done' });
+  state = buddy.syncEffortObservations([{
+    ...observation,
+    title: 'Validate the refreshed deployment build',
+    detail: 'Required: Review the same build. Why now: Tracked for one week.',
+    link: 'https://example.test/build/1?refreshed=1',
+  }]);
+  t.ok(!state.efforts.some(entry => entry.id === effort.id),
+    'refreshed wording and links do not reopen user-completed work');
+  state = buddy.syncEffortObservations([{
+    ...observation,
+    context: { state: 'failed', buildId: 'build-1' },
+  }]);
+  t.ok(state.efforts.some(entry => entry.id === effort.id),
+    'a real lifecycle change can reopen completed work');
+
+  buddy.updateEffort(effort.id, { status: 'done' });
+  const storePath = path.join(dir, 'dev-buddy.json');
+  const store = JSON.parse(readFileSync(storePath, 'utf8'));
+  const storedEffort = store.efforts.find(entry => entry.id === effort.id);
+  storedEffort.status = 'open';
+  delete storedEffort.completionReopenPolicyVersion;
+  delete storedEffort.completedAt;
+  writeFileSync(storePath, JSON.stringify(store, null, 2));
+  state = buddy.syncEffortObservations([{
+    ...observation,
+    detail: 'Required: Review the same failed build. Why now: Refreshed just now.',
+    context: { state: 'failed', buildId: 'build-1' },
+  }]);
+  t.ok(!state.efforts.some(entry => entry.id === effort.id),
+    'legacy refresh-reopened work is repaired from its completion activity');
+});
+
 await t.test('efforts preserve urgency, reconcile cleared evidence, and complete source records', () => {
   const critical = {
     id: 'effort-critical-signal',
