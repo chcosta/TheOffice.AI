@@ -12,6 +12,7 @@ const buddy = require(path.join(process.cwd(), 'dev-buddy.js'));
 
 await t.test('work UI uses a compact list-detail workspace and one completion action', () => {
   const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
+  const app = readFileSync(path.join(process.cwd(), 'public', 'app.html'), 'utf8');
   const desktop = readFileSync(path.join(process.cwd(), 'desktop', 'src-tauri', 'src', 'main.rs'), 'utf8');
   const desktopPermissions = readFileSync(
     path.join(process.cwd(), 'desktop', 'src-tauri', 'permissions', 'app-commands.toml'),
@@ -48,6 +49,11 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /\$\('fullPixel'\)\.addEventListener\('click'/.test(html) &&
     !/addEventListener\('mouseenter', schedulePeek\)/.test(html),
   'Pixel arms open distinct quick and full experiences without hover-opening a window');
+  t.ok(/enableAndShowDevBuddy\(\)/.test(app) &&
+    /'Show Pixel'/.test(app) &&
+    /window\.unminimize\(\)/.test(desktop) &&
+    /window\.set_focus\(\)/.test(desktop),
+  'the SPA can enable and restore a minimized Pixel in one click');
   t.ok(/contextmenu/.test(html) &&
     /move_dev_buddy_aside/.test(desktop) &&
     /"move_dev_buddy_aside"/.test(desktopPermissions) &&

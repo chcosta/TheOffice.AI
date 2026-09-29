@@ -7444,6 +7444,13 @@
           </template>
         </div>
         <div class="sidebar-bottom">
+          <button class="nav-link" type="button" x-show="isDesktopApp()" x-cloak
+                  @click="enableAndShowDevBuddy()" :disabled="devBuddyBusy"
+                  style="width:100%;text-align:left;background:none;border:none;cursor:pointer;font:inherit;color:inherit"
+                  title="Restore Pixel to the desktop">
+            <span>🤖</span>
+            <span x-text="devBuddyBusy ? 'Opening Pixel…' : 'Show Pixel'"></span>
+          </button>
           <a class="nav-link" :class="{ active: route === 'settings' || route === 'events' }" href="#/settings">
             <span>⚙</span>
             <span>Settings</span>
@@ -29089,7 +29096,7 @@
                 </div>
 
                 <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:20px;padding-top:16px;border-top:1px solid var(--cp-border)">
-                  <button class="btn primary" type="button" @click="showDevBuddy()" :disabled="devBuddyBusy || !devBuddySettings.enabled">Launch Dev Buddy</button>
+                  <button class="btn primary" type="button" @click="enableAndShowDevBuddy()" :disabled="devBuddyBusy" x-text="devBuddyBusy ? 'Opening Pixel…' : 'Show Pixel'"></button>
                   <button class="btn" type="button" @click="hideDevBuddy()" :disabled="devBuddyBusy">Hide for now</button>
                   <span class="hint" x-show="!window.__DESKTOP__">The detached companion is available in the desktop app.</span>
                   <span class="hint" x-show="devBuddySaved">✓ Saved</span>
@@ -39833,6 +39840,36 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           this.devBuddySettings.enabled = false;
           await this.saveDevBuddySettings();
           await this.hideDevBuddy();
+        },
+        async enableAndShowDevBuddy() {
+          const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;
+          if (!invoke) {
+            this.showToast('Pixel', 'Open TheOffice.AI desktop app to show the detached companion.', 'info');
+            return;
+          }
+          this.devBuddyBusy = true;
+          try {
+            const current = await this.request('/api/settings');
+            if (current && current.devBuddy) {
+              this.devBuddySettings = Object.assign({}, this.devBuddySettings, current.devBuddy);
+            }
+            if (!this.devBuddySettings.enabled) {
+              this.devBuddySettings.enabled = true;
+              const saved = await this.request('/api/settings', {
+                method: 'PUT',
+                body: JSON.stringify({ devBuddy: this.devBuddySettings })
+              });
+              if (saved && saved.devBuddy) {
+                this.devBuddySettings = Object.assign({}, this.devBuddySettings, saved.devBuddy);
+              }
+            }
+            await invoke('show_dev_buddy');
+            this.showToast('Pixel', 'Pixel is back on your desktop.', 'success');
+          } catch (err) {
+            this.showToast('Pixel', 'Could not show Pixel: ' + String(err), 'error');
+          } finally {
+            this.devBuddyBusy = false;
+          }
         },
         async showDevBuddy() {
           const invoke = window.__TAURI__?.core?.invoke || window.__TAURI__?.invoke;

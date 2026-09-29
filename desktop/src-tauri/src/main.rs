@@ -577,9 +577,12 @@ fn ensure_dev_buddy_alert_window(
 #[tauri::command]
 fn show_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
+    window.unminimize().map_err(|e| e.to_string())?;
     position_dev_buddy(&window, 160, 180, None, true)?;
     set_dev_buddy_topmost(&window, true)?;
+    window.set_skip_taskbar(true).map_err(|e| e.to_string())?;
     window.show().map_err(|e| e.to_string())?;
+    window.set_focus().map_err(|e| e.to_string())?;
     window.eval("location.reload()").map_err(|e| e.to_string())
 }
 
