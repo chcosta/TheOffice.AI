@@ -23,6 +23,26 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     'work list exposes urgency and arrival sorting');
   t.ok(/id="hoverPreview"/.test(html) && /class="preview-list"/.test(html),
     'quick view exposes the complete scrollable list');
+  t.ok(/collapsedWorkSections = new Set/.test(html) &&
+    /data-work-section="\$\{key\}"/.test(html) &&
+    /dev-buddy-collapsed-sections/.test(html) &&
+    /renderSection\('starred', 'Starred', starred\)[\s\S]*renderSection\('attention', 'Needs attention', active\)[\s\S]*renderSection\('ongoing', 'Ongoing', ongoing\)/.test(html),
+  'full To-do list duplicates starred items into a leading section and remembers collapsed sections');
+  t.ok(/id="previewTabs"/.test(html) &&
+    /data-preview-tab="\$\{key\}"/.test(html) &&
+    /dev-buddy-preview-tab/.test(html) &&
+    /current\.entries\.map\(renderItem\)/.test(html),
+  'quick To-do list separates attention, starred, and ongoing work into remembered tabs');
+  t.ok(/repeat\(var\(--preview-action-count\), max-content\)/.test(html) &&
+    /--preview-action-count: \$\{3 \+ Number\(item\.priority !== 'low'\) \+ Number\(!!item\.link\) \+ Number\(!!item\.route\)\}/.test(html),
+  'quick To-do rows size their action grid dynamically so controls remain on one line');
+  t.ok(/data-action="open-source"/.test(html) &&
+    /data-action="open-office"/.test(html) &&
+    /data-preview-action="open-source"/.test(html) &&
+    /data-preview-action="open-office"/.test(html) &&
+    /openItem\(item, 'source'\)/.test(html) &&
+    /openItem\(item, 'office'\)/.test(html),
+  'source URLs and TheOffice.AI routes have distinct actions in full and quick views');
   t.ok(/function resetPeekAfterAction\(\)/.test(html) &&
     /if \(action === 'done'\) await resetPeekAfterAction\(\)/.test(html),
   'completing a quick-view item resets the native peek window for its next opening');
@@ -32,11 +52,13 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /await saveItemNotes\(item/.test(html),
   'work items expose persistent Markdown notes with interactive task checkboxes');
   t.ok(/"peek"\s*=>\s*\(400,\s*u32::MAX\)/.test(desktop) &&
-    /max-height:\s*calc\(100vh - var\(--buddy-top\) - 208px\)/.test(html),
+    /max-height:\s*calc\(100vh - var\(--buddy-top\) - 242px\)/.test(html),
   'quick view uses the available monitor height');
   t.ok(/const pendingStarStates = new Map\(\)/.test(html) &&
-    /preservePendingStars/.test(html),
-  'status refreshes preserve optimistic stars until persistence is confirmed');
+    /const pendingOngoingStates = new Map\(\)/.test(html) &&
+    /const pendingPriorityStates = new Map\(\)/.test(html) &&
+    /preservePendingStates/.test(html),
+  'status refreshes preserve optimistic stars, ongoing decisions, and priority until persistence is confirmed');
   t.ok(/class="buddy-minimize" id="minimizePixel"/.test(html) &&
     !/class="panel-minimize"/.test(html) &&
     /minimize_dev_buddy/.test(desktop) &&
@@ -73,10 +95,18 @@ await t.test('reading pane builds grounded dossiers and optional AI plans', () =
   const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
   const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
   const github = readFileSync(path.join(process.cwd(), 'github.js'), 'utf8');
-  t.ok(/data-detail-tab="context"/.test(html) &&
+  t.ok(/data-detail-tab="details"/.test(html) &&
     /data-detail-tab="tracking"/.test(html) &&
-    /renderSourceContext/.test(html),
-  'source context is the default reading view and tracking has a separate tab');
+    /data-detail-tab="evidence"/.test(html) &&
+    /renderSourceContext/.test(html) &&
+    /renderSourceContext\(selected, 'details'\)/.test(html),
+  'rich source context and Pixel guidance share Details while tracking and grouped evidence remain separate');
+  t.ok(/data-view-target="work">To-do<\/button>/.test(html) &&
+    /hover-preview-head">To-do/.test(html) &&
+    /quick-ongoing/.test(html) &&
+    /data-preview-action="ongoing"/.test(html) &&
+    /data-preview-action="priority-down"/.test(html),
+  'the To-do navigation and quick flyout expose ongoing and lower-priority actions');
   t.ok(/function dossierFor\(item\)/.test(html) &&
     /State and path/.test(html) &&
     /Suggested next moves/.test(html) &&
@@ -472,13 +502,36 @@ await t.test('efforts durably group related observations and preserve user state
   buddy.updateEffort(effort.id, { priority: 'normal', urgencyScore: 1 });
   const lowered = buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id);
   t.eq(lowered.urgency.level, 'medium', 'lowering priority immediately lowers visible urgency by one level');
+  t.eq(lowered.urgencyOverrideScore, 1, 'materialized efforts identify explicit user urgency overrides');
   t.eq(lowered.urgency.reason, 'Lowered by you.', 'the user urgency choice survives observation synchronization');
+  const stalePriorityStore = JSON.parse(readFileSync(path.join(dir, 'dev-buddy.json'), 'utf8'));
+  const stalePriorityEffort = stalePriorityStore.efforts.find(entry => entry.id === effort.id);
+  stalePriorityEffort.priority = 'high';
+  stalePriorityEffort.urgencyOverrideScore = null;
+  delete stalePriorityEffort.priorityUpdatedAt;
+  writeFileSync(path.join(dir, 'dev-buddy.json'), JSON.stringify(stalePriorityStore, null, 2));
+  t.eq(
+    buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id).urgency.level,
+    'medium',
+    'a stale concurrent server write cannot erase the separate durable priority decision'
+  );
 
   buddy.updateEffort(effort.id, { ongoing: true, starred: true });
   const ongoing = buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id);
   t.ok(ongoing.ongoing, 'ongoing acknowledgement survives observation synchronization');
   t.ok(!ongoing.semanticAttention, 'ongoing work remains visible without requesting Pixel attention');
   t.ok(ongoing.starred, 'ongoing work can remain pinned');
+  const persistedOngoing = JSON.parse(readFileSync(path.join(dir, 'dev-buddy.json'), 'utf8'))
+    .efforts.find(entry => entry.id === effort.id);
+  t.ok(persistedOngoing.ongoingUpdatedAt,
+    'ongoing acknowledgement records a durable decision timestamp for concurrent refreshes');
+  const staleStore = JSON.parse(readFileSync(path.join(dir, 'dev-buddy.json'), 'utf8'));
+  const staleEffort = staleStore.efforts.find(entry => entry.id === effort.id);
+  staleEffort.ongoing = false;
+  delete staleEffort.ongoingUpdatedAt;
+  writeFileSync(path.join(dir, 'dev-buddy.json'), JSON.stringify(staleStore, null, 2));
+  t.ok(buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id).ongoing,
+    'a stale concurrent server write cannot erase the separate durable ongoing decision');
   buddy.updateEffort(effort.id, { ongoing: false });
   t.ok(!buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id).ongoing,
     'ongoing work can return to the attention list');
@@ -784,9 +837,17 @@ await t.test('efforts preserve urgency, reconcile cleared evidence, and complete
     title: 'Restore blocked production rollout',
     detail: 'Required checks are failing.',
     source: 'GitHub',
+    route: '#/codeflow',
     trackedAt: new Date().toISOString(),
     urgency: { score: 1, level: 'medium', label: 'Medium', reason: 'Waiting for semantic analysis.' },
     semanticAttention: true,
+    context: {
+      provider: 'azdo',
+      org: 'dnceng',
+      project: 'internal',
+      repo: 'example',
+      prNumber: 42,
+    },
   };
   let state = buddy.syncEffortObservations([critical]);
   let criticalEffort = state.efforts.find(effort =>
@@ -798,6 +859,8 @@ await t.test('efforts preserve urgency, reconcile cleared evidence, and complete
   }]);
   criticalEffort = state.efforts.find(effort => effort.id === criticalEffort.id);
   t.eq(criticalEffort.urgency.score, 4, 'effort keeps the highest urgency from its evidence');
+  t.eq(criticalEffort.route, '#/codeflow/dnceng%7Cinternal%7Cexample%7C42',
+    'PR efforts derive an exact Code Flow route from source identity');
   t.eq(criticalEffort.attentionBlurb, 'The blocked rollout needs immediate attention.',
     'semantic presentation updates without changing effort assignment');
 
@@ -832,8 +895,12 @@ await t.test('effort APIs and UI route work-list actions through durable efforts
     path.join(process.cwd(), 'builtin-plugins', 'connect', 'agents', 'dev-buddy-collector.agent.md'),
     'utf8');
   t.ok(/app\.put\('\/api\/dev-buddy\/efforts\/:id'/.test(server) &&
-    /syncEffortObservations\(observations\)/.test(server),
+    /syncEffortObservations\(observations\)/.test(server) &&
+    /const hasUrgencyOverride = Number\.isFinite/.test(server),
   'status materializes durable efforts and exposes an effort update route');
+  t.ok(/route: `#\/codeflow\/\$\{encodeURIComponent\(_cfWtKey/.test(server) &&
+    /fn\('open_main_window', \{ target: item\.route \}\)/.test(html),
+  'PR work opens the exact Code Flow card through the native TheOffice.AI window');
   t.ok(/item\.effortId/.test(html) &&
     /\/api\/dev-buddy\/efforts\//.test(html) &&
     /status\?\.efforts/.test(html),

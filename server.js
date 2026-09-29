@@ -3199,7 +3199,13 @@ function _devBuddyPrSignal(pr, view) {
     priority,
     source,
     link: pr.url || '',
-    route: '#/codeflow',
+    route: `#/codeflow/${encodeURIComponent(_cfWtKey({
+      provider,
+      org,
+      project,
+      repo,
+      prId: pr.id,
+    }))}`,
     trackedAt: pr.creationDate || null,
     slaBusinessHours: view === 'reviews' ? 24 : null,
     fingerprint,
@@ -3240,9 +3246,12 @@ function _devBuddyDecorateItem(item) {
     : {};
   const priority = signalState.priority || item.priority;
   const derivedUrgency = devBuddy.deriveUrgency({ ...item, priority, trackedAt });
-  const preservedUrgency = item.urgency && Number(item.urgency.score) > Number(derivedUrgency.score)
+  const hasUrgencyOverride = Number.isFinite(Number(item.urgencyOverrideScore));
+  const preservedUrgency = hasUrgencyOverride
     ? item.urgency
-    : derivedUrgency;
+    : item.urgency && Number(item.urgency.score) > Number(derivedUrgency.score)
+      ? item.urgency
+      : derivedUrgency;
   return {
     ...item,
     priority,
@@ -3674,7 +3683,13 @@ async function _refreshDevBuddyBuildSignals() {
             priority: failed ? 'high' : 'normal',
             source: `GitHub Actions · ${repo.org}/${repo.repo}`,
             link: run.url || '',
-            route: '#/codeflow',
+            route: `#/codeflow/${encodeURIComponent(_cfWtKey({
+              provider: rec.provider || 'azdo',
+              org: rec.org,
+              project: rec.project || '',
+              repo: rec.repo,
+              prId: rec.prId,
+            }))}`,
             trackedAt: run.createdAt || since,
             repository: `${repo.org}/${repo.repo}`,
             context: {

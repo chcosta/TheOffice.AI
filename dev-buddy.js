@@ -3,6 +3,10 @@ const crypto = require('crypto');
 const { dataPath } = require('./data-paths');
 
 const STORE_PATH = dataPath('dev-buddy.json');
+const STORE_LOCK_PATH = `${STORE_PATH}.lock`;
+const DECISIONS_PATH = dataPath('dev-buddy-decisions.json');
+const DECISIONS_LOCK_PATH = `${DECISIONS_PATH}.lock`;
+const STORE_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 
 function blankStore() {
   return {
@@ -21,10 +25,29 @@ function blankStore() {
   };
 }
 
+function readDecisionStore() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(DECISIONS_PATH, 'utf8'));
+    return {
+      ongoing: parsed && parsed.ongoing && typeof parsed.ongoing === 'object'
+        ? parsed.ongoing
+        : {},
+      priority: parsed && parsed.priority && typeof parsed.priority === 'object'
+        ? parsed.priority
+        : {},
+    };
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.warn('[dev-buddy] Could not read durable user decisions:', error.message);
+    }
+    return { ongoing: {}, priority: {} };
+  }
+}
+
 function readStore() {
   try {
     const parsed = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
-    return {
+    const store = {
       ...blankStore(),
       ...(parsed && typeof parsed === 'object' ? parsed : {}),
       version: blankStore().version,
@@ -51,18 +74,130 @@ function readStore() {
         ? parsed.signalStates
         : {},
     };
+    const decisions = readDecisionStore();
+    for (const effort of store.efforts) {
+      if (!effort) continue;
+      const ongoingDecision = decisions.ongoing[effort.id];
+      if (ongoingDecision && typeof ongoingDecision.ongoing === 'boolean') {
+        effort.ongoing = ongoingDecision.ongoing;
+        effort.ongoingUpdatedAt = ongoingDecision.updatedAt || effort.ongoingUpdatedAt;
+      }
+      const priorityDecision = decisions.priority[effort.id];
+      if (priorityDecision) {
+        effort.priority = normalizePriority(priorityDecision.priority);
+        effort.urgencyOverrideScore = priorityDecision.urgencyScore;
+        effort.priorityUpdatedAt = priorityDecision.updatedAt || effort.priorityUpdatedAt;
+      }
+    }
+    return store;
   } catch {
     return blankStore();
   }
 }
 
-function writeStore(store) {
-  const next = { ...store, updatedAt: new Date().toISOString() };
-  const temp = `${STORE_PATH}.${process.pid}.${Date.now()}.tmp`;
+function acquireStoreLock(timeoutMs = 3000) {
+  const deadline = Date.now() + timeoutMs;
   fs.mkdirSync(require('path').dirname(STORE_PATH), { recursive: true });
-  fs.writeFileSync(temp, JSON.stringify(next, null, 2), { flag: 'wx' });
-  fs.renameSync(temp, STORE_PATH);
-  return next;
+  while (Date.now() < deadline) {
+    try {
+      return fs.openSync(STORE_LOCK_PATH, 'wx');
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      try {
+        const age = Date.now() - fs.statSync(STORE_LOCK_PATH).mtimeMs;
+        if (age > 30000) {
+          fs.unlinkSync(STORE_LOCK_PATH);
+          continue;
+        }
+      } catch (statError) {
+        if (statError.code !== 'ENOENT') throw statError;
+      }
+      Atomics.wait(STORE_LOCK_WAIT, 0, 0, 12);
+    }
+  }
+  throw new Error('Pixel could not save because another update is still in progress.');
+}
+
+function writeEffortDecision(section, id, value, updatedAt = new Date().toISOString()) {
+  const deadline = Date.now() + 3000;
+  fs.mkdirSync(require('path').dirname(DECISIONS_PATH), { recursive: true });
+  let lock = null;
+  while (Date.now() < deadline && lock === null) {
+    try {
+      lock = fs.openSync(DECISIONS_LOCK_PATH, 'wx');
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      try {
+        if (Date.now() - fs.statSync(DECISIONS_LOCK_PATH).mtimeMs > 30000) {
+          fs.unlinkSync(DECISIONS_LOCK_PATH);
+          continue;
+        }
+      } catch (statError) {
+        if (statError.code !== 'ENOENT') throw statError;
+      }
+      Atomics.wait(STORE_LOCK_WAIT, 0, 0, 12);
+    }
+  }
+  if (lock === null) throw new Error('Pixel could not save your ongoing decision.');
+  try {
+    const decisions = readDecisionStore();
+    decisions[section][id] = { ...value, updatedAt };
+    const temp = `${DECISIONS_PATH}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify(decisions, null, 2), { flag: 'wx' });
+    fs.renameSync(temp, DECISIONS_PATH);
+  } finally {
+    try { fs.closeSync(lock); } catch {}
+    try { fs.unlinkSync(DECISIONS_LOCK_PATH); } catch {}
+  }
+}
+
+function writeOngoingDecision(id, ongoing, updatedAt = new Date().toISOString()) {
+  writeEffortDecision('ongoing', id, { ongoing: ongoing === true }, updatedAt);
+}
+
+function writePriorityDecision(id, priority, urgencyScore, updatedAt = new Date().toISOString()) {
+  writeEffortDecision('priority', id, {
+    priority: normalizePriority(priority),
+    urgencyScore: urgencyOverride(urgencyScore)?.score ?? null,
+  }, updatedAt);
+}
+
+function writeStore(store) {
+  const lock = acquireStoreLock();
+  try {
+    const next = { ...store, updatedAt: new Date().toISOString() };
+    let current = null;
+    try {
+      current = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
+    } catch {}
+    const currentEfforts = new Map((Array.isArray(current && current.efforts) ? current.efforts : [])
+      .filter(Boolean).map(effort => [effort.id, effort]));
+    for (const effort of Array.isArray(next.efforts) ? next.efforts : []) {
+      const saved = currentEfforts.get(effort && effort.id);
+      if (!saved) continue;
+      const savedAt = Date.parse(saved.ongoingUpdatedAt);
+      const nextAt = Date.parse(effort.ongoingUpdatedAt || '');
+      if (Number.isFinite(savedAt) && (!Number.isFinite(nextAt) || savedAt >= nextAt)) {
+        effort.ongoing = saved.ongoing === true;
+        effort.ongoingUpdatedAt = saved.ongoingUpdatedAt;
+      }
+      const savedPriorityAt = Date.parse(saved.priorityUpdatedAt || '');
+      const nextPriorityAt = Date.parse(effort.priorityUpdatedAt || '');
+      if (Number.isFinite(savedPriorityAt) &&
+          (!Number.isFinite(nextPriorityAt) || savedPriorityAt >= nextPriorityAt)) {
+        effort.priority = saved.priority;
+        effort.urgencyOverrideScore = saved.urgencyOverrideScore;
+        effort.priorityUpdatedAt = saved.priorityUpdatedAt;
+      }
+    }
+    const temp = `${STORE_PATH}.${process.pid}.${Date.now()}.tmp`;
+    fs.writeFileSync(temp, JSON.stringify(next, null, 2), { flag: 'wx' });
+    fs.renameSync(temp, STORE_PATH);
+    return next;
+  } finally {
+    try { fs.closeSync(lock); } catch {}
+    try { fs.unlinkSync(STORE_LOCK_PATH); } catch {}
+  }
 }
 
 function cleanText(value, max = 240) {
@@ -736,6 +871,24 @@ function urgencyOverride(value) {
   };
 }
 
+function effortRoute(observation) {
+  const context = observation && observation.context || {};
+  if (observation && observation.kind === 'pull-request' &&
+      context.org && context.repo && context.prNumber) {
+    const base = [
+      context.org,
+      context.project || '',
+      context.repo,
+      context.prNumber,
+    ].join('|').toLowerCase();
+    const key = String(context.provider || 'azdo').toLowerCase() === 'github'
+      ? `github|${base}`
+      : base;
+    return `#/codeflow/${encodeURIComponent(key)}`;
+  }
+  return observation && observation.route || '';
+}
+
 function materializeEffort(effort) {
   const observations = [...(Array.isArray(effort.observations) ? effort.observations : [])]
     .sort((a, b) => Date.parse(b.trackedAt || 0) - Date.parse(a.trackedAt || 0));
@@ -774,10 +927,11 @@ function materializeEffort(effort) {
     snoozedUntil: effort.snoozedUntil || null,
     source: `${observations.length} connected ${observations.length === 1 ? 'signal' : 'signals'}${kinds.length ? ` · ${kinds.join(' · ')}` : ''}`,
     link: primary.link || '',
-    route: primary.route || '',
+    route: effortRoute(primary),
     trackedAt,
     dueAt: dueDates.length ? new Date(Math.min(...dueDates)).toISOString() : null,
     urgency: explicitUrgency || mostUrgent.urgency || null,
+    urgencyOverrideScore: explicitUrgency ? explicitUrgency.score : null,
     slaBusinessHours: mostUrgent.slaBusinessHours || null,
     semanticAttention: !ongoing && observations.some(item => item.semanticAttention !== false),
     attentionBlurb: mostUrgent.attentionBlurb || mostUrgent.detail || '',
@@ -970,8 +1124,8 @@ function syncEffortObservations(input = []) {
     }
   }
 
-  if (changed) writeStore(store);
-  const open = store.efforts
+  const durableStore = changed ? writeStore(store) : store;
+  const open = durableStore.efforts
     .filter(effort => effort && !['done', 'dismissed'].includes(effort.status))
     .filter(effort => !(effort.snoozedUntil && Date.parse(effort.snoozedUntil) > Date.now()));
   return {
@@ -1081,6 +1235,8 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       .filter(Boolean).map(observation => [observation.key, observation]));
     let starred = target.starred === true;
     let ongoing = target.ongoing === true;
+    let ongoingUpdatedAt = target.ongoingUpdatedAt || '';
+    let priorityUpdatedAt = target.priorityUpdatedAt || '';
     const urgencyOverrides = [urgencyOverride(target.urgencyOverrideScore)]
       .filter(Boolean).map(entry => entry.score);
     const mergedNotes = [cleanMessage(target.notes, 12000)].filter(Boolean);
@@ -1092,6 +1248,16 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       consumed.add(id);
       starred = starred || source.starred === true;
       ongoing = ongoing || source.ongoing === true;
+      if (source.ongoingUpdatedAt &&
+          (!ongoingUpdatedAt ||
+           Date.parse(source.ongoingUpdatedAt) > Date.parse(ongoingUpdatedAt))) {
+        ongoingUpdatedAt = source.ongoingUpdatedAt;
+      }
+      if (source.priorityUpdatedAt &&
+          (!priorityUpdatedAt ||
+           Date.parse(source.priorityUpdatedAt) > Date.parse(priorityUpdatedAt))) {
+        priorityUpdatedAt = source.priorityUpdatedAt;
+      }
       const sourceUrgency = urgencyOverride(source.urgencyOverrideScore);
       if (sourceUrgency) urgencyOverrides.push(sourceUrgency.score);
       const sourceNotes = cleanMessage(source.notes, 12000);
@@ -1118,7 +1284,20 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
     }
     target.starred = starred;
     target.ongoing = ongoing;
+    target.ongoingUpdatedAt = ongoingUpdatedAt || target.ongoingUpdatedAt;
+    if (target.ongoingUpdatedAt) {
+      writeOngoingDecision(target.id, target.ongoing, target.ongoingUpdatedAt);
+    }
     target.urgencyOverrideScore = urgencyOverrides.length ? Math.min(...urgencyOverrides) : null;
+    target.priorityUpdatedAt = priorityUpdatedAt || target.priorityUpdatedAt;
+    if (target.priorityUpdatedAt) {
+      writePriorityDecision(
+        target.id,
+        target.priority,
+        target.urgencyOverrideScore,
+        target.priorityUpdatedAt
+      );
+    }
     target.notes = mergedNotes.join('\n\n---\n\n');
     target.needsClassification = false;
     target.classificationConfidence = Number.isFinite(confidence) ? confidence : null;
@@ -1266,11 +1445,32 @@ function mergeEfforts(sourceId, targetId, options = {}) {
   target.notes = notes.join('\n\n---\n\n');
   target.starred = target.starred === true || source.starred === true;
   target.ongoing = target.ongoing === true || source.ongoing === true;
+  target.ongoingUpdatedAt = source.ongoingUpdatedAt &&
+      (!target.ongoingUpdatedAt ||
+       Date.parse(source.ongoingUpdatedAt) > Date.parse(target.ongoingUpdatedAt))
+    ? source.ongoingUpdatedAt
+    : target.ongoingUpdatedAt;
+  if (target.ongoingUpdatedAt) {
+    writeOngoingDecision(target.id, target.ongoing, target.ongoingUpdatedAt);
+  }
   const urgencyOverrides = [target, source]
     .map(effort => urgencyOverride(effort.urgencyOverrideScore))
     .filter(Boolean)
     .map(entry => entry.score);
   target.urgencyOverrideScore = urgencyOverrides.length ? Math.min(...urgencyOverrides) : null;
+  target.priorityUpdatedAt = source.priorityUpdatedAt &&
+      (!target.priorityUpdatedAt ||
+       Date.parse(source.priorityUpdatedAt) > Date.parse(target.priorityUpdatedAt))
+    ? source.priorityUpdatedAt
+    : target.priorityUpdatedAt;
+  if (target.priorityUpdatedAt) {
+    writePriorityDecision(
+      target.id,
+      target.priority,
+      target.urgencyOverrideScore,
+      target.priorityUpdatedAt
+    );
+  }
   target.priority = priorityRank[sourcePriority] > priorityRank[targetPriority]
     ? sourcePriority
     : target.priority;
@@ -1357,11 +1557,14 @@ function updateEffort(id, patch = {}) {
   if (Object.prototype.hasOwnProperty.call(patch, 'starred')) effort.starred = patch.starred === true;
   if (Object.prototype.hasOwnProperty.call(patch, 'ongoing')) {
     const ongoing = patch.ongoing === true;
+    const ongoingUpdatedAt = new Date().toISOString();
     if (ongoing !== (effort.ongoing === true)) {
       recordActivity(store, ongoing ? 'acknowledged' : 'reactivated',
         effort.id, effort.title, 'Pixel effort');
     }
     effort.ongoing = ongoing;
+    effort.ongoingUpdatedAt = ongoingUpdatedAt;
+    writeOngoingDecision(effort.id, ongoing, ongoingUpdatedAt);
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
@@ -1380,6 +1583,16 @@ function updateEffort(id, patch = {}) {
       }
       effort.urgencyOverrideScore = nextUrgency.score;
     }
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'priority') ||
+      Object.prototype.hasOwnProperty.call(patch, 'urgencyScore')) {
+    effort.priorityUpdatedAt = new Date().toISOString();
+    writePriorityDecision(
+      effort.id,
+      effort.priority,
+      effort.urgencyOverrideScore,
+      effort.priorityUpdatedAt
+    );
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'snoozedUntil')) {
     const parsed = Date.parse(patch.snoozedUntil || '');

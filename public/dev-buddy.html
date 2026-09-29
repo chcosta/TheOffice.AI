@@ -1337,6 +1337,26 @@
       border-color: var(--cp-warning);
       color: var(--cp-warning);
     }
+    .quick-ongoing {
+      color: var(--cp-text-muted);
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .quick-ongoing[aria-pressed="true"] {
+      border-color: var(--cp-accent);
+      color: var(--cp-accent);
+    }
+    .quick-lower {
+      color: var(--cp-text-muted);
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .quick-office {
+      color: var(--cp-accent);
+      font-size: 9px;
+      font-weight: 800;
+      letter-spacing: -.02em;
+    }
     .reminder-controls {
       display: flex;
       flex-basis: 100%;
@@ -1419,7 +1439,7 @@
       position: absolute;
       left: var(--buddy-left);
       top: calc(var(--buddy-top) + 154px);
-      width: 370px;
+      width: min(520px, calc(100vw - 24px));
       display: none;
       border: 1px solid var(--cp-border);
       border-radius: 12px;
@@ -1465,8 +1485,38 @@
       color: var(--cp-text);
       font: inherit;
     }
+    .preview-tabs {
+      display: flex;
+      gap: 18px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface-soft);
+    }
+    .preview-tab {
+      min-height: 34px;
+      padding: 1px 0 0;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      background: transparent;
+      color: var(--cp-text-muted);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .preview-tab:hover { color: var(--cp-text); }
+    .preview-tab[aria-selected="true"] {
+      border-bottom-color: var(--cp-accent);
+      color: var(--cp-text);
+      font-weight: 650;
+    }
+    .preview-tab-count {
+      margin-left: 3px;
+      color: var(--cp-text-muted);
+      font-size: 10px;
+      font-weight: 400;
+    }
     .preview-list {
-      max-height: calc(100vh - var(--buddy-top) - 208px);
+      max-height: calc(100vh - var(--buddy-top) - 242px);
       overflow-y: auto;
       scrollbar-width: none;
     }
@@ -1476,8 +1526,9 @@
     }
     .preview-item {
       --urgency-color: var(--cp-text-muted);
+      --preview-action-count: 3;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) repeat(var(--preview-action-count), max-content);
       gap: 8px;
       align-items: center;
       padding: 8px 10px;
@@ -1804,17 +1855,36 @@
       border-top: 1px solid var(--cp-border);
     }
     .work-list-heading {
+      width: 100%;
       display: flex;
+      align-items: center;
       justify-content: space-between;
       gap: 8px;
       padding: 9px 12px 7px;
+      border: 0;
       color: var(--cp-text-muted);
       background: var(--cp-surface-soft);
+      cursor: pointer;
+      font-family: inherit;
       font-size: 10px;
       font-weight: 700;
       letter-spacing: .05em;
+      text-align: left;
       text-transform: uppercase;
     }
+    .work-list-heading:hover { color: var(--cp-text); }
+    .work-list-heading-copy {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .work-list-chevron {
+      display: inline-block;
+      font-size: 9px;
+      transform: rotate(90deg);
+      transition: transform .12s ease;
+    }
+    .work-list-section.collapsed .work-list-chevron { transform: rotate(0); }
     .item.ongoing {
       background: color-mix(in srgb, var(--cp-surface-soft) 72%, var(--cp-surface));
     }
@@ -2043,7 +2113,7 @@
       </header>
       <div class="operation-status" id="operationStatus" role="status" aria-live="polite" hidden></div>
       <nav class="view-nav" aria-label="Dev Buddy views">
-        <button class="view-link active" type="button" data-view-target="work">Work</button>
+        <button class="view-link active" type="button" data-view-target="work">To-do</button>
         <button class="view-link" type="button" data-view-target="map">Map</button>
         <button class="view-link" type="button" data-view-target="scratchpad">Scratchpad</button>
         <button class="view-link" type="button" data-view-target="memory">Memory</button>
@@ -2187,7 +2257,7 @@
       </section>
     </section>
     <aside class="hover-preview" id="hoverPreview" aria-label="Top work items">
-      <div class="hover-preview-head">Work
+      <div class="hover-preview-head">To-do
         <label>Sort
           <select id="previewSort" aria-label="Sort hover work list">
             <option value="urgency">Urgency</option>
@@ -2196,6 +2266,7 @@
           </select>
         </label>
       </div>
+      <nav class="preview-tabs" id="previewTabs" aria-label="Quick To-do categories"></nav>
       <div class="preview-list" id="previewList"></div>
     </aside>
 
@@ -2262,11 +2333,19 @@
       let currentView = localStorage.getItem('dev-buddy-view') || 'work';
       let workSort = localStorage.getItem('dev-buddy-work-sort') || 'urgency';
       let selectedItemId = localStorage.getItem('dev-buddy-selected-item') || '';
+      let previewTab = localStorage.getItem('dev-buddy-preview-tab') || 'attention';
+      let collapsedWorkSections = new Set();
+      try {
+        const saved = JSON.parse(localStorage.getItem('dev-buddy-collapsed-sections') || '[]');
+        collapsedWorkSections = new Set(Array.isArray(saved) ? saved : []);
+      } catch {}
       let startupLaunch = new URLSearchParams(location.search).get('startup') === '1';
       let knownItemIds = null;
       let loadSequence = 0;
       const pendingHiddenIds = new Set();
       const pendingStarStates = new Map();
+      const pendingOngoingStates = new Map();
+      const pendingPriorityStates = new Map();
       const detailInsights = new Map();
       const detailContexts = new Map();
       const detailTabs = new Map();
@@ -2319,6 +2398,7 @@
 
       function toggleOngoingLocally(item, ongoing) {
         const previousStatus = status;
+        pendingOngoingStates.set(item.id, ongoing);
         const update = entries => (entries || []).map(entry =>
           entry.id === item.id ? { ...entry, ongoing, semanticAttention: !ongoing } : entry);
         status = {
@@ -2329,6 +2409,7 @@
         refreshBuddyUrgency(status.list);
         renderWorkItems(status.list);
         return () => {
+          pendingOngoingStates.delete(item.id);
           status = previousStatus;
           render();
         };
@@ -2826,7 +2907,7 @@
           </div>`).join('');
       }
 
-      function renderSourceContext(item) {
+      function renderSourceContext(item, view = 'details') {
         const signature = detailContextSignature(item);
         let entry = detailContexts.get(item.id);
         if (entry && entry.signature !== signature) {
@@ -2854,6 +2935,21 @@
           </div>`;
         }
         const context = entry.context || {};
+        const evidenceSections = (context.sections || []).filter(section =>
+          String(section.title || '').toLowerCase() === 'evidence connected to this effort');
+        const detailSections = (context.sections || []).filter(section =>
+          String(section.title || '').toLowerCase() !== 'evidence connected to this effort');
+        const renderSections = sections => sections.length ? `<div class="context-sections">${sections.map(section => `
+          <section class="context-section">
+            <h3>${escapeHtml(section.title || 'Context')}</h3>
+            ${section.text ? `<div class="context-text">${escapeHtml(section.text)}</div>` : renderContextRows(section.items)}
+          </section>`).join('')}</div>` : '';
+        if (view === 'evidence') {
+          return `<div class="context-pane">
+            ${renderSections(evidenceSections)}
+            ${evidenceSections.length ? '' : '<div class="context-notice">This item does not have additional grouped evidence.</div>'}
+          </div>`;
+        }
         return `<div class="context-pane">
           <div class="context-overview">${escapeHtml(context.overview || item.detail || 'No source summary is available.')}</div>
           ${(context.metrics || []).length ? `<div class="context-metrics">${context.metrics.map(metric => `
@@ -2861,11 +2957,7 @@
               <span>${escapeHtml(metric.label)}</span>
               <strong>${escapeHtml(metric.value || '—')}</strong>
             </div>`).join('')}</div>` : ''}
-          ${(context.sections || []).length ? `<div class="context-sections">${context.sections.map(section => `
-            <section class="context-section">
-              <h3>${escapeHtml(section.title || 'Context')}</h3>
-              ${section.text ? `<div class="context-text">${escapeHtml(section.text)}</div>` : renderContextRows(section.items)}
-            </section>`).join('')}</div>` : ''}
+          ${renderSections(detailSections)}
           ${context.notice ? `<div class="context-notice">${escapeHtml(context.notice)}</div>` : ''}
           <section class="context-advice">
             <h3>Advice grounded in this context</h3>
@@ -2883,11 +2975,10 @@
         }
         selectedItemId = selected.id;
         localStorage.setItem('dev-buddy-selected-item', selectedItemId);
-        const openable = selected.link || selected.route;
         const dossier = dossierFor(selected);
         const pixelTake = selected.semanticComment || selected.attentionBlurb ||
           selected.detail || 'Pixel is tracking this item for you.';
-        const detailTab = detailTabs.get(selected.id) || 'context';
+        const detailTab = detailTabs.get(selected.id) || 'details';
         $('itemDetail').innerHTML = `
           <div class="detail-shell" data-detail-id="${escapeHtml(selected.id)}">
             <div class="detail-hero">
@@ -2900,9 +2991,8 @@
               <div class="detail-actions">
                 <button class="detail-primary" type="button" data-action="done">Done</button>
                 <button class="text-action" type="button" data-action="star" aria-pressed="${selected.starred ? 'true' : 'false'}">${selected.starred ? '★ Starred' : '☆ Star'}</button>
-                <button class="text-action" type="button" data-action="ongoing" aria-pressed="${selected.ongoing ? 'true' : 'false'}">${selected.ongoing ? 'Return to attention' : 'Mark ongoing'}</button>
-                ${openable ? '<button class="text-action" type="button" data-action="open">Open source</button>' : ''}
-                ${selected.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
+                ${selected.link ? '<button class="text-action" type="button" data-action="open-source">Open source</button>' : ''}
+                ${selected.route ? '<button class="text-action" type="button" data-action="open-office">Open in TheOffice.AI</button>' : ''}
                 <label class="reminder-control">Remind me in
                   <select data-reminder-in aria-label="Remind me in">
                     <option value="">Select…</option>
@@ -2922,26 +3012,34 @@
               </div>
               ${renderWorkNotes(selected)}
               <nav class="detail-tabs" aria-label="Item detail views">
-                <button class="detail-tab ${detailTab === 'context' ? 'active' : ''}" type="button" data-detail-tab="context">Context</button>
+                <button class="detail-tab ${detailTab === 'details' ? 'active' : ''}" type="button" data-detail-tab="details">Details</button>
                 <button class="detail-tab ${detailTab === 'tracking' ? 'active' : ''}" type="button" data-detail-tab="tracking">Tracking &amp; plan</button>
+                <button class="detail-tab ${detailTab === 'evidence' ? 'active' : ''}" type="button" data-detail-tab="evidence">Evidence</button>
               </nav>
             </div>
-            ${detailTab === 'context' ? renderSourceContext(selected) : `<div class="detail-dashboard">
+            ${detailTab === 'details' ? `
+              ${renderSourceContext(selected, 'details')}
+              <div class="detail-dashboard">
+                <div class="detail-column">
+                  <section class="detail-section">
+                    <div class="pixel-take">
+                      <strong>Pixel’s take</strong>
+                      <p>${escapeHtml(pixelTake)}</p>
+                    </div>
+                    ${selected.attentionBlurb && selected.detail ? `<div class="detail-description">${escapeHtml(selected.detail)}</div>` : ''}
+                  </section>
+                </div>
+                <div class="detail-column detail-side">
+                  <section class="detail-section">
+                    <h3 class="detail-section-title">Suggested next moves</h3>
+                    ${renderNextSteps(dossier.steps)}
+                  </section>
+                </div>
+              </div>` : detailTab === 'evidence' ? renderSourceContext(selected, 'evidence') : `<div class="detail-dashboard">
               <div class="detail-column">
-                <section class="detail-section">
-                  <div class="pixel-take">
-                    <strong>Pixel’s take</strong>
-                    <p>${escapeHtml(pixelTake)}</p>
-                  </div>
-                  ${selected.attentionBlurb && selected.detail ? `<div class="detail-description">${escapeHtml(selected.detail)}</div>` : ''}
-                </section>
                 <section class="detail-section">
                   <h3 class="detail-section-title">State and path</h3>
                   ${renderStateFlow(dossier.flow)}
-                </section>
-                <section class="detail-section">
-                  <h3 class="detail-section-title">Suggested next moves</h3>
-                  ${renderNextSteps(dossier.steps)}
                 </section>
               </div>
               <div class="detail-column detail-side">
@@ -2985,23 +3083,32 @@
               </div>
               <div class="item-quick-actions">
                 <button class="quick-action quick-star" type="button" data-action="star" aria-label="${item.starred ? 'Remove star' : 'Star item'}" aria-pressed="${item.starred ? 'true' : 'false'}" title="${item.starred ? 'Remove star' : 'Star item'}">${item.starred ? '★' : '☆'}</button>
-                ${item.link || item.route ? '<button class="quick-action" type="button" data-action="open" aria-label="Open source" title="Open source">↗</button>' : ''}
+                <button class="quick-action quick-ongoing" type="button" data-action="ongoing" aria-label="${item.ongoing ? 'Return to attention' : 'Mark ongoing'}" aria-pressed="${item.ongoing ? 'true' : 'false'}" title="${item.ongoing ? 'Return to attention' : 'Mark ongoing'}">${item.ongoing ? '↩' : '↻'}</button>
+                ${item.priority !== 'low' ? '<button class="quick-action quick-lower" type="button" data-action="priority-down" aria-label="Lower priority" title="Lower priority">↓</button>' : ''}
+                ${item.link ? '<button class="quick-action" type="button" data-action="open-source" aria-label="Open source" title="Open source">↗</button>' : ''}
+                ${item.route ? '<button class="quick-action quick-office" type="button" data-action="open-office" aria-label="Open in TheOffice.AI" title="Open in TheOffice.AI">AI</button>' : ''}
                 <button class="quick-action quick-done" type="button" data-action="done" aria-label="Mark done" title="Mark done">✓</button>
               </div>
             </div>
           </article>`;
+        const starred = sorted.filter(item => item.starred);
         const active = sorted.filter(item => !item.ongoing);
         const ongoing = sorted.filter(item => item.ongoing)
           .sort((a, b) => Number(b.starred === true) - Number(a.starred === true) ||
             itemArrival(b) - itemArrival(a));
-        const renderSection = (label, entries) => entries.length
-          ? `<section class="work-list-section">
-              <div class="work-list-heading"><span>${label}</span><span>${entries.length}</span></div>
-              ${entries.map(renderItem).join('')}
+        const renderSection = (key, label, entries) => entries.length
+          ? `<section class="work-list-section ${collapsedWorkSections.has(key) ? 'collapsed' : ''}">
+              <button class="work-list-heading" type="button" data-work-section="${key}" aria-expanded="${collapsedWorkSections.has(key) ? 'false' : 'true'}">
+                <span class="work-list-heading-copy"><span class="work-list-chevron">›</span><span>${label}</span></span>
+                <span>${entries.length}</span>
+              </button>
+              ${collapsedWorkSections.has(key) ? '' : entries.map(renderItem).join('')}
             </section>`
           : '';
         $('itemList').innerHTML = sorted.length
-          ? renderSection('Needs attention', active) + renderSection('Ongoing', ongoing)
+          ? renderSection('starred', 'Starred', starred) +
+            renderSection('attention', 'Needs attention', active) +
+            renderSection('ongoing', 'Ongoing', ongoing)
           : '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
         renderWorkDetail(sorted);
         renderPreview(sorted);
@@ -3010,28 +3117,38 @@
       function renderPreview(items) {
         const sorted = sortedWorkItems(items);
         $('previewSort').value = workSort;
+        const starred = sorted.filter(item => item.starred);
         const active = sorted.filter(item => !item.ongoing);
         const ongoing = sorted.filter(item => item.ongoing)
           .sort((a, b) => Number(b.starred === true) - Number(a.starred === true) ||
             itemArrival(b) - itemArrival(a));
+        const groups = {
+          attention: { label: 'Needs attention', entries: active },
+          starred: { label: 'Starred', entries: starred },
+          ongoing: { label: 'Ongoing', entries: ongoing },
+        };
+        if (!groups[previewTab]) previewTab = 'attention';
         const renderItem = item => `
-          <div class="preview-item ${item.starred ? 'starred' : ''} ${item.ongoing ? 'ongoing' : ''}" data-preview-id="${escapeHtml(item.id)}" data-urgency="${escapeHtml(item.urgency?.level || 'medium')}">
+          <div class="preview-item ${item.starred ? 'starred' : ''} ${item.ongoing ? 'ongoing' : ''}" style="--preview-action-count: ${3 + Number(item.priority !== 'low') + Number(!!item.link) + Number(!!item.route)}" data-preview-id="${escapeHtml(item.id)}" data-urgency="${escapeHtml(item.urgency?.level || 'medium')}">
             <button class="preview-read" type="button" data-preview-action="read">
               <div class="preview-title">${escapeHtml(item.title)}</div>
               <div class="preview-meta">${item.ongoing ? 'Ongoing · acknowledged' : `${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))}`} · ${escapeHtml(formatArrivalTime(item))}</div>
             </button>
             <button class="quick-action quick-star" type="button" data-preview-action="star" aria-label="${item.starred ? 'Remove star' : 'Star item'}" aria-pressed="${item.starred ? 'true' : 'false'}" title="${item.starred ? 'Remove star' : 'Star item'}">${item.starred ? '★' : '☆'}</button>
+            <button class="quick-action quick-ongoing" type="button" data-preview-action="ongoing" aria-label="${item.ongoing ? 'Return to attention' : 'Mark ongoing'}" aria-pressed="${item.ongoing ? 'true' : 'false'}" title="${item.ongoing ? 'Return to attention' : 'Mark ongoing'}">${item.ongoing ? '↩' : '↻'}</button>
+            ${item.priority !== 'low' ? '<button class="quick-action quick-lower" type="button" data-preview-action="priority-down" aria-label="Lower priority" title="Lower priority">↓</button>' : ''}
+            ${item.link ? '<button class="quick-action" type="button" data-preview-action="open-source" aria-label="Open source" title="Open source">↗</button>' : ''}
+            ${item.route ? '<button class="quick-action quick-office" type="button" data-preview-action="open-office" aria-label="Open in TheOffice.AI" title="Open in TheOffice.AI">AI</button>' : ''}
             <button class="quick-action quick-done" type="button" data-preview-action="done" aria-label="Mark done" title="Mark done">✓</button>
           </div>`;
-        const renderSection = (label, entries) => entries.length
-          ? `<section class="work-list-section">
-              <div class="work-list-heading"><span>${label}</span><span>${entries.length}</span></div>
-              ${entries.map(renderItem).join('')}
-            </section>`
-          : '';
-        $('previewList').innerHTML = sorted.length
-          ? renderSection('Needs attention', active) + renderSection('Ongoing', ongoing)
-          : '<div class="empty">Nothing needs you right now.</div>';
+        $('previewTabs').innerHTML = Object.entries(groups).map(([key, group]) => `
+          <button class="preview-tab" type="button" role="tab" data-preview-tab="${key}" aria-selected="${key === previewTab ? 'true' : 'false'}">
+            ${group.label}<span class="preview-tab-count">${group.entries.length}</span>
+          </button>`).join('');
+        const current = groups[previewTab];
+        $('previewList').innerHTML = current.entries.length
+          ? current.entries.map(renderItem).join('')
+          : `<div class="empty">No ${current.label.toLowerCase()} items.</div>`;
       }
 
       function refreshBuddyUrgency(items) {
@@ -3557,16 +3674,45 @@
             const returned = returnedItems.find(item => item.id === id);
             if (returned && returned.starred === starred) pendingStarStates.delete(id);
           }
-          const preservePendingStars = entries => (entries || []).map(item =>
-            pendingStarStates.has(item.id)
+          for (const [id, ongoing] of pendingOngoingStates) {
+            const returned = returnedItems.find(item => item.id === id);
+            if (returned && returned.ongoing === ongoing) pendingOngoingStates.delete(id);
+          }
+          for (const [id, decision] of pendingPriorityStates) {
+            const returned = returnedItems.find(item => item.id === id);
+            if (returned &&
+                returned.priority === decision.priority &&
+                Number(returned.urgency?.score) === decision.urgencyScore) {
+              pendingPriorityStates.delete(id);
+            }
+          }
+          const preservePendingStates = entries => (entries || []).map(item => {
+            let next = pendingStarStates.has(item.id)
               ? { ...item, starred: pendingStarStates.get(item.id) }
-              : item);
+              : item;
+            if (pendingOngoingStates.has(item.id)) {
+              next = {
+                ...next,
+                ongoing: pendingOngoingStates.get(item.id),
+                semanticAttention: !pendingOngoingStates.get(item.id),
+              };
+            }
+            if (pendingPriorityStates.has(item.id)) {
+              const decision = pendingPriorityStates.get(item.id);
+              next = {
+                ...next,
+                priority: decision.priority,
+                urgency: urgencyForScore(decision.urgencyScore),
+              };
+            }
+            return next;
+          });
           nextStatus = {
             ...nextStatus,
-            list: preservePendingStars(hidePending(nextStatus.list)),
-            signals: preservePendingStars(hidePending(nextStatus.signals)),
-            items: preservePendingStars(hidePending(nextStatus.items)),
-            efforts: preservePendingStars(hidePending(nextStatus.efforts)),
+            list: preservePendingStates(hidePending(nextStatus.list)),
+            signals: preservePendingStates(hidePending(nextStatus.signals)),
+            items: preservePendingStates(hidePending(nextStatus.items)),
+            efforts: preservePendingStates(hidePending(nextStatus.efforts)),
           };
           status = nextStatus;
           for (const item of (status.items || [])) {
@@ -3773,7 +3919,14 @@
         setTimeout(() => $('stage').classList.remove('celebrating'), 3000);
       }
 
-      function openItemMessages(item) {
+      function openItemMessages(item, destination = 'auto') {
+        if (destination === 'office') {
+          return {
+            opening: 'Opening this in TheOffice.AI…',
+            done: 'I opened it in TheOffice.AI.',
+            error: 'I couldn’t open that TheOffice.AI view.',
+          };
+        }
         const type = `${item?.kind || ''} ${item?.source || ''}`.toLowerCase();
         if (type.includes('email')) {
           return {
@@ -3796,7 +3949,7 @@
             error: 'I couldn’t open that pull request.',
           };
         }
-        if (item?.route) {
+        if (destination === 'auto' && item?.route && !item?.link) {
           return {
             opening: 'Opening this in TheOffice.AI…',
             done: 'I opened it in TheOffice.AI.',
@@ -3831,13 +3984,17 @@
         $('buddy').classList.remove('working');
       }
 
-      async function openItem(item) {
+      async function openItem(item, destination = 'auto') {
         const operation = ++operationSequence;
-        const messages = openItemMessages(item);
+        const target = destination === 'office'
+          ? 'office'
+          : destination === 'source' ? 'source' : item.link ? 'source' : 'office';
+        const messages = openItemMessages(item, target);
         const startedAt = Date.now();
         showOperationStatus(messages.opening);
         try {
-          if (item.link) {
+          if (target === 'source') {
+            if (!item.link) throw new Error('No source URL is available.');
             await request('/api/open-external', { method: 'POST', body: JSON.stringify({ url: item.link }) });
           } else {
             const fn = invoke();
@@ -4224,6 +4381,7 @@
 
       function lowerPriorityLocally(row, item, priority, urgencyScore) {
         const previousStatus = status;
+        pendingPriorityStates.set(item.id, { priority, urgencyScore });
         const urgency = urgencyForScore(urgencyScore);
         const update = entries => (entries || []).map(entry =>
           entry.id === item.id ? { ...entry, priority, urgency } : entry);
@@ -4245,6 +4403,7 @@
         refreshProgressIndicators();
         renderWorkItems(status.list);
         return () => {
+          pendingPriorityStates.delete(item.id);
           status = previousStatus;
           render();
         };
@@ -4409,7 +4568,8 @@
           return loadItemContext(item);
         }
         if (action === 'ai-plan') return loadItemInsight(item);
-        if (action === 'open') return openItem(item);
+        if (action === 'open-source') return openItem(item, 'source');
+        if (action === 'open-office') return openItem(item, 'office');
         if (action === 'star') {
           const starred = item.starred !== true;
           const restore = toggleStarLocally(item, starred);
@@ -4494,6 +4654,14 @@
       $('previewSort').addEventListener('change', event => changeWorkSort(event.target.value));
 
       $('itemList').addEventListener('click', async event => {
+        const section = event.target.closest('[data-work-section]')?.dataset.workSection;
+        if (section) {
+          if (collapsedWorkSections.has(section)) collapsedWorkSections.delete(section);
+          else collapsedWorkSections.add(section);
+          localStorage.setItem('dev-buddy-collapsed-sections', JSON.stringify([...collapsedWorkSections]));
+          renderWorkItems(status?.list || []);
+          return;
+        }
         const row = event.target.closest('.item');
         if (!row) return;
         const item = findListItem(row);
@@ -4561,7 +4729,7 @@
           return;
         }
         if (tab && item) {
-          detailTabs.set(item.id, tab === 'tracking' ? 'tracking' : 'context');
+          detailTabs.set(item.id, ['tracking', 'evidence'].includes(tab) ? tab : 'details');
           renderWorkDetail(sortedWorkItems(status?.list || []));
           return;
         }
@@ -4603,6 +4771,14 @@
         }
       });
 
+      $('previewTabs').addEventListener('click', event => {
+        const tab = event.target.closest('[data-preview-tab]')?.dataset.previewTab;
+        if (!['attention', 'starred', 'ongoing'].includes(tab)) return;
+        previewTab = tab;
+        localStorage.setItem('dev-buddy-preview-tab', previewTab);
+        renderPreview(status?.list || []);
+      });
+
       $('previewList').addEventListener('click', async event => {
         const row = event.target.closest('[data-preview-id]');
         const action = event.target.closest('[data-preview-action]')?.dataset.previewAction;
@@ -4616,7 +4792,10 @@
           renderWorkItems(status?.list || []);
           return;
         }
-        if (action === 'done' || action === 'star') {
+        if (action === 'open-source' || action === 'open-office') {
+          return openItem(item, action === 'open-source' ? 'source' : 'office');
+        }
+        if (['done', 'star', 'ongoing', 'priority-down'].includes(action)) {
           const listRow = $('itemList').querySelector(`[data-id="${CSS.escape(item.id)}"]`);
           try {
             await handleWorkAction(action, item, listRow, row);
