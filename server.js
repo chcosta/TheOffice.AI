@@ -4074,15 +4074,16 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   _devBuddyQueueEffortClassification();
   const list = devBuddy.applyManualOrder(effortState.efforts.map(_devBuddyDecorateItem));
   const visibleSignals = observations.filter(item => item.fingerprint);
+  const activeList = list.filter(item => item.ongoing !== true);
   const counts = {
-    attention: list.filter(item => item.urgency && item.urgency.score >= 2).length,
-    tracking: list.filter(item => (item.observations || []).some(observation =>
+    attention: activeList.filter(item => item.urgency && item.urgency.score >= 2).length,
+    tracking: activeList.filter(item => (item.observations || []).some(observation =>
       ['agent-run', 'build', 'session'].includes(observation.kind))).length,
-    remembered: list.filter(item => (item.observations || []).some(observation =>
+    remembered: activeList.filter(item => (item.observations || []).some(observation =>
       ['memory', 'email', 'teams', 'meeting', 'calendar'].includes(observation.kind))).length,
   };
-  const progress = devBuddy.getProgress(list);
-  const firstItem = [...list]
+  const progress = devBuddy.getProgress(activeList);
+  const firstItem = [...activeList]
     .filter(item => item.semanticAttention !== false && !devBuddy.isSignalDismissed(item.id))
     .sort((a, b) =>
       (b.urgency && b.urgency.score || 0) - (a.urgency && a.urgency.score || 0) ||
@@ -4837,7 +4838,7 @@ function _devBuddyRunComposeWorker({ prompt, mode, sessionId }) {
 async function _devBuddyRewriteDraft({ body, context, subject, style, mode, sessionId }) {
   const normalizedStyle = ['balanced', 'warmer', 'concise'].includes(style) ? style : 'balanced';
   const signature = require('crypto').createHash('sha256')
-    .update(JSON.stringify(['message-strength-v2', body, context, subject, normalizedStyle]))
+    .update(JSON.stringify(['message-strength-v3-markdown', body, context, subject, normalizedStyle]))
     .digest('hex');
   const cached = _devBuddyComposeRewriteCache.get(signature);
   if (cached && Date.now() - cached.at < 24 * 60 * 60 * 1000) return { ...cached.value, cached: true };
@@ -4856,6 +4857,7 @@ async function _devBuddyRewriteDraft({ body, context, subject, style, mode, sess
       'Do not invent context, promises, deadlines, apologies, praise, or decisions.',
       'Remove wording that could sound dismissive, accusatory, exclusionary, patronizing, or unnecessarily abrupt.',
       'Keep the result recognizably in the author\'s voice and preserve its greeting.',
+      'Preserve meaningful paragraph breaks. Use restrained Markdown in the rewrite when it improves scanning: short headings, bullets, numbered steps, bold emphasis, links, and code formatting are allowed. Do not wrap the rewrite in a Markdown code fence.',
       'Evaluate both tone and whether the message is substantively strong enough for its recipient to understand and act on.',
       'Flag concrete message-strength gaps such as unsupported conclusions, vague criticism, unclear references, missing rationale or examples, ambiguous requests, and absent next steps when those omissions materially weaken the message.',
       'Do not judge whether a claim is factually true. Explain what support or specificity the author should add.',

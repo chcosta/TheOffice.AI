@@ -1737,8 +1737,17 @@
     .scratchpad-actions {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 10px;
       margin: 10px 0 14px;
+    }
+    .scratchpad-copy-format {
+      min-height: 34px;
+      padding: 4px 28px 4px 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface);
+      color: var(--cp-text);
     }
     .scratchpad-status {
       flex: 1;
@@ -1764,10 +1773,18 @@
       font-size: 12px;
     }
     .scratchpad-copy {
-      white-space: pre-wrap;
       user-select: text;
       font-size: 13px;
       line-height: 1.55;
+    }
+    .scratchpad-copy > :first-child { margin-top: 0; }
+    .scratchpad-copy > :last-child { margin-bottom: 0; }
+    .scratchpad-copy pre {
+      overflow-x: auto;
+      padding: 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 8px;
+      background: var(--cp-surface-soft);
     }
     .scratchpad-muted {
       color: var(--cp-text-muted);
@@ -1783,6 +1800,28 @@
     .scratchpad-gap span { display: block; margin-top: 4px; color: var(--cp-text-muted); }
     .scratchpad-changes { margin: 0; padding-left: 18px; }
     .scratchpad-changes li { margin: 4px 0; }
+    .work-list-section + .work-list-section {
+      border-top: 1px solid var(--cp-border);
+    }
+    .work-list-heading {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 9px 12px 7px;
+      color: var(--cp-text-muted);
+      background: var(--cp-surface-soft);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      text-transform: uppercase;
+    }
+    .item.ongoing {
+      background: color-mix(in srgb, var(--cp-surface-soft) 72%, var(--cp-surface));
+    }
+    .item-state {
+      color: var(--cp-link);
+      font-weight: 700;
+    }
     .primary {
       padding: 8px 12px;
       border: 1px solid var(--cp-accent);
@@ -2078,7 +2117,12 @@
             <textarea class="scratchpad-input" id="scratchpadInput" maxlength="12000" placeholder="Paste or draft your message here…"></textarea>
             <div class="scratchpad-actions">
               <button class="primary" id="scratchpadImprove" type="button">Review now</button>
-              <button id="scratchpadCopy" type="button" disabled>Copy Pixel's version</button>
+              <select class="scratchpad-copy-format" id="scratchpadCopyFormat" aria-label="Copy format">
+                <option value="plain">Plain text</option>
+                <option value="markdown">Markdown</option>
+                <option value="html">HTML</option>
+              </select>
+              <button id="scratchpadCopy" type="button" disabled>Copy plain text</button>
               <button id="scratchpadClear" type="button">Clear</button>
               <span class="scratchpad-status" id="scratchpadStatus">Your draft is saved locally and is not added to Pixel's recorded chat history.</span>
             </div>
@@ -2271,6 +2315,23 @@
         $('stage').dataset.anchorY = windowPlacement.anchorY;
         $('stage').style.setProperty('--buddy-left', `${windowPlacement.buddyLeft}px`);
         $('stage').style.setProperty('--buddy-top', `${windowPlacement.buddyTop}px`);
+      }
+
+      function toggleOngoingLocally(item, ongoing) {
+        const previousStatus = status;
+        const update = entries => (entries || []).map(entry =>
+          entry.id === item.id ? { ...entry, ongoing, semanticAttention: !ongoing } : entry);
+        status = {
+          ...status,
+          list: update(status?.list),
+          efforts: update(status?.efforts),
+        };
+        refreshBuddyUrgency(status.list);
+        renderWorkItems(status.list);
+        return () => {
+          status = previousStatus;
+          render();
+        };
       }
 
       async function setMode(mode) {
@@ -2839,6 +2900,7 @@
               <div class="detail-actions">
                 <button class="detail-primary" type="button" data-action="done">Done</button>
                 <button class="text-action" type="button" data-action="star" aria-pressed="${selected.starred ? 'true' : 'false'}">${selected.starred ? '★ Starred' : '☆ Star'}</button>
+                <button class="text-action" type="button" data-action="ongoing" aria-pressed="${selected.ongoing ? 'true' : 'false'}">${selected.ongoing ? 'Return to attention' : 'Mark ongoing'}</button>
                 ${openable ? '<button class="text-action" type="button" data-action="open">Open source</button>' : ''}
                 ${selected.priority !== 'low' ? '<button class="text-action" type="button" data-action="priority-down">Lower priority</button>' : ''}
                 <label class="reminder-control">Remind me in
@@ -2905,8 +2967,8 @@
         const sorted = sortedWorkItems(items);
         if (!sorted.some(item => item.id === selectedItemId)) selectedItemId = sorted[0]?.id || '';
         $('workSort').value = workSort;
-        $('itemList').innerHTML = sorted.length ? sorted.map(item => `
-          <article class="item ${item.id === selectedItemId ? 'selected' : ''} ${item.starred ? 'starred' : ''}" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" role="button" tabindex="0" aria-selected="${item.id === selectedItemId ? 'true' : 'false'}">
+        const renderItem = item => `
+          <article class="item ${item.id === selectedItemId ? 'selected' : ''} ${item.starred ? 'starred' : ''} ${item.ongoing ? 'ongoing' : ''}" data-kind="${escapeHtml(item.kind || 'memory')}" data-id="${escapeHtml(item.id)}" data-signal="${item.fingerprint ? '1' : '0'}" data-openable="${item.link || item.route ? '1' : '0'}" role="button" tabindex="0" aria-selected="${item.id === selectedItemId ? 'true' : 'false'}">
             <div class="item-top">
               <button class="drag-handle" type="button" title="Drag onto another item to combine evidence${workSort === 'manual' ? '; use its top or bottom edge to reorder' : ''}" aria-label="Grab and move work item">
                 <span class="drag-bar"></span><span class="drag-bar"></span><span class="drag-bar"></span>
@@ -2914,7 +2976,9 @@
               <div class="item-copy">
                 <div class="item-title">${escapeHtml(item.title)}</div>
                 <div class="item-meta">
-                  <span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}">${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))}</span>
+                  ${item.ongoing
+                    ? '<span class="item-state">Ongoing · acknowledged</span>'
+                    : `<span class="urgency" data-level="${escapeHtml(item.urgency?.level || 'medium')}">${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))}</span>`}
                   <span>·</span>
                   <span>${escapeHtml(formatArrivalTime(item))}</span>
                 </div>
@@ -2925,7 +2989,20 @@
                 <button class="quick-action quick-done" type="button" data-action="done" aria-label="Mark done" title="Mark done">✓</button>
               </div>
             </div>
-          </article>`).join('') : '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
+          </article>`;
+        const active = sorted.filter(item => !item.ongoing);
+        const ongoing = sorted.filter(item => item.ongoing)
+          .sort((a, b) => Number(b.starred === true) - Number(a.starred === true) ||
+            itemArrival(b) - itemArrival(a));
+        const renderSection = (label, entries) => entries.length
+          ? `<section class="work-list-section">
+              <div class="work-list-heading"><span>${label}</span><span>${entries.length}</span></div>
+              ${entries.map(renderItem).join('')}
+            </section>`
+          : '';
+        $('itemList').innerHTML = sorted.length
+          ? renderSection('Needs attention', active) + renderSection('Ongoing', ongoing)
+          : '<div class="empty">Nothing needs you right now. I’ll keep watching.</div>';
         renderWorkDetail(sorted);
         renderPreview(sorted);
       }
@@ -2933,20 +3010,33 @@
       function renderPreview(items) {
         const sorted = sortedWorkItems(items);
         $('previewSort').value = workSort;
-        $('previewList').innerHTML = sorted.length ? sorted.map(item => `
-          <div class="preview-item ${item.starred ? 'starred' : ''}" data-preview-id="${escapeHtml(item.id)}" data-urgency="${escapeHtml(item.urgency?.level || 'medium')}">
+        const active = sorted.filter(item => !item.ongoing);
+        const ongoing = sorted.filter(item => item.ongoing)
+          .sort((a, b) => Number(b.starred === true) - Number(a.starred === true) ||
+            itemArrival(b) - itemArrival(a));
+        const renderItem = item => `
+          <div class="preview-item ${item.starred ? 'starred' : ''} ${item.ongoing ? 'ongoing' : ''}" data-preview-id="${escapeHtml(item.id)}" data-urgency="${escapeHtml(item.urgency?.level || 'medium')}">
             <button class="preview-read" type="button" data-preview-action="read">
               <div class="preview-title">${escapeHtml(item.title)}</div>
-              <div class="preview-meta">${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))} · ${escapeHtml(formatArrivalTime(item))}</div>
+              <div class="preview-meta">${item.ongoing ? 'Ongoing · acknowledged' : `${escapeHtml(item.urgency?.label || 'Medium')} · ${escapeHtml(urgencyScore(item))}`} · ${escapeHtml(formatArrivalTime(item))}</div>
             </button>
             <button class="quick-action quick-star" type="button" data-preview-action="star" aria-label="${item.starred ? 'Remove star' : 'Star item'}" aria-pressed="${item.starred ? 'true' : 'false'}" title="${item.starred ? 'Remove star' : 'Star item'}">${item.starred ? '★' : '☆'}</button>
             <button class="quick-action quick-done" type="button" data-preview-action="done" aria-label="Mark done" title="Mark done">✓</button>
-          </div>`).join('') : '<div class="empty">Nothing needs you right now.</div>';
+          </div>`;
+        const renderSection = (label, entries) => entries.length
+          ? `<section class="work-list-section">
+              <div class="work-list-heading"><span>${label}</span><span>${entries.length}</span></div>
+              ${entries.map(renderItem).join('')}
+            </section>`
+          : '';
+        $('previewList').innerHTML = sorted.length
+          ? renderSection('Needs attention', active) + renderSection('Ongoing', ongoing)
+          : '<div class="empty">Nothing needs you right now.</div>';
       }
 
       function refreshBuddyUrgency(items) {
         const rank = { critical: 4, high: 3, medium: 2, low: 1 };
-        const highest = (items || []).reduce((current, item) => {
+        const highest = (items || []).filter(item => !item.ongoing).reduce((current, item) => {
           const level = item?.urgency?.level;
           return (rank[level] || 0) > (rank[current] || 0) ? level : current;
         }, '');
@@ -2967,8 +3057,9 @@
         $('buddy').title = `${mood.label}: ${mood.detail || ''}`;
         $('attentionDot').classList.toggle('on', (status?.counts?.attention || 0) > 0);
         const combined = status?.list || [...(status?.signals || []), ...(status?.items || []).filter(item => !item.snoozed)];
+        const activeWork = combined.filter(item => !item.ongoing);
         refreshBuddyUrgency(combined);
-        $('buddy').classList.toggle('critical-work', combined.some(item => item.urgency?.level === 'critical'));
+        $('buddy').classList.toggle('critical-work', activeWork.some(item => item.urgency?.level === 'critical'));
         const relationshipSignature = combined.map(item => `${item.id}:${item.urgency?.level || ''}`).join('|');
         if (mapMode !== 'context' && mapRelationshipSignature && relationshipSignature !== mapRelationshipSignature) {
           mapRelationships = null;
@@ -3002,8 +3093,9 @@
             : `${status.effortClassification.pending} ${status.effortClassification.pending === 1 ? 'signal needs' : 'signals need'} classification`);
         }
         $('sourceStatus').textContent = sourceBits.join(' · ') || 'No automatic sources enabled';
-        $('bodyCount').textContent = combined.length > 99 ? '99+' : String(combined.length);
-        $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${combined.length} tracked items · ${mood.label}. ${mood.detail || ''}`);
+        $('bodyCount').textContent = activeWork.length > 99 ? '99+' : String(activeWork.length);
+        const ongoingCount = combined.length - activeWork.length;
+        $('buddy').setAttribute('aria-label', `Open ${settings.name || 'Pixel'} · ${activeWork.length} items need attention${ongoingCount ? ` · ${ongoingCount} ongoing` : ''} · ${mood.label}. ${mood.detail || ''}`);
         renderWorkItems(combined);
         const recentActivity = status?.recentActivity || [];
         $('recentCount').textContent = String(recentActivity.length);
@@ -3254,18 +3346,51 @@
       }
 
       async function copyText(value) {
+        const normalized = String(value || '').replace(/\r?\n/g, '\r\n');
         if (navigator.clipboard?.writeText) {
-          await navigator.clipboard.writeText(value);
+          await navigator.clipboard.writeText(normalized);
           return;
         }
         const input = document.createElement('textarea');
-        input.value = value;
+        input.value = normalized;
         input.style.position = 'fixed';
         input.style.opacity = '0';
         document.body.appendChild(input);
         input.select();
         document.execCommand('copy');
         input.remove();
+      }
+
+      function markdownToPlainText(markdown) {
+        return String(markdown || '')
+          .replace(/\r/g, '')
+          .replace(/^```[^\n]*\n?/gm, '')
+          .replace(/^#{1,6}\s+/gm, '')
+          .replace(/^\s*[-*]\s+/gm, '• ')
+          .replace(/^\s*(\d+)\.\s+/gm, '$1. ')
+          .replace(/^\s*>\s?/gm, '')
+          .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1 ($2)')
+          .replace(/(\*\*|__)(.*?)\1/g, '$2')
+          .replace(/(^|[^\w])([*_])([^*_\n]+)\2/g, '$1$3')
+          .replace(/`([^`]+)`/g, '$1')
+          .replace(/^\s*\|?[\s:-]+\|[\s|:-]*$/gm, '')
+          .replace(/^\s*\|(.+)\|\s*$/gm, (_line, cells) =>
+            cells.split('|').map(cell => cell.trim()).join('\t'))
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+      }
+
+      function scratchpadRewriteHtml() {
+        return `<div>${renderNotesMarkdown(scratchpadRewrite)}</div>`;
+      }
+
+      function updateScratchpadCopyLabel() {
+        const format = $('scratchpadCopyFormat').value;
+        $('scratchpadCopy').textContent = {
+          plain: 'Copy plain text',
+          markdown: 'Copy Markdown',
+          html: 'Copy HTML',
+        }[format] || 'Copy';
       }
 
       function clearScratchpadResult() {
@@ -3324,7 +3449,7 @@
         $('scratchpadChanges').innerHTML = changes.length
           ? `<ul class="scratchpad-changes">${changes.map(change => `<li>${escapeHtml(change)}</li>`).join('')}</ul>`
           : '<div class="scratchpad-muted">Pixel kept the message close to your original.</div>';
-        $('scratchpadRewrite').textContent = scratchpadRewrite;
+        $('scratchpadRewrite').innerHTML = renderNotesMarkdown(scratchpadRewrite);
         $('scratchpadRewrite').closest('.scratchpad-card').hidden = result?.quick === true;
         $('scratchpadResults').hidden = false;
         $('scratchpadCopy').disabled = !scratchpadRewrite || result?.quick === true;
@@ -3831,6 +3956,7 @@
       }
       $('scratchpadInput').value = localStorage.getItem('dev-buddy-scratchpad') || '';
       $('scratchpadStyle').value = localStorage.getItem('dev-buddy-scratchpad-style') || 'balanced';
+      $('scratchpadCopyFormat').value = localStorage.getItem('dev-buddy-scratchpad-copy-format') || 'plain';
       if (scratchpadResult?.source === $('scratchpadInput').value.trim() &&
           scratchpadResult?.style === $('scratchpadStyle').value) {
         renderScratchpadResult(scratchpadResult);
@@ -3849,11 +3975,22 @@
         scheduleScratchpadReview(350);
       });
       $('scratchpadImprove').addEventListener('click', improveScratchpad);
+      $('scratchpadCopyFormat').addEventListener('change', () => {
+        localStorage.setItem('dev-buddy-scratchpad-copy-format', $('scratchpadCopyFormat').value);
+        updateScratchpadCopyLabel();
+      });
       $('scratchpadCopy').addEventListener('click', async () => {
         if (!scratchpadRewrite) return;
-        await copyText(scratchpadRewrite);
-        $('scratchpadStatus').textContent = 'Pixel’s version is copied and ready to paste.';
+        const format = $('scratchpadCopyFormat').value;
+        const value = format === 'plain'
+          ? markdownToPlainText(scratchpadRewrite)
+          : format === 'html'
+            ? scratchpadRewriteHtml()
+            : scratchpadRewrite;
+        await copyText(value);
+        $('scratchpadStatus').textContent = `${format === 'plain' ? 'Plain text' : format === 'html' ? 'HTML' : 'Markdown'} copied with paragraph breaks preserved.`;
       });
+      updateScratchpadCopyLabel();
       $('scratchpadClear').addEventListener('click', () => {
         cancelScratchpadReview();
         $('scratchpadInput').value = '';
@@ -4279,6 +4416,20 @@
           try {
             await updateListItem(item, { starred }, false);
             void load();
+          } catch (error) {
+            restore();
+          }
+          return;
+        }
+        if (action === 'ongoing') {
+          const ongoing = item.ongoing !== true;
+          const restore = toggleOngoingLocally(item, ongoing);
+          try {
+            await updateListItem(item, { ongoing }, false);
+            void load();
+            showOperationStatus(ongoing
+              ? 'Moved to Ongoing. Pixel will keep tracking it without treating it as new attention.'
+              : 'Returned to Needs attention.', 'done', 2600);
           } catch (error) {
             restore();
           }

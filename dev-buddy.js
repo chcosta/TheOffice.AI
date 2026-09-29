@@ -759,6 +759,7 @@ function materializeEffort(effort) {
     ? new Date(Math.min(...trackedDates)).toISOString()
     : effort.createdAt || null;
   const explicitUrgency = urgencyOverride(effort.urgencyOverrideScore);
+  const ongoing = effort.ongoing === true;
   return {
     id: effort.id,
     effortId: effort.id,
@@ -768,6 +769,7 @@ function materializeEffort(effort) {
     notes: cleanMessage(effort.notes, 12000),
     priority: effortPriority(observations, effort.priority),
     starred: effort.starred === true,
+    ongoing,
     status: effort.status || 'open',
     snoozedUntil: effort.snoozedUntil || null,
     source: `${observations.length} connected ${observations.length === 1 ? 'signal' : 'signals'}${kinds.length ? ` · ${kinds.join(' · ')}` : ''}`,
@@ -777,7 +779,7 @@ function materializeEffort(effort) {
     dueAt: dueDates.length ? new Date(Math.min(...dueDates)).toISOString() : null,
     urgency: explicitUrgency || mostUrgent.urgency || null,
     slaBusinessHours: mostUrgent.slaBusinessHours || null,
-    semanticAttention: observations.some(item => item.semanticAttention !== false),
+    semanticAttention: !ongoing && observations.some(item => item.semanticAttention !== false),
     attentionBlurb: mostUrgent.attentionBlurb || mostUrgent.detail || '',
     repository,
     createdAt: effort.createdAt,
@@ -1078,6 +1080,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
     const mergedObservations = new Map((target.observations || [])
       .filter(Boolean).map(observation => [observation.key, observation]));
     let starred = target.starred === true;
+    let ongoing = target.ongoing === true;
     const urgencyOverrides = [urgencyOverride(target.urgencyOverrideScore)]
       .filter(Boolean).map(entry => entry.score);
     const mergedNotes = [cleanMessage(target.notes, 12000)].filter(Boolean);
@@ -1088,6 +1091,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       if (!source) continue;
       consumed.add(id);
       starred = starred || source.starred === true;
+      ongoing = ongoing || source.ongoing === true;
       const sourceUrgency = urgencyOverride(source.urgencyOverrideScore);
       if (sourceUrgency) urgencyOverrides.push(sourceUrgency.score);
       const sourceNotes = cleanMessage(source.notes, 12000);
@@ -1113,6 +1117,7 @@ function applyEffortClassification(groups = [], attemptedIds = null) {
       target.summary = cleanText(group.summary, 1200) || target.summary;
     }
     target.starred = starred;
+    target.ongoing = ongoing;
     target.urgencyOverrideScore = urgencyOverrides.length ? Math.min(...urgencyOverrides) : null;
     target.notes = mergedNotes.join('\n\n---\n\n');
     target.needsClassification = false;
@@ -1260,6 +1265,7 @@ function mergeEfforts(sourceId, targetId, options = {}) {
   target.observations = [...observations.values()].slice(-80);
   target.notes = notes.join('\n\n---\n\n');
   target.starred = target.starred === true || source.starred === true;
+  target.ongoing = target.ongoing === true || source.ongoing === true;
   const urgencyOverrides = [target, source]
     .map(effort => urgencyOverride(effort.urgencyOverrideScore))
     .filter(Boolean)
@@ -1349,6 +1355,14 @@ function updateEffort(id, patch = {}) {
   let reprioritized = false;
   if (Object.prototype.hasOwnProperty.call(patch, 'notes')) effort.notes = cleanMessage(patch.notes, 12000);
   if (Object.prototype.hasOwnProperty.call(patch, 'starred')) effort.starred = patch.starred === true;
+  if (Object.prototype.hasOwnProperty.call(patch, 'ongoing')) {
+    const ongoing = patch.ongoing === true;
+    if (ongoing !== (effort.ongoing === true)) {
+      recordActivity(store, ongoing ? 'acknowledged' : 'reactivated',
+        effort.id, effort.title, 'Pixel effort');
+    }
+    effort.ongoing = ongoing;
+  }
   if (Object.prototype.hasOwnProperty.call(patch, 'priority')) {
     const priority = normalizePriority(patch.priority);
     if (priority !== effort.priority) {

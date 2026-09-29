@@ -165,7 +165,7 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
     /Strengthen this message/.test(pixel) &&
     /\/api\/dev-buddy\/compose\/rewrite/.test(pixel) &&
     /dev-buddy-scratchpad/.test(pixel) &&
-    /Copy Pixel's version/.test(pixel),
+    /Copy plain text/.test(pixel),
   'Pixel exposes a persistent scratchpad that reuses the full Outlook coaching contract');
   t.ok(/function scheduleScratchpadReview\(delay = 900\)/.test(pixel) &&
     /new AbortController\(\)/.test(pixel) &&
@@ -176,6 +176,14 @@ await t.test('Outlook compose coaching is live, local, and user-controlled', () 
     /new Worker\(path\.join\(__dirname, 'compose-coach-worker\.js'\)/.test(server) &&
     /worker\.terminate\(\)/.test(server),
   'the scratchpad shows an immediate scan, reviews automatically, and isolates deeper coaching');
+  t.ok(/id="scratchpadCopyFormat"/.test(pixel) &&
+    /markdownToPlainText\(scratchpadRewrite\)/.test(pixel) &&
+    /scratchpadRewriteHtml\(\)/.test(pixel) &&
+    /renderNotesMarkdown\(scratchpadRewrite\)/.test(pixel) &&
+    /replace\(\/\\r\?\\n\/g, '\\r\\n'\)/.test(pixel) &&
+    /message-strength-v3-markdown/.test(server) &&
+    /Preserve meaningful paragraph breaks/.test(server),
+  'Scratchpad renders Markdown and copies plain text, Markdown, or HTML without collapsing paragraphs');
 });
 
 await t.test('memory items persist, reprioritize, snooze, and complete', () => {
@@ -465,6 +473,15 @@ await t.test('efforts durably group related observations and preserve user state
   const lowered = buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id);
   t.eq(lowered.urgency.level, 'medium', 'lowering priority immediately lowers visible urgency by one level');
   t.eq(lowered.urgency.reason, 'Lowered by you.', 'the user urgency choice survives observation synchronization');
+
+  buddy.updateEffort(effort.id, { ongoing: true, starred: true });
+  const ongoing = buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id);
+  t.ok(ongoing.ongoing, 'ongoing acknowledgement survives observation synchronization');
+  t.ok(!ongoing.semanticAttention, 'ongoing work remains visible without requesting Pixel attention');
+  t.ok(ongoing.starred, 'ongoing work can remain pinned');
+  buddy.updateEffort(effort.id, { ongoing: false });
+  t.ok(!buddy.syncEffortObservations([first, second]).efforts.find(entry => entry.id === effort.id).ongoing,
+    'ongoing work can return to the attention list');
 
   buddy.updateEffort(effort.id, { status: 'done' });
   const unchanged = buddy.syncEffortObservations([first, second]);
