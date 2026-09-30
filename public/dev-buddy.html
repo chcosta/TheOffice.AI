@@ -492,6 +492,39 @@
     }
     .panel.open { display: flex; animation: panel-in .18s ease-out; }
     .stage.panel-open .buddy { display: none; }
+    .stage.scratchpad-open .buddy { display: block; }
+    .panel.scratchpad-flyout {
+      left: var(--buddy-left);
+      top: calc(var(--buddy-top) + 154px);
+      right: 12px;
+      bottom: 12px;
+    }
+    .stage[data-anchor-x="right"] .panel.scratchpad-flyout {
+      right: calc(100% - var(--buddy-left) - 132px);
+      left: 12px;
+    }
+    .stage[data-anchor-y="bottom"] .panel.scratchpad-flyout {
+      top: 12px;
+      bottom: calc(100% - var(--buddy-top) + 2px);
+    }
+    .panel.scratchpad-flyout .view-nav { display: none; }
+    .panel.scratchpad-flyout .scratchpad-page {
+      padding: 14px 16px 20px;
+    }
+    .panel.scratchpad-flyout .scratchpad-head > div { display: none; }
+    .panel.scratchpad-flyout .scratchpad-head {
+      justify-content: flex-end;
+      margin-bottom: 10px;
+    }
+    .panel.scratchpad-flyout .scratchpad-input {
+      min-height: 180px;
+      max-height: 280px;
+      resize: none;
+    }
+    .panel.scratchpad-flyout .scratchpad-results {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .panel.scratchpad-flyout .scratchpad-card.wide { grid-column: auto; }
     html.embedded, html.embedded body { overflow: auto; background: var(--cp-bg); }
     html.embedded .stage { min-height: 100vh; height: 100vh; }
     html.embedded .panel {
@@ -2393,6 +2426,8 @@
       if (embedded) document.documentElement.classList.add('embedded');
       let status = null;
       let panelOpen = false;
+      let scratchpadFlyout = false;
+      let scratchpadReturnView = 'work';
       let bubbleTimer = null;
       let reminderTimer = null;
       let newWorkTimer = null;
@@ -3537,9 +3572,9 @@
         }
       }
 
-      async function setView(view, resize = true) {
+      async function setView(view, resize = true, persist = true) {
         currentView = ['work', 'map', 'scratchpad', 'memory', 'setup'].includes(view) ? view : 'work';
-        localStorage.setItem('dev-buddy-view', currentView);
+        if (persist) localStorage.setItem('dev-buddy-view', currentView);
         $('workView').hidden = currentView !== 'work';
         $('mapView').hidden = currentView !== 'map';
         $('scratchpadView').hidden = currentView !== 'scratchpad';
@@ -3908,6 +3943,7 @@
       }
 
       async function openPanel(focusComposer = false) {
+        if (!embedded) return openTodoAi();
         clearTimeout(closeTimer);
         panelOpen = true;
         peekOpen = false;
@@ -3923,10 +3959,31 @@
       async function closePanel() {
         if (embedded) return;
         clearTimeout(closeTimer);
+        const restoreView = scratchpadReturnView;
+        scratchpadFlyout = false;
         panelOpen = false;
-        $('panel').classList.remove('open');
-        $('stage').classList.remove('panel-open');
+        $('panel').classList.remove('open', 'scratchpad-flyout');
+        $('stage').classList.remove('panel-open', 'scratchpad-open');
+        await setView(restoreView, false, false);
+        render();
         await setMode('idle');
+      }
+
+      async function openScratchpadFlyout() {
+        clearTimeout(closeTimer);
+        scratchpadReturnView = currentView === 'scratchpad' ? 'work' : currentView;
+        scratchpadFlyout = true;
+        panelOpen = true;
+        peekOpen = false;
+        $('hoverPreview').classList.remove('show');
+        hideBubble();
+        await setView('scratchpad', false, false);
+        await setMode('scratchpad');
+        $('panel').classList.add('open', 'scratchpad-flyout');
+        $('stage').classList.add('panel-open', 'scratchpad-open');
+        $('panelTitle').textContent = 'Scratchpad';
+        $('panelSub').textContent = 'Quick draft and rewrite';
+        setTimeout(() => $('scratchpadInput').focus(), 80);
       }
 
       async function showPeek() {
@@ -3975,9 +4032,10 @@
         clearTimeout(closeTimer);
         clearTimeout(peekTimer);
         panelOpen = false;
+        scratchpadFlyout = false;
         peekOpen = false;
-        $('panel').classList.remove('open');
-        $('stage').classList.remove('panel-open');
+        $('panel').classList.remove('open', 'scratchpad-flyout');
+        $('stage').classList.remove('panel-open', 'scratchpad-open');
         $('hoverPreview').classList.remove('show');
         hideBubble();
         await setMode('idle');
@@ -4260,8 +4318,7 @@
         $('buddyContextMenu').classList.remove('show');
         if (action === 'open') await openTodoAi();
         else if (action === 'scratchpad') {
-          await openPanel();
-          await setView('scratchpad');
+          await openScratchpadFlyout();
         } else if (action === 'exit') await exitPixel();
       });
       document.addEventListener('pointerdown', event => {
@@ -4270,7 +4327,7 @@
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) return;
         const fn = invoke();
-        if (fn) fn('restore_dev_buddy_floating', { workspace: panelOpen }).catch(() => {});
+        if (fn) fn('restore_dev_buddy_floating', { workspace: panelOpen && !scratchpadFlyout }).catch(() => {});
       });
       for (const button of document.querySelectorAll('[data-view-target]')) {
         button.addEventListener('click', () => setView(button.dataset.viewTarget));
@@ -5319,7 +5376,7 @@
         }
         if (embedded) {
           panelOpen = true;
-          currentView = 'work';
+          setView('work', false, false);
           $('panel').classList.add('open');
           $('stage').classList.add('panel-open');
           renderWorkItems(status?.list || []);

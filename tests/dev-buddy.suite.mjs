@@ -94,6 +94,14 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /"move_dev_buddy_aside"/.test(desktopPermissions) &&
     /monitor_containing_anchor/.test(desktop),
   'right-click opens Pixel actions while double right-click moves Pixel aside');
+  t.ok(/"scratchpad"\s*=>\s*\(560,\s*720\)/.test(desktop) &&
+    /set_resizable\(mode != "peek" && mode != "scratchpad"\)/.test(desktop) &&
+    /function openScratchpadFlyout\(\)/.test(html) &&
+    /setMode\('scratchpad'\)/.test(html) &&
+    /classList\.add\('open', 'scratchpad-flyout'\)/.test(html) &&
+    /if \(!embedded\) return openTodoAi\(\)/.test(html) &&
+    /restore_dev_buddy_floating', \{ workspace: panelOpen && !scratchpadFlyout \}/.test(html),
+  'detached Scratchpad is a compact flyout while the full workspace remains exclusive to ToDo.AI');
   t.ok(/pageParams\.get\('embedded'\) === '1'/.test(html) &&
     /pageParams\.get\('item'\)/.test(html) &&
     /html\.embedded \.panel/.test(html) &&
@@ -109,15 +117,15 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /function automaticPeekWidth/.test(html) &&
     /dev-buddy-peek-width-mode/.test(html) &&
     /peek_width: Option<u32>/.test(desktop) &&
-    /set_resizable\(mode != "peek"\)/.test(desktop) &&
+    /set_resizable\(mode != "peek" && mode != "scratchpad"\)/.test(desktop) &&
     !/"start_dev_buddy_resize"/.test(desktopPermissions),
   'the quick view offers persistent narrower, auto-width, and wider controls instead of manual edge resizing');
   t.ok(/set_dev_buddy_topmost\(&window, !workspace\)/.test(desktop) &&
     /set_dev_buddy_topmost\(&window, true\)/.test(desktop) &&
     /if topmost \{ -1isize \} else \{ -2isize \}/.test(desktop) &&
     /set_skip_taskbar\(!workspace\)/.test(desktop) &&
-    /restore_dev_buddy_floating', \{ workspace: panelOpen \}/.test(html),
-  'the full workspace layers normally while idle Pixel and its peek remain always on top');
+    /restore_dev_buddy_floating', \{ workspace: panelOpen && !scratchpadFlyout \}/.test(html),
+  'detached Pixel flyouts remain always on top without restoring as a full workspace');
   t.ok(!/data-view-target="catchup"/.test(html) && !/data-action="dismiss"/.test(html),
     'Catch up and work-item dismissal are removed');
 });

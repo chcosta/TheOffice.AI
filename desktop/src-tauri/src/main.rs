@@ -613,6 +613,7 @@ fn dev_buddy_mode_size(mode: &str, peek_width: Option<u32>) -> (u32, u32) {
     match mode {
         "workspace" => (u32::MAX, u32::MAX),
         "peek" => (peek_width.unwrap_or(400).clamp(340, 720), u32::MAX),
+        "scratchpad" => (560, 720),
         "expanded" => (440, 900),
         "wide" => (680, 900),
         "ultra" => (u32::MAX, 900),
@@ -637,7 +638,9 @@ fn set_dev_buddy_mode(
     };
     let placement = position_dev_buddy(&window, width, height, anchor, true)?;
     let workspace = mode == "workspace";
-    window.set_resizable(mode != "peek").map_err(|e| e.to_string())?;
+    window
+        .set_resizable(mode != "peek" && mode != "scratchpad")
+        .map_err(|e| e.to_string())?;
     set_dev_buddy_topmost(&window, !workspace)?;
     window
         .set_skip_taskbar(!workspace)
