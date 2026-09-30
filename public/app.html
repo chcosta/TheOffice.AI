@@ -7604,16 +7604,40 @@
               <style>
                 .todo-ai-page { min-height:calc(100vh - 120px); }
                 .todo-ai-frame {
+                  position:relative;
+                  z-index:1;
                   width:100%;
                   height:calc(100vh - 104px);
                   min-height:720px;
                   border:0;
+                  background:transparent;
+                }
+                .todo-ai-frame-wrap {
+                  position:relative;
+                  min-height:720px;
                   background:var(--cp-bg);
                 }
+                .todo-ai-frame-loading {
+                  position:absolute;
+                  inset:0;
+                  z-index:2;
+                  display:grid;
+                  place-items:center;
+                  pointer-events:none;
+                  color:var(--cp-text-muted);
+                  font-size:13px;
+                }
+                .todo-ai-frame-wrap.loaded .todo-ai-frame-loading {
+                  display:none;
+                }
               </style>
-              <iframe class="todo-ai-frame"
-                      :src="'/public/dev-buddy.html?embedded=1&item=' + encodeURIComponent(app.routeParam || '')"
-                      title="ToDo.AI"></iframe>
+              <div class="todo-ai-frame-wrap">
+                <div class="todo-ai-frame-loading">Loading ToDo.AI…</div>
+                <iframe class="todo-ai-frame"
+                        :src="'/public/dev-buddy.html?embedded=1&item=' + encodeURIComponent(app.routeParam || '')"
+                        onload="this.parentElement.classList.add('loaded')"
+                        title="ToDo.AI"></iframe>
+              </div>
             </section>
           </template>
 

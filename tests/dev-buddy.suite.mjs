@@ -114,8 +114,13 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /pageParams\.get\('item'\)/.test(html) &&
     /html\.embedded \.panel/.test(html) &&
     /if \(shouldHide && !embedded\)/.test(html) &&
+    /id="embeddedLoading" hidden>Loading ToDo\.AI/.test(html) &&
+    /if \(embedded\) \{[\s\S]{0,220}\$\('panel'\)\.classList\.add\('open'\)/.test(html) &&
+    /load\(!embedded\)\.then/.test(html) &&
     /route === 'todo-ai'/.test(app) &&
     /dev-buddy\.html\?embedded=1&item=/.test(app) &&
+    /class="todo-ai-frame-loading">Loading ToDo\.AI/.test(app) &&
+    /onload="this\.parentElement\.classList\.add\('loaded'\)"/.test(app) &&
     /case 'todo-ai'/.test(app) &&
     /devbuddy: \['todo-ai'\]/.test(app),
   'ToDo.AI hosts the full Pixel workspace with direct item selection');

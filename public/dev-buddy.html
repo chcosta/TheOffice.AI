@@ -542,6 +542,18 @@
     html.embedded .hover-preview,
     html.embedded .bubble,
     html.embedded .reward { display: none !important; }
+    .embedded-loading {
+      flex: 1;
+      display: grid;
+      place-items: center;
+      padding: 32px;
+      color: var(--cp-text-muted);
+      font-size: 13px;
+    }
+    .embedded-loading[hidden] { display: none; }
+    .panel.embedded-pending .view-nav,
+    .panel.embedded-pending .panel-view,
+    .panel.embedded-pending .operation-status { display: none; }
     .panel-head {
       display: flex;
       align-items: center;
@@ -2211,6 +2223,7 @@
           <button class="panel-close" id="closePanel" type="button" aria-label="Close">×</button>
         </div>
       </header>
+      <div class="embedded-loading" id="embeddedLoading" hidden>Loading ToDo.AI…</div>
       <div class="operation-status" id="operationStatus" role="status" aria-live="polite" hidden></div>
       <nav class="view-nav" aria-label="Dev Buddy views">
         <button class="view-link active" type="button" data-view-target="work">To-do</button>
@@ -3985,7 +3998,7 @@
         $('hoverPreview').classList.remove('show');
         hideBubble();
         await setMode('workspace');
-        $('panel').classList.add('open');
+        $('panel').classList.add('open', 'embedded-pending');
         $('stage').classList.add('panel-open');
         if (currentView === 'map') setTimeout(fitMap, 80);
         if (focusComposer) setTimeout(() => $('newItem').focus(), 80);
@@ -5411,17 +5424,27 @@
         events.addEventListener(name, () => setTimeout(() => load(), 1200));
       });
 
-      load(true).then(() => {
+      if (embedded) {
+        panelOpen = true;
+        currentView = 'work';
+        setView('work', false, false);
+        $('panel').classList.add('open');
+        $('stage').classList.add('panel-open');
+        $('embeddedLoading').hidden = false;
+      }
+      load(!embedded).then(() => {
         if (requestedItemId) {
           selectedItemId = requestedItemId;
           localStorage.setItem('dev-buddy-selected-item', selectedItemId);
         }
         if (embedded) {
-          panelOpen = true;
-          setView('work', false, false);
-          $('panel').classList.add('open');
-          $('stage').classList.add('panel-open');
-          renderWorkItems(status?.list || []);
+          if (status) {
+            $('embeddedLoading').hidden = true;
+            $('panel').classList.remove('embedded-pending');
+            renderWorkItems(status.list || []);
+          } else {
+            $('embeddedLoading').textContent = 'ToDo.AI is reconnecting to TheOffice.AI…';
+          }
           return;
         }
         const item = status?.suggestedReminder || {
