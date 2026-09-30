@@ -263,6 +263,7 @@
       border: 0;
       background: var(--cp-clear);
       cursor: pointer;
+      pointer-events: none;
       z-index: 6;
     }
     .buddy-arm-action.left { left: 0; }
@@ -323,10 +324,19 @@
       opacity: 1;
       transform: none;
     }
-    .buddy-minimize {
+    .buddy-window-controls {
       position: absolute;
       right: 0;
       top: 0;
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(-4px);
+      transition: opacity .16s ease, transform .16s ease;
+      z-index: 8;
+    }
+    .buddy-window-control {
       width: 28px;
       height: 28px;
       display: grid;
@@ -341,23 +351,45 @@
       font-size: 18px;
       font-weight: 700;
       line-height: 1;
-      opacity: 0;
-      pointer-events: none;
-      transform: translateY(-4px);
-      transition: opacity .16s ease, transform .16s ease, color .16s ease;
-      z-index: 8;
+      transition: color .16s ease;
     }
-    .buddy:hover .buddy-minimize,
-    .buddy:focus-within .buddy-minimize {
+    .buddy:hover .buddy-window-controls,
+    .buddy:focus-within .buddy-window-controls {
       opacity: 1;
       pointer-events: auto;
       transform: none;
     }
-    .buddy-minimize:hover,
-    .buddy-minimize:focus-visible {
+    .buddy-window-control:hover,
+    .buddy-window-control:focus-visible {
       color: var(--cp-accent);
       outline: 2px solid var(--cp-accent);
       outline-offset: 1px;
+    }
+    .buddy-context-menu {
+      position: absolute;
+      min-width: 150px;
+      display: none;
+      padding: 6px;
+      border: 1px solid var(--cp-border);
+      border-radius: 10px;
+      background: var(--cp-panel-strong);
+      box-shadow: var(--cp-shadow);
+      z-index: 30;
+    }
+    .buddy-context-menu.show { display: grid; }
+    .buddy-context-menu button {
+      padding: 8px 10px;
+      border: 0;
+      border-radius: 7px;
+      background: transparent;
+      color: var(--cp-text);
+      text-align: left;
+      cursor: pointer;
+    }
+    .buddy-context-menu button:hover,
+    .buddy-context-menu button:focus-visible {
+      background: var(--cp-accent-soft);
+      outline: none;
     }
     .attention-dot {
       position: absolute;
@@ -460,6 +492,23 @@
     }
     .panel.open { display: flex; animation: panel-in .18s ease-out; }
     .stage.panel-open .buddy { display: none; }
+    html.embedded, html.embedded body { overflow: auto; background: var(--cp-bg); }
+    html.embedded .stage { min-height: 100vh; height: 100vh; }
+    html.embedded .panel {
+      position: relative;
+      inset: auto;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+    html.embedded .panel-head { cursor: default; }
+    html.embedded #closePanel,
+    html.embedded .buddy,
+    html.embedded .hover-preview,
+    html.embedded .bubble,
+    html.embedded .reward { display: none !important; }
     .panel-head {
       display: flex;
       align-items: center;
@@ -805,6 +854,33 @@
       white-space: pre-wrap;
       user-select: text;
     }
+    .context-text.markdown { white-space: normal; }
+    .context-text.markdown > :first-child { margin-top: 0; }
+    .context-text.markdown > :last-child { margin-bottom: 0; }
+    .context-text.markdown h1,
+    .context-text.markdown h2,
+    .context-text.markdown h3 {
+      margin: 14px 0 6px;
+      font-size: 13px;
+    }
+    .context-text.markdown p { margin: 8px 0; }
+    .context-text.markdown ul,
+    .context-text.markdown ol {
+      margin: 8px 0;
+      padding-left: 20px;
+    }
+    .context-text.markdown pre {
+      overflow-x: auto;
+      padding: 9px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-bg-elevated);
+      white-space: pre;
+    }
+    .context-text.markdown code {
+      font-family: Consolas, "Courier New", Courier, monospace;
+    }
+    .context-text.markdown a { color: var(--cp-link); }
     .context-row {
       position: relative;
       padding: 10px 13px 10px 16px;
@@ -1466,11 +1542,32 @@
       font-size: 12px;
       font-weight: 650;
     }
+    .preview-width-controls {
+      display: inline-flex;
+      gap: 3px;
+      margin-left: auto;
+    }
+    .preview-width-control {
+      min-width: 26px;
+      height: 26px;
+      padding: 0 7px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-surface);
+      color: var(--cp-text-muted);
+      cursor: pointer;
+      font: inherit;
+      font-size: 10px;
+    }
+    .preview-width-control:hover,
+    .preview-width-control.active {
+      border-color: var(--cp-accent);
+      color: var(--cp-accent);
+    }
     .hover-preview-head label {
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      margin-left: auto;
       color: var(--cp-text-muted);
       font-size: 10px;
       font-weight: 400;
@@ -2002,36 +2099,6 @@
       border-top: 1px solid var(--cp-border);
       font-size: 12px;
     }
-    .resize-handle {
-      position: absolute;
-      left: 16px;
-      bottom: 16px;
-      width: 20px;
-      height: 20px;
-      display: none;
-      border: 0;
-      border-left: 2px solid var(--cp-border-strong);
-      border-bottom: 2px solid var(--cp-border-strong);
-      background: var(--cp-clear);
-      cursor: sw-resize;
-      z-index: 10;
-    }
-    .stage[data-anchor-x="left"] .resize-handle {
-      right: 16px;
-      left: auto;
-      border-right: 2px solid var(--cp-border-strong);
-      border-left: 0;
-    }
-    .stage[data-anchor-y="bottom"] .resize-handle {
-      top: 16px;
-      bottom: auto;
-      border-top: 2px solid var(--cp-border-strong);
-      border-bottom: 0;
-    }
-    .stage[data-anchor-x="left"][data-anchor-y="top"] .resize-handle { cursor: se-resize; }
-    .stage[data-anchor-x="right"][data-anchor-y="top"] .resize-handle { cursor: sw-resize; }
-    .stage[data-anchor-x="left"][data-anchor-y="bottom"] .resize-handle { cursor: ne-resize; }
-    .stage[data-anchor-x="right"][data-anchor-y="bottom"] .resize-handle { cursor: nw-resize; }
     .reward {
       position: absolute;
       right: 22px;
@@ -2258,6 +2325,11 @@
     </section>
     <aside class="hover-preview" id="hoverPreview" aria-label="Top work items">
       <div class="hover-preview-head">To-do
+        <div class="preview-width-controls" aria-label="Quick view width">
+          <button class="preview-width-control" id="peekNarrower" type="button" aria-label="Make quick view narrower" title="Narrower">−</button>
+          <button class="preview-width-control" id="peekAutoWidth" type="button" aria-label="Auto-size quick view width" title="Auto-size width">Auto</button>
+          <button class="preview-width-control" id="peekWider" type="button" aria-label="Make quick view wider" title="Wider">+</button>
+        </div>
         <label>Sort
           <select id="previewSort" aria-label="Sort hover work list">
             <option value="urgency">Urgency</option>
@@ -2278,7 +2350,10 @@
     </aside>
 
     <div class="buddy" id="buddy" role="group" aria-label="Pixel controls" data-mood="calm">
-      <button class="buddy-minimize" id="minimizePixel" type="button" data-buddy-action="minimize" aria-label="Minimize Pixel to taskbar" title="Minimize Pixel to taskbar">↓</button>
+      <span class="buddy-window-controls">
+        <button class="buddy-window-control" id="minimizePixel" type="button" data-buddy-action="minimize" aria-label="Minimize Pixel" title="Minimize">−</button>
+        <button class="buddy-window-control" id="closePixel" type="button" data-buddy-action="close" aria-label="Close Pixel for this session" title="Close">×</button>
+      </span>
       <span class="antenna"></span>
       <span class="head">
         <span class="screen">
@@ -2286,14 +2361,12 @@
           <span class="eye right"></span>
         </span>
       </span>
-      <button class="buddy-arm-action left" id="quickPixel" type="button" data-buddy-action="quick" aria-label="Open Pixel quick view" title="Quick view">
+      <span class="buddy-arm-action left" aria-hidden="true">
         <span class="arm-visual" aria-hidden="true"></span>
-        <span class="arm-cue" aria-hidden="true">≡</span>
-      </button>
-      <button class="buddy-arm-action right" id="fullPixel" type="button" data-buddy-action="full" aria-label="Open full Pixel workspace" title="Full workspace">
+      </span>
+      <span class="buddy-arm-action right" aria-hidden="true">
         <span class="arm-visual" aria-hidden="true"></span>
-        <span class="arm-cue" aria-hidden="true">↗</span>
-      </button>
+      </span>
       <span class="body"><span class="body-count" id="bodyCount">0</span></span>
       <span class="work-bars" id="workBars" aria-hidden="true">
         <span class="work-bar open" id="openBar"></span>
@@ -2302,6 +2375,11 @@
       </span>
       <span class="attention-dot" id="attentionDot"></span>
     </div>
+    <nav class="buddy-context-menu" id="buddyContextMenu" aria-label="Pixel menu">
+      <button type="button" data-context-action="open">Open</button>
+      <button type="button" data-context-action="scratchpad">Scratchpad</button>
+      <button type="button" data-context-action="exit">Exit</button>
+    </nav>
     <aside class="reward" id="reward" aria-live="polite">Nice work — one less loose end.</aside>
   </main>
 
@@ -2309,6 +2387,10 @@
     (() => {
       const $ = id => document.getElementById(id);
       const invoke = () => window.__TAURI__ && (window.__TAURI__.core?.invoke || window.__TAURI__.invoke);
+      const pageParams = new URLSearchParams(window.location.search);
+      const embedded = pageParams.get('embedded') === '1';
+      const requestedItemId = pageParams.get('item') || '';
+      if (embedded) document.documentElement.classList.add('embedded');
       let status = null;
       let panelOpen = false;
       let bubbleTimer = null;
@@ -2334,6 +2416,8 @@
       let workSort = localStorage.getItem('dev-buddy-work-sort') || 'urgency';
       let selectedItemId = localStorage.getItem('dev-buddy-selected-item') || '';
       let previewTab = localStorage.getItem('dev-buddy-preview-tab') || 'attention';
+      let peekWidthMode = localStorage.getItem('dev-buddy-peek-width-mode') || 'auto';
+      let customPeekWidth = Number(localStorage.getItem('dev-buddy-peek-width')) || 520;
       let collapsedWorkSections = new Set();
       try {
         const saved = JSON.parse(localStorage.getItem('dev-buddy-collapsed-sections') || '[]');
@@ -2415,12 +2499,38 @@
         };
       }
 
-      async function setMode(mode) {
+      function automaticPeekWidth(items = status?.list || []) {
+        const sorted = sortedWorkItems(items);
+        const entries = previewTab === 'starred'
+          ? sorted.filter(item => item.starred)
+          : previewTab === 'ongoing'
+            ? sorted.filter(item => item.ongoing)
+            : sorted.filter(item => !item.ongoing);
+        const actionCount = entries.reduce((maximum, item) =>
+          Math.max(maximum, 3 + Number(item.priority !== 'low') + Number(!!item.link) + Number(!!item.route)), 3);
+        const titleLength = entries.reduce((maximum, item) =>
+          Math.max(maximum, String(item.title || '').length), 20);
+        const titleWidth = Math.max(150, Math.min(260, titleLength * 5));
+        return Math.max(400, Math.min(640, 52 + titleWidth + actionCount * 35));
+      }
+
+      function currentPeekWidth() {
+        return peekWidthMode === 'auto'
+          ? automaticPeekWidth()
+          : Math.max(340, Math.min(720, customPeekWidth));
+      }
+
+      async function setMode(mode, requestedPeekWidth = null) {
+        if (embedded) return;
         const fn = invoke();
         if (!fn) return;
+        const peekWidth = mode === 'peek'
+          ? Math.round(requestedPeekWidth || currentPeekWidth())
+          : null;
         try {
           const plan = await fn('plan_dev_buddy_mode', {
             mode,
+            peekWidth,
             buddyLeft: windowPlacement.buddyLeft,
             buddyTop: windowPlacement.buddyTop,
           });
@@ -2429,11 +2539,12 @@
           applyWindowPlacement(plan);
           applyWindowPlacement(await fn('set_dev_buddy_mode', {
             mode,
+            peekWidth,
             anchorX: plan.anchorPhysicalX,
             anchorY: plan.anchorPhysicalY,
           }));
         } catch (_) {
-          try { applyWindowPlacement(await fn('set_dev_buddy_mode', { mode })); } catch (_) {}
+          try { applyWindowPlacement(await fn('set_dev_buddy_mode', { mode, peekWidth })); } catch (_) {}
         }
       }
 
@@ -2503,7 +2614,7 @@
             '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
       }
 
-      function renderNotesMarkdown(markdown) {
+      function renderNotesMarkdown(markdown, interactiveTasks = true) {
         const lines = String(markdown || '').replace(/\r/g, '').split('\n');
         const html = [];
         for (let index = 0; index < lines.length;) {
@@ -2512,7 +2623,7 @@
           if (task) {
             const checked = task[1].toLowerCase() === 'x';
             html.push(`<label class="note-task ${checked ? 'done' : ''}">
-              <input type="checkbox" data-note-task-line="${index}" ${checked ? 'checked' : ''}>
+              <input type="checkbox" ${interactiveTasks ? `data-note-task-line="${index}"` : 'disabled'} ${checked ? 'checked' : ''}>
               <span>${renderNoteInline(task[2])}</span>
             </label>`);
             index++;
@@ -2942,7 +3053,7 @@
         const renderSections = sections => sections.length ? `<div class="context-sections">${sections.map(section => `
           <section class="context-section">
             <h3>${escapeHtml(section.title || 'Context')}</h3>
-            ${section.text ? `<div class="context-text">${escapeHtml(section.text)}</div>` : renderContextRows(section.items)}
+            ${section.text ? `<div class="context-text markdown">${renderNotesMarkdown(section.text, false)}</div>` : renderContextRows(section.items)}
           </section>`).join('')}</div>` : '';
         if (view === 'evidence') {
           return `<div class="context-pane">
@@ -3149,6 +3260,7 @@
         $('previewList').innerHTML = current.entries.length
           ? current.entries.map(renderItem).join('')
           : `<div class="empty">No ${current.label.toLowerCase()} items.</div>`;
+        $('peekAutoWidth').classList.toggle('active', peekWidthMode === 'auto');
       }
 
       function refreshBuddyUrgency(items) {
@@ -3437,7 +3549,7 @@
           button.classList.toggle('active', button.dataset.viewTarget === currentView);
         }
         if (resize && panelOpen) {
-          await setMode('workspace');
+          if (!embedded) await setMode('workspace');
           if (currentView === 'map') {
             if (mapMode !== 'context' && !mapRelationships) loadMapGrouping(mapMode);
             else setTimeout(fitMap, 80);
@@ -3721,7 +3833,7 @@
           const shouldHide = status.settings &&
             (status.settings.enabled === false || (startupLaunch && status.settings.launchAtStartup === false));
           startupLaunch = false;
-          if (shouldHide) {
+          if (shouldHide && !embedded) {
             const fn = invoke();
             if (fn) await fn('hide_dev_buddy');
             return;
@@ -3809,6 +3921,7 @@
       }
 
       async function closePanel() {
+        if (embedded) return;
         clearTimeout(closeTimer);
         panelOpen = false;
         $('panel').classList.remove('open');
@@ -3822,7 +3935,7 @@
         hideBubble();
         peekOpen = true;
         renderPreview(status?.list || []);
-        await setMode('peek');
+        await setMode('peek', currentPeekWidth());
         if (peekOpen && !panelOpen) $('hoverPreview').classList.add('show');
       }
 
@@ -4058,6 +4171,8 @@
         try { $('buddy').releasePointerCapture(event.pointerId); } catch (_) {}
         if (gesture.dragging) {
           setTimeout(finishBuddyDrag, 180);
+        } else {
+          toggleQuickView();
         }
       });
       $('buddy').addEventListener('pointercancel', event => {
@@ -4066,26 +4181,42 @@
         buddyGesture = null;
         if (wasDragging) setTimeout(finishBuddyDrag, 1500);
       });
+      let contextClickAt = 0;
+      let contextMenuTimer = null;
       $('buddy').addEventListener('contextmenu', event => {
         event.preventDefault();
-        movePixelAside();
+        const now = Date.now();
+        clearTimeout(contextMenuTimer);
+        if (now - contextClickAt < 420) {
+          contextClickAt = 0;
+          $('buddyContextMenu').classList.remove('show');
+          movePixelAside();
+          return;
+        }
+        contextClickAt = now;
+        contextMenuTimer = setTimeout(() => {
+          const menu = $('buddyContextMenu');
+          menu.style.left = `${Math.max(8, Math.min(event.clientX, window.innerWidth - 166))}px`;
+          menu.style.top = `${Math.max(8, Math.min(event.clientY, window.innerHeight - 126))}px`;
+          menu.classList.add('show');
+        }, 430);
       });
-      $('quickPixel').addEventListener('click', event => {
-        event.stopPropagation();
-        toggleQuickView();
-      });
-      $('fullPixel').addEventListener('click', event => {
-        event.stopPropagation();
-        openPanel();
-      });
-      $('stage').addEventListener('mouseenter', () => clearTimeout(closeTimer));
-      $('stage').addEventListener('mouseleave', () => {
-        clearTimeout(closeTimer);
-        closeTimer = setTimeout(() => {
-          if (peekOpen && !manipulatingWindow && !controlFocused &&
-              Date.now() >= controlInteractionUntil) hidePeek();
-        }, 450);
-      });
+      async function changePeekWidth(action) {
+        if (action === 'auto') {
+          peekWidthMode = 'auto';
+        } else {
+          const base = currentPeekWidth();
+          peekWidthMode = 'custom';
+          customPeekWidth = Math.max(340, Math.min(720, base + (action === 'wider' ? 60 : -60)));
+          localStorage.setItem('dev-buddy-peek-width', String(customPeekWidth));
+        }
+        localStorage.setItem('dev-buddy-peek-width-mode', peekWidthMode);
+        renderPreview(status?.list || []);
+        if (peekOpen) await setMode('peek', currentPeekWidth());
+      }
+      $('peekNarrower').addEventListener('click', () => changePeekWidth('narrower'));
+      $('peekAutoWidth').addEventListener('click', () => changePeekWidth('auto'));
+      $('peekWider').addEventListener('click', () => changePeekWidth('wider'));
       $('panel').addEventListener('focusin', event => {
         if (!event.target.closest('button, input, select')) return;
         controlFocused = true;
@@ -4103,6 +4234,39 @@
         closePanel();
       });
       $('minimizePixel').addEventListener('click', minimizePixel);
+      $('closePixel').addEventListener('click', async () => {
+        $('buddyContextMenu').classList.remove('show');
+        const fn = invoke();
+        if (fn) await fn('hide_dev_buddy').catch(() => {});
+      });
+      async function openTodoAi(itemId = '') {
+        const fn = invoke();
+        const target = '#/todo-ai' + (itemId ? '/' + encodeURIComponent(itemId) : '');
+        if (fn) await fn('open_main_window', { target });
+      }
+      async function exitPixel() {
+        const settings = await request('/api/settings');
+        const devBuddy = { ...(settings.devBuddy || {}), enabled: false };
+        await request('/api/settings', {
+          method: 'PUT',
+          body: JSON.stringify({ devBuddy }),
+        });
+        const fn = invoke();
+        if (fn) await fn('hide_dev_buddy').catch(() => {});
+      }
+      $('buddyContextMenu').addEventListener('click', async event => {
+        const action = event.target.closest('[data-context-action]')?.dataset.contextAction;
+        if (!action) return;
+        $('buddyContextMenu').classList.remove('show');
+        if (action === 'open') await openTodoAi();
+        else if (action === 'scratchpad') {
+          await openPanel();
+          await setView('scratchpad');
+        } else if (action === 'exit') await exitPixel();
+      });
+      document.addEventListener('pointerdown', event => {
+        if (!event.target.closest('#buddyContextMenu')) $('buddyContextMenu').classList.remove('show');
+      });
       document.addEventListener('visibilitychange', () => {
         if (document.hidden) return;
         const fn = invoke();
@@ -4788,8 +4952,8 @@
           selectedItemId = item.id;
           localStorage.setItem('dev-buddy-selected-item', selectedItemId);
           currentView = 'work';
-          await openPanel();
-          renderWorkItems(status?.list || []);
+          await openTodoAi(item.id);
+          await resetPeekAfterAction();
           return;
         }
         if (action === 'open-source' || action === 'open-office') {
@@ -5149,6 +5313,18 @@
       });
 
       load(true).then(() => {
+        if (requestedItemId) {
+          selectedItemId = requestedItemId;
+          localStorage.setItem('dev-buddy-selected-item', selectedItemId);
+        }
+        if (embedded) {
+          panelOpen = true;
+          currentView = 'work';
+          $('panel').classList.add('open');
+          $('stage').classList.add('panel-open');
+          renderWorkItems(status?.list || []);
+          return;
+        }
         const item = status?.suggestedReminder || {
           title: `${status?.settings?.name || 'Pixel'} is keeping watch`,
           detail: 'I’ll quietly track open work and only pop up when something deserves your attention.',

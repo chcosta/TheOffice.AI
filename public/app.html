@@ -7599,6 +7599,24 @@
             </div>
           </template>
 
+          <template x-if="!loading && !errorMessage && route === 'todo-ai'">
+            <section class="todo-ai-page">
+              <style>
+                .todo-ai-page { min-height:calc(100vh - 120px); }
+                .todo-ai-frame {
+                  width:100%;
+                  height:calc(100vh - 104px);
+                  min-height:720px;
+                  border:0;
+                  background:var(--cp-bg);
+                }
+              </style>
+              <iframe class="todo-ai-frame"
+                      :src="'/public/dev-buddy.html?embedded=1&item=' + encodeURIComponent(app.routeParam || '')"
+                      title="ToDo.AI"></iframe>
+            </section>
+          </template>
+
           <section x-show="!loading && !errorMessage && route === 'home'">
             <div class="page-header" x-show="appMode !== 'workspace'">
               <div class="page-title">
@@ -35045,7 +35063,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (first === 'monitoring' && second) return { route: 'monitoring', param: second };
           if ((first === 'meetings' || first === 'meetings-ai') && second) return { route: 'meetings', param: second };
           if (first === 'meetings-ai') return { route: 'meetings', param: null };
-          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'monitoring', 'meetings', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
+          if (['home', 'agents', 'managers', 'executions', 'resources', 'autonomous', 'tasks', 'chains', 'design', 'create-agent', 'export', 'agent-discovery', 'new-task', 'chain', 'standup', 'assignments', 'chat', 'sessions', 'updates', 'activity', 'events', 'settings', 'reports', 'marketplace', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'todo-ai', 'me-ai', 'monitoring', 'meetings', 'pulse', 'backlog', 'diary', 'playbooks'].includes(first)) return { route: first, param: second };
           return { route: 'home', param: null };
         },
 
@@ -36499,6 +36517,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           const mk = (label, icon, href, routeGroup, extra) => Object.assign({ key, label, title: label, icon, href, routeGroup, items: [], collapsible: false }, extra || {});
           switch (key) {
             case 'home': return mk('Home', '🏠', '#/home', 'home');
+            case 'todo-ai': return mk('ToDo.AI', '✓', '#/todo-ai', 'todo-ai');
             case 'me-ai': return mk('Agenda.AI', '🧭', '#/me-ai', 'me-ai', { badge: this.meAiGoalsLeftCount(), badgeTitle: 'Goals left today' });
             case 'pulse': return mk("Pulse.AI", '📡', '#/pulse', 'pulse', { attnBadge: (this.pulseActiveSummary() && Array.isArray(this.pulseActiveSummary().worthALook)) ? this.pulseWorthList().length : 0, attnTitle: 'Conversations worth your attention' });
             case 'backlog': return mk('Backlog', '🗂', '#/backlog', 'backlog');
@@ -36527,7 +36546,9 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         _navDefaultKeys(scope) {
           const en = (k) => this.featureEnabled(k);
           if (scope === 'basic') {
-            const out = ['home', 'boards', 'codeflow'];
+            const out = ['home'];
+            if (en('devbuddy')) out.push('todo-ai');
+            out.push('boards', 'codeflow');
             if (en('me-ai')) out.push('me-ai', 'backlog');
             if (en('pulse')) out.push('pulse');
             if (en('meetings')) out.push('meetings');
@@ -36546,6 +36567,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // via advancedFeatures. featureEnabled() also cascades disabled dependencies
           // (e.g. diary off -> connect/newsletter/me-ai drop out). Core stays unconditional.
           const out = ['home'];
+          if (en('devbuddy')) out.push('todo-ai');
           if (en('me-ai')) out.push('me-ai', 'backlog');
           if (en('pulse')) out.push('pulse');
           if (en('playbooks')) out.push('playbooks');
@@ -37102,7 +37124,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // marketplace, activity, settings…) that live in both modes.
         routeMode(route) {
           const r = route || this.route;
-          if (['boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'monitoring', 'meetings', 'pulse', 'backlog', 'diary', 'playbooks',
+          if (['todo-ai', 'boards', 'codeflow', 'dev', 'dev-archive', 'connect', 'newsletter', 'compose', 'documents', 'me-ai', 'monitoring', 'meetings', 'pulse', 'backlog', 'diary', 'playbooks',
                'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'design',
                'autonomous', 'tasks', 'task-detail', 'new-task', 'chains', 'chain-detail', 'chain', 'assignments', 'assignment-detail'].includes(r)) return 'workspace';
           // Management (workforce) mode has been removed — everything lives in one
@@ -37245,6 +37267,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Always-available shared routes (core, non-gateable).
           if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'settings', 'events'].includes(r)) return true;
           const gated = {
+            devbuddy: ['todo-ai'],
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
             pulse: ['pulse'],
@@ -37270,6 +37293,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // Always-available core (never opt-out-able).
           if (['home', 'boards', 'codeflow', 'dev', 'dev-archive', 'agents', 'agent-detail', 'create-agent', 'export', 'agent-discovery', 'standup', 'marketplace', 'updates', 'design', 'settings', 'events'].includes(r)) return true;
           const gated = {
+            devbuddy: ['todo-ai'],
             diary: ['diary'],
             'me-ai': ['me-ai', 'backlog'],
             pulse: ['pulse'],

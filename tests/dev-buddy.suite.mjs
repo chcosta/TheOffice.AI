@@ -47,11 +47,16 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /if \(action === 'done'\) await resetPeekAfterAction\(\)/.test(html),
   'completing a quick-view item resets the native peek window for its next opening');
   t.ok(/function renderWorkNotes\(item\)/.test(html) &&
-    /function renderNotesMarkdown\(markdown\)/.test(html) &&
+    /function renderNotesMarkdown\(markdown, interactiveTasks = true\)/.test(html) &&
     /data-note-task-line/.test(html) &&
     /await saveItemNotes\(item/.test(html),
   'work items expose persistent Markdown notes with interactive task checkboxes');
-  t.ok(/"peek"\s*=>\s*\(400,\s*u32::MAX\)/.test(desktop) &&
+  t.ok(/function renderNotesMarkdown\(markdown, interactiveTasks = true\)/.test(html) &&
+    /class="context-text markdown"/.test(html) &&
+    /renderNotesMarkdown\(section\.text, false\)/.test(html) &&
+    /interactiveTasks \? `data-note-task-line/.test(html),
+  'rich source context safely renders Markdown without turning source checkboxes into editable notes');
+  t.ok(/"peek"\s*=>\s*\(peek_width\.unwrap_or\(400\)\.clamp\(340,\s*720\),\s*u32::MAX\)/.test(desktop) &&
     /max-height:\s*calc\(100vh - var\(--buddy-top\) - 242px\)/.test(html),
   'quick view uses the available monitor height');
   t.ok(/const pendingStarStates = new Map\(\)/.test(html) &&
@@ -59,28 +64,54 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /const pendingPriorityStates = new Map\(\)/.test(html) &&
     /preservePendingStates/.test(html),
   'status refreshes preserve optimistic stars, ongoing decisions, and priority until persistence is confirmed');
-  t.ok(/class="buddy-minimize" id="minimizePixel"/.test(html) &&
+  t.ok(/class="buddy-window-control" id="minimizePixel"/.test(html) &&
+    /class="buddy-window-control" id="closePixel"/.test(html) &&
     !/class="panel-minimize"/.test(html) &&
     /minimize_dev_buddy/.test(desktop) &&
     /"minimize_dev_buddy"/.test(desktopPermissions) &&
     /set_skip_taskbar\(false\)/.test(desktop),
-  'Pixel exposes its taskbar minimize control only on the character');
-  t.ok(/id="quickPixel"/.test(html) &&
-    /id="fullPixel"/.test(html) &&
+  'Pixel exposes conventional hover minimize and close controls on the character');
+  t.ok(!/id="quickPixel"/.test(html) &&
+    !/id="fullPixel"/.test(html) &&
     /toggleQuickView\(\)/.test(html) &&
-    /\$\('fullPixel'\)\.addEventListener\('click'/.test(html) &&
-    !/addEventListener\('mouseenter', schedulePeek\)/.test(html),
-  'Pixel arms open distinct quick and full experiences without hover-opening a window');
+    /else \{\s*toggleQuickView\(\);\s*\}/.test(html) &&
+    /openTodoAi\(item\.id\)/.test(html) &&
+    !/addEventListener\('mouseenter', schedulePeek\)/.test(html) &&
+    !/\$\('stage'\)\.addEventListener\('mouseleave'/.test(html),
+  'Pixel itself opens the quick view and quick items deep-link to ToDo.AI');
   t.ok(/enableAndShowDevBuddy\(\)/.test(app) &&
     /'Show Pixel'/.test(app) &&
     /window\.unminimize\(\)/.test(desktop) &&
     /window\.set_focus\(\)/.test(desktop),
   'the SPA can enable and restore a minimized Pixel in one click');
-  t.ok(/contextmenu/.test(html) &&
+  t.ok(/id="buddyContextMenu"/.test(html) &&
+    /data-context-action="open"/.test(html) &&
+    /data-context-action="scratchpad"/.test(html) &&
+    /data-context-action="exit"/.test(html) &&
+    /now - contextClickAt < 420/.test(html) &&
+    /enabled: false/.test(html) &&
     /move_dev_buddy_aside/.test(desktop) &&
     /"move_dev_buddy_aside"/.test(desktopPermissions) &&
     /monitor_containing_anchor/.test(desktop),
-  'right-click moves Pixel aside without leaving the current monitor');
+  'right-click opens Pixel actions while double right-click moves Pixel aside');
+  t.ok(/pageParams\.get\('embedded'\) === '1'/.test(html) &&
+    /pageParams\.get\('item'\)/.test(html) &&
+    /html\.embedded \.panel/.test(html) &&
+    /if \(shouldHide && !embedded\)/.test(html) &&
+    /route === 'todo-ai'/.test(app) &&
+    /dev-buddy\.html\?embedded=1&item=/.test(app) &&
+    /case 'todo-ai'/.test(app) &&
+    /devbuddy: \['todo-ai'\]/.test(app),
+  'ToDo.AI hosts the full Pixel workspace with direct item selection');
+  t.ok(/id="peekNarrower"/.test(html) &&
+    /id="peekAutoWidth"/.test(html) &&
+    /id="peekWider"/.test(html) &&
+    /function automaticPeekWidth/.test(html) &&
+    /dev-buddy-peek-width-mode/.test(html) &&
+    /peek_width: Option<u32>/.test(desktop) &&
+    /set_resizable\(mode != "peek"\)/.test(desktop) &&
+    !/"start_dev_buddy_resize"/.test(desktopPermissions),
+  'the quick view offers persistent narrower, auto-width, and wider controls instead of manual edge resizing');
   t.ok(/set_dev_buddy_topmost\(&window, !workspace\)/.test(desktop) &&
     /set_dev_buddy_topmost\(&window, true\)/.test(desktop) &&
     /if topmost \{ -1isize \} else \{ -2isize \}/.test(desktop) &&

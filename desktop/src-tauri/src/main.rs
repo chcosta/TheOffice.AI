@@ -599,19 +599,20 @@ fn hide_dev_buddy(app: tauri::AppHandle) -> Result<(), String> {
 fn plan_dev_buddy_mode(
     app: tauri::AppHandle,
     mode: String,
+    peek_width: Option<u32>,
     buddy_left: f64,
     buddy_top: f64,
 ) -> Result<serde_json::Value, String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
     let anchor = current_dev_buddy_anchor(&window, buddy_left, buddy_top)?;
-    let (width, height) = dev_buddy_mode_size(&mode);
+    let (width, height) = dev_buddy_mode_size(&mode, peek_width);
     position_dev_buddy(&window, width, height, Some(anchor), false)
 }
 
-fn dev_buddy_mode_size(mode: &str) -> (u32, u32) {
+fn dev_buddy_mode_size(mode: &str, peek_width: Option<u32>) -> (u32, u32) {
     match mode {
         "workspace" => (u32::MAX, u32::MAX),
-        "peek" => (400, u32::MAX),
+        "peek" => (peek_width.unwrap_or(400).clamp(340, 720), u32::MAX),
         "expanded" => (440, 900),
         "wide" => (680, 900),
         "ultra" => (u32::MAX, 900),
@@ -624,17 +625,19 @@ fn dev_buddy_mode_size(mode: &str) -> (u32, u32) {
 fn set_dev_buddy_mode(
     app: tauri::AppHandle,
     mode: String,
+    peek_width: Option<u32>,
     anchor_x: Option<i32>,
     anchor_y: Option<i32>,
 ) -> Result<serde_json::Value, String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
-    let (width, height) = dev_buddy_mode_size(&mode);
+    let (width, height) = dev_buddy_mode_size(&mode, peek_width);
     let anchor = match (anchor_x, anchor_y) {
         (Some(x), Some(y)) => Some(tauri::PhysicalPosition::new(x, y)),
         _ => None,
     };
     let placement = position_dev_buddy(&window, width, height, anchor, true)?;
     let workspace = mode == "workspace";
+    window.set_resizable(mode != "peek").map_err(|e| e.to_string())?;
     set_dev_buddy_topmost(&window, !workspace)?;
     window
         .set_skip_taskbar(!workspace)
