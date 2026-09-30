@@ -600,20 +600,25 @@ fn plan_dev_buddy_mode(
     app: tauri::AppHandle,
     mode: String,
     peek_width: Option<u32>,
+    scratchpad_height: Option<u32>,
     buddy_left: f64,
     buddy_top: f64,
 ) -> Result<serde_json::Value, String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
     let anchor = current_dev_buddy_anchor(&window, buddy_left, buddy_top)?;
-    let (width, height) = dev_buddy_mode_size(&mode, peek_width);
+    let (width, height) = dev_buddy_mode_size(&mode, peek_width, scratchpad_height);
     position_dev_buddy(&window, width, height, Some(anchor), false)
 }
 
-fn dev_buddy_mode_size(mode: &str, peek_width: Option<u32>) -> (u32, u32) {
+fn dev_buddy_mode_size(
+    mode: &str,
+    peek_width: Option<u32>,
+    scratchpad_height: Option<u32>,
+) -> (u32, u32) {
     match mode {
         "workspace" => (u32::MAX, u32::MAX),
         "peek" => (peek_width.unwrap_or(400).clamp(340, 720), u32::MAX),
-        "scratchpad" => (560, 720),
+        "scratchpad" => (560, scratchpad_height.unwrap_or(560).clamp(420, 1200)),
         "expanded" => (440, 900),
         "wide" => (680, 900),
         "ultra" => (u32::MAX, 900),
@@ -627,11 +632,12 @@ fn set_dev_buddy_mode(
     app: tauri::AppHandle,
     mode: String,
     peek_width: Option<u32>,
+    scratchpad_height: Option<u32>,
     anchor_x: Option<i32>,
     anchor_y: Option<i32>,
 ) -> Result<serde_json::Value, String> {
     let window = ensure_dev_buddy_window(&app, "http://127.0.0.1:3848")?;
-    let (width, height) = dev_buddy_mode_size(&mode, peek_width);
+    let (width, height) = dev_buddy_mode_size(&mode, peek_width, scratchpad_height);
     let anchor = match (anchor_x, anchor_y) {
         (Some(x), Some(y)) => Some(tauri::PhysicalPosition::new(x, y)),
         _ => None,

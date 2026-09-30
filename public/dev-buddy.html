@@ -518,8 +518,8 @@
     }
     .panel.scratchpad-flyout .scratchpad-input {
       min-height: 180px;
-      max-height: 280px;
       resize: none;
+      overflow-y: hidden;
     }
     .panel.scratchpad-flyout .scratchpad-results {
       grid-template-columns: minmax(0, 1fr);
@@ -2488,6 +2488,7 @@
       let scratchpadSequence = 0;
       let scratchpadResult = null;
       let scratchpadReviewTimer = null;
+      let scratchpadResizeTimer = null;
       let scratchpadAbortController = null;
       let composeSetup = null;
       let windowPlacement = { anchorX: 'left', anchorY: 'top', buddyLeft: 14, buddyTop: 8 };
@@ -2555,17 +2556,21 @@
           : Math.max(340, Math.min(720, customPeekWidth));
       }
 
-      async function setMode(mode, requestedPeekWidth = null) {
+      async function setMode(mode, requestedPeekWidth = null, requestedScratchpadHeight = null) {
         if (embedded) return;
         const fn = invoke();
         if (!fn) return;
         const peekWidth = mode === 'peek'
           ? Math.round(requestedPeekWidth || currentPeekWidth())
           : null;
+        const scratchpadHeight = mode === 'scratchpad'
+          ? Math.round(requestedScratchpadHeight || 560)
+          : null;
         try {
           const plan = await fn('plan_dev_buddy_mode', {
             mode,
             peekWidth,
+            scratchpadHeight,
             buddyLeft: windowPlacement.buddyLeft,
             buddyTop: windowPlacement.buddyTop,
           });
@@ -2575,11 +2580,18 @@
           applyWindowPlacement(await fn('set_dev_buddy_mode', {
             mode,
             peekWidth,
+            scratchpadHeight,
             anchorX: plan.anchorPhysicalX,
             anchorY: plan.anchorPhysicalY,
           }));
         } catch (_) {
-          try { applyWindowPlacement(await fn('set_dev_buddy_mode', { mode, peekWidth })); } catch (_) {}
+          try {
+            applyWindowPlacement(await fn('set_dev_buddy_mode', {
+              mode,
+              peekWidth,
+              scratchpadHeight,
+            }));
+          } catch (_) {}
         }
       }
 
@@ -3663,6 +3675,28 @@
         localStorage.removeItem('dev-buddy-scratchpad-result');
         $('scratchpadResults').hidden = true;
         $('scratchpadCopy').disabled = true;
+        scheduleScratchpadFlyoutResize();
+      }
+
+      function resizeScratchpadInput() {
+        const input = $('scratchpadInput');
+        input.style.height = 'auto';
+        const height = Math.max(180, Math.min(360, input.scrollHeight));
+        input.style.height = `${height}px`;
+        input.style.overflowY = input.scrollHeight > 360 ? 'auto' : 'hidden';
+      }
+
+      function scheduleScratchpadFlyoutResize(delay = 60) {
+        clearTimeout(scratchpadResizeTimer);
+        if (!scratchpadFlyout) return;
+        scratchpadResizeTimer = setTimeout(async () => {
+          if (!scratchpadFlyout) return;
+          resizeScratchpadInput();
+          const shellHeight = $('scratchpadView').querySelector('.scratchpad-shell')?.scrollHeight || 300;
+          const headerHeight = $('panel').querySelector('.panel-head')?.offsetHeight || 54;
+          const desiredHeight = Math.max(420, Math.min(1200, 174 + headerHeight + shellHeight));
+          await setMode('scratchpad', null, desiredHeight);
+        }, delay);
       }
 
       function cancelScratchpadReview() {
@@ -3717,6 +3751,7 @@
         $('scratchpadRewrite').closest('.scratchpad-card').hidden = result?.quick === true;
         $('scratchpadResults').hidden = false;
         $('scratchpadCopy').disabled = !scratchpadRewrite || result?.quick === true;
+        scheduleScratchpadFlyoutResize();
       }
 
       function quickScratchpadReview(body) {
@@ -3983,7 +4018,11 @@
         $('stage').classList.add('panel-open', 'scratchpad-open');
         $('panelTitle').textContent = 'Scratchpad';
         $('panelSub').textContent = 'Quick draft and rewrite';
-        setTimeout(() => $('scratchpadInput').focus(), 80);
+        setTimeout(() => {
+          resizeScratchpadInput();
+          scheduleScratchpadFlyoutResize(0);
+          $('scratchpadInput').focus();
+        }, 80);
       }
 
       async function showPeek() {
@@ -4186,8 +4225,9 @@
       }
       function finishBuddyDrag() {
         clearTimeout(buddyDragSafety);
+        buddyGesture = null;
         $('buddy').classList.remove('dragging');
-        setTimeout(() => { manipulatingWindow = false; }, 180);
+        manipulatingWindow = false;
       }
       $('buddy').addEventListener('pointerdown', event => {
         if (event.button !== 0) return;
@@ -4220,6 +4260,7 @@
             buddyLeft: windowPlacement.buddyLeft,
             buddyTop: windowPlacement.buddyTop,
           })
+          .then(finishBuddyDrag)
           .catch(finishBuddyDrag);
       });
       $('buddy').addEventListener('pointerup', event => {
@@ -4228,7 +4269,7 @@
         buddyGesture = null;
         try { $('buddy').releasePointerCapture(event.pointerId); } catch (_) {}
         if (gesture.dragging) {
-          setTimeout(finishBuddyDrag, 180);
+          finishBuddyDrag();
         } else {
           toggleQuickView();
         }
@@ -4237,7 +4278,7 @@
         if (!buddyGesture || buddyGesture.id !== event.pointerId) return;
         const wasDragging = buddyGesture.dragging;
         buddyGesture = null;
-        if (wasDragging) setTimeout(finishBuddyDrag, 1500);
+        if (wasDragging) finishBuddyDrag();
       });
       let contextClickAt = 0;
       let contextMenuTimer = null;
@@ -4344,6 +4385,7 @@
       }
       $('scratchpadInput').addEventListener('input', () => {
         localStorage.setItem('dev-buddy-scratchpad', $('scratchpadInput').value);
+        resizeScratchpadInput();
         clearScratchpadResult();
         scheduleScratchpadReview();
       });

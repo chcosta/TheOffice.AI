@@ -94,14 +94,22 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /"move_dev_buddy_aside"/.test(desktopPermissions) &&
     /monitor_containing_anchor/.test(desktop),
   'right-click opens Pixel actions while double right-click moves Pixel aside');
-  t.ok(/"scratchpad"\s*=>\s*\(560,\s*720\)/.test(desktop) &&
+  t.ok(/"scratchpad"\s*=>\s*\(560,\s*scratchpad_height\.unwrap_or\(560\)\.clamp\(420,\s*1200\)\)/.test(desktop) &&
+    /scratchpad_height: Option<u32>/.test(desktop) &&
     /set_resizable\(mode != "peek" && mode != "scratchpad"\)/.test(desktop) &&
     /function openScratchpadFlyout\(\)/.test(html) &&
     /setMode\('scratchpad'\)/.test(html) &&
+    /function scheduleScratchpadFlyoutResize\(delay = 60\)/.test(html) &&
+    /setMode\('scratchpad', null, desiredHeight\)/.test(html) &&
+    /input\.style\.overflowY = input\.scrollHeight > 360 \? 'auto' : 'hidden'/.test(html) &&
     /classList\.add\('open', 'scratchpad-flyout'\)/.test(html) &&
     /if \(!embedded\) return openTodoAi\(\)/.test(html) &&
     /restore_dev_buddy_floating', \{ workspace: panelOpen && !scratchpadFlyout \}/.test(html),
   'detached Scratchpad is a compact flyout while the full workspace remains exclusive to ToDo.AI');
+  t.ok(/function finishBuddyDrag\(\)[\s\S]{0,180}buddyGesture = null;[\s\S]{0,180}manipulatingWindow = false;/.test(html) &&
+    /\.then\(finishBuddyDrag\)/.test(html) &&
+    /if \(wasDragging\) finishBuddyDrag\(\)/.test(html),
+  'Pixel becomes interactive immediately when native dragging finishes');
   t.ok(/pageParams\.get\('embedded'\) === '1'/.test(html) &&
     /pageParams\.get\('item'\)/.test(html) &&
     /html\.embedded \.panel/.test(html) &&
