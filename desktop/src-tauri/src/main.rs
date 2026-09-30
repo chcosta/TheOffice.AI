@@ -1641,6 +1641,13 @@ fn main() {
     let setup_state = state.clone();
     let exit_state = state.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .manage(state.clone())
         .invoke_handler(tauri::generate_handler![
             restart_sidecar,

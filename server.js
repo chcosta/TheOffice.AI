@@ -1475,8 +1475,15 @@ fs.watch(AGENTS_PATH, () => {
 });
 
 // Express app
+let _devBuddyStatusCache = null;
 const app = express();
 app.use(express.json({ limit: '16mb' }));
+app.use((req, res, next) => {
+  if (req.method !== 'GET' && req.path.startsWith('/api/dev-buddy/')) {
+    _devBuddyStatusCache = null;
+  }
+  next();
+});
 
 // Serve static SPA files
 app.use('/public', express.static(path.join(__dirname, 'public')));
@@ -1538,6 +1545,9 @@ app.get('/api/events', (req, res) => {
 });
 
 function broadcastSSE(eventType, data) {
+  if (['dev-buddy-changed', 'agent-status', 'agent-completed', 'boards-changed'].includes(eventType)) {
+    _devBuddyStatusCache = null;
+  }
   const payload = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
   for (const client of sseClients) {
     try { client.write(payload); } catch(e) { sseClients.delete(client); }
@@ -3238,11 +3248,34 @@ function _devBuddyPrSignal(pr, view) {
   };
 }
 
-function _devBuddyDecorateItem(item) {
+function _devBuddySignalKey(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function _devBuddySnapshotSignalState(snapshot, fingerprint) {
+  if (!snapshot) return devBuddy.getSignalState(fingerprint);
+  const state = snapshot.signalStates[_devBuddySignalKey(fingerprint)];
+  return state && typeof state === 'object' ? state : {};
+}
+
+function _devBuddySnapshotSignalDismissed(snapshot, fingerprint) {
+  if (!snapshot) return devBuddy.isSignalDismissed(fingerprint);
+  const key = _devBuddySignalKey(fingerprint);
+  const until = snapshot.dismissedSignals[key];
+  const state = snapshot.signalStates[key];
+  return !!(
+    (until && Date.parse(until) > Date.now()) ||
+    (state && ['done', 'dismissed'].includes(state.status))
+  );
+}
+
+function _devBuddyDecorateItem(item, signalSnapshot = null) {
   const trackedAt = item.trackedAt || item.createdAt || item.updatedAt || null;
-  const signalState = item.fingerprint ? devBuddy.getSignalState(item.fingerprint) : {};
+  const signalState = item.fingerprint
+    ? _devBuddySnapshotSignalState(signalSnapshot, item.fingerprint)
+    : {};
   const starState = item.fingerprint
-    ? devBuddy.getSignalState(item.reminderKey || item.fingerprint)
+    ? _devBuddySnapshotSignalState(signalSnapshot, item.reminderKey || item.fingerprint)
     : {};
   const priority = signalState.priority || item.priority;
   const derivedUrgency = devBuddy.deriveUrgency({ ...item, priority, trackedAt });
@@ -3296,22 +3329,15 @@ function _devBuddyQueueEffortClassification() {
       'Provisional efforts:',
       JSON.stringify(pending),
     ].join('\n');
-    let acc = '';
-    const result = await sdkRunner.runChat({
-      config: null,
+    const result = await _connectSpawnAgentChild({
+      mode: 'prompt',
       prompt,
-      sessionId: require('crypto').randomUUID(),
-      resume: false,
       cwd: __dirname,
-      availableTools: [],
       timeoutMs: 90 * 1000,
       model: (settings.resolveModel && settings.resolveModel('execution', null)) || undefined,
-      modelCategory: 'execution',
-      meta: { source: 'dev-buddy', category: 'effort-classification', record: false },
-      onChunk: chunk => { acc += chunk; },
+      category: 'effort-classification',
     });
-    if (result && result.fallback) throw new Error('The configured execution model is unavailable.');
-    const parsed = _connectExtractJson(acc.trim() || result.output || '');
+    const parsed = _connectExtractJson(result.text || '');
     if (!parsed || !Array.isArray(parsed.groups)) throw new Error('Pixel returned an invalid effort classification.');
     const applied = devBuddy.applyEffortClassification(parsed.groups, pending);
     broadcastSSE('dev-buddy-changed', {
@@ -3439,20 +3465,14 @@ function _devBuddyQueueSemanticRefresh(items) {
     'Return ONLY JSON: {"analyses":[{"id":"exact id","importance":"low|medium|high|critical","requiresAttention":true,"action":"brief concrete requirement","why":"brief timing/impact reason","comment":"one short useful Pixel comment"}]}.',
     JSON.stringify(facts),
   ].join('\n\n');
-  let acc = '';
-  _devBuddySemanticRefresh = sdkRunner.runChat({
-    config: null,
+  _devBuddySemanticRefresh = _connectSpawnAgentChild({
+    mode: 'prompt',
     prompt,
-    sessionId: require('crypto').randomUUID(),
-    resume: false,
     cwd: __dirname,
-    availableTools: [],
     timeoutMs: 90 * 1000,
-    modelCategory: 'execution',
-    meta: { source: 'dev-buddy', category: 'semantic-attention', record: false },
-    onChunk: chunk => { acc += chunk; },
+    category: 'semantic-attention',
   }).then(result => {
-    const parsed = _connectExtractJson(acc.trim() || result.output || '');
+    const parsed = _connectExtractJson(result.text || '');
     const analyses = parsed && Array.isArray(parsed.analyses) ? parsed.analyses : [];
     const byId = new Map(missing.map(item => [String(item.id), item]));
     let updated = 0;
@@ -3719,8 +3739,7 @@ async function _refreshDevBuddyBuildSignals() {
 }
 
 function _devBuddyBuildSignals(refresh = false) {
-  const stale = Date.now() - _devBuddyBuildCache.at >= CODEFLOW_TTL_MS;
-  if ((refresh || stale) && !_devBuddyBuildRefresh) {
+  if (refresh && !_devBuddyBuildRefresh) {
     _devBuddyBuildRefresh = _refreshDevBuddyBuildSignals()
       .then(result => {
         broadcastSSE('dev-buddy-changed', { action: 'builds-refreshed', count: result.signals.length });
@@ -3735,7 +3754,7 @@ function _devBuddyBuildSignals(refresh = false) {
   return { ..._devBuddyBuildCache, refreshing: !!_devBuddyBuildRefresh };
 }
 
-function _devBuddySessionSignals() {
+function _devBuddySessionSignals(signalSnapshot = null) {
   const now = Date.now();
   let candidates = [];
   try {
@@ -3781,7 +3800,7 @@ function _devBuddySessionSignals() {
       const age = now - candidate.stat.mtimeMs;
       const active = age <= 10 * 60 * 1000;
       const fingerprint = `session|${meta.id || candidate.id}`;
-      if (devBuddy.isSignalDismissed(fingerprint)) return null;
+      if (_devBuddySnapshotSignalDismissed(signalSnapshot, fingerprint)) return null;
       const repository = meta.repository || (meta.cwd ? path.basename(meta.cwd) : '');
       const sessionName = String(meta.name || '').trim();
       const title = sessionName && sessionName !== '(unnamed)' && !/^\|[-+>]?$/.test(sessionName)
@@ -3812,10 +3831,10 @@ function _devBuddySessionSignals() {
     .filter(Boolean);
 }
 
-function _devBuddyCommitmentSignals() {
+function _devBuddyCommitmentSignals(signalSnapshot = null) {
   return devBuddy.listCommitments().map(item => {
     const fingerprint = `commitment|${item.externalId}`.toLowerCase();
-    if (devBuddy.isSignalDismissed(fingerprint)) return null;
+    if (_devBuddySnapshotSignalDismissed(signalSnapshot, fingerprint)) return null;
     const sourceLabels = [...new Set([
       item.source,
       ...(Array.isArray(item.sources) ? item.sources : []),
@@ -3953,15 +3972,19 @@ function _devBuddyDayContext() {
 }
 
 async function _devBuddyStatus({ refresh = false } = {}) {
+  if (!refresh && _devBuddyStatusCache &&
+      Date.now() - _devBuddyStatusCache.at < 5 * 60 * 1000) {
+    return _devBuddyStatusCache.value;
+  }
   const signals = [];
   const devBuddySettings = settings.getSettings().devBuddy;
+  const signalSnapshot = devBuddy.getSignalSnapshot();
   const buildState = devBuddySettings.trackBuilds
     ? _devBuddyBuildSignals(refresh)
     : { signals: [], errors: [], refreshing: false };
   const views = ['mine', 'reviews'].map(view => {
     const cached = _codeflowCache.get(view);
-    const stale = !cached || Date.now() - cached.at >= CODEFLOW_TTL_MS;
-    if ((refresh || stale) && !_devBuddyCodeflowRefresh.has(view)) {
+    if (refresh && !_devBuddyCodeflowRefresh.has(view)) {
       const task = _gatherCodeflow(view)
         .then(data => {
           _codeflowCache.set(view, { at: Date.now(), data });
@@ -3976,7 +3999,9 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   for (const { view, data } of views) {
     for (const pr of ((data && data.pullRequests) || [])) {
       const signal = _devBuddyPrSignal(pr, view);
-      if (signal && !devBuddy.isSignalDismissed(signal.fingerprint)) signals.push(signal);
+      if (signal && !_devBuddySnapshotSignalDismissed(signalSnapshot, signal.fingerprint)) {
+        signals.push(signal);
+      }
     }
   }
   signals.push(...(buildState.signals || []));
@@ -4006,7 +4031,6 @@ async function _devBuddyStatus({ refresh = false } = {}) {
       },
     });
   }
-
   for (const [id, entry] of supervisor.agents.entries()) {
     if (!entry || !entry.running) continue;
     const name = (entry.config && (entry.config.name || entry.config.title)) || id;
@@ -4035,15 +4059,17 @@ async function _devBuddyStatus({ refresh = false } = {}) {
       },
     });
   }
-  if (devBuddySettings.trackSessions) signals.push(..._devBuddySessionSignals());
-  if (devBuddySettings.trackCommitments) signals.push(..._devBuddyCommitmentSignals());
+  if (devBuddySettings.trackSessions) signals.push(..._devBuddySessionSignals(signalSnapshot));
+  if (devBuddySettings.trackCommitments) {
+    signals.push(..._devBuddyCommitmentSignals(signalSnapshot));
+  }
 
   const day = _devBuddyDayContext();
   if (day.conflicts || day.needsAttention) {
     const count = day.conflicts || day.needsAttention;
     const kind = day.conflicts ? 'schedule conflicts' : 'items waiting for triage';
     const fingerprint = `agenda|${day.date}|${day.conflicts}|${day.needsAttention}`;
-    if (!devBuddy.isSignalDismissed(fingerprint)) {
+    if (!_devBuddySnapshotSignalDismissed(signalSnapshot, fingerprint)) {
       signals.push({
         id: fingerprint,
         kind: 'agenda',
@@ -4069,15 +4095,17 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   }
 
   const undismissedSignals = signals.filter(signal =>
-    !devBuddy.isSignalDismissed(signal.reminderKey || signal.fingerprint) &&
-    (!signal.reminderKey || signal.reminderKey === signal.fingerprint || !devBuddy.isSignalDismissed(signal.fingerprint))
+    !_devBuddySnapshotSignalDismissed(signalSnapshot, signal.reminderKey || signal.fingerprint) &&
+    (!signal.reminderKey || signal.reminderKey === signal.fingerprint ||
+      !_devBuddySnapshotSignalDismissed(signalSnapshot, signal.fingerprint))
   );
   signals.splice(0, signals.length, ...undismissedSignals);
-  for (let i = 0; i < signals.length; i++) signals[i] = _devBuddyDecorateItem(signals[i]);
-  const items = devBuddy.listItems().map(_devBuddyDecorateItem);
+  for (let i = 0; i < signals.length; i++) {
+    signals[i] = _devBuddyDecorateItem(signals[i], signalSnapshot);
+  }
+  const items = devBuddy.listItems().map(item => _devBuddyDecorateItem(item, signalSnapshot));
   const activeItems = items.filter(item => !item.snoozed);
   const deterministicList = [...signals, ...activeItems];
-  _devBuddyQueueSemanticRefresh(deterministicList);
   const observations = deterministicList
     .map(_devBuddyApplySemantic)
     .filter(item => item.semanticSurface !== false);
@@ -4086,8 +4114,9 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   if (equivalentEffortMerges.length) {
     effortState = devBuddy.syncEffortObservations(observations);
   }
-  _devBuddyQueueEffortClassification();
-  const list = devBuddy.applyManualOrder(effortState.efforts.map(_devBuddyDecorateItem));
+  const list = devBuddy.applyManualOrder(
+    effortState.efforts.map(item => _devBuddyDecorateItem(item, signalSnapshot))
+  );
   const visibleSignals = observations.filter(item => item.fingerprint);
   const activeList = list.filter(item => item.ongoing !== true);
   const counts = {
@@ -4099,13 +4128,15 @@ async function _devBuddyStatus({ refresh = false } = {}) {
   };
   const progress = devBuddy.getProgress(activeList);
   const firstItem = [...activeList]
-    .filter(item => item.semanticAttention !== false && !devBuddy.isSignalDismissed(item.id))
+    .filter(item =>
+      item.semanticAttention !== false &&
+      !_devBuddySnapshotSignalDismissed(signalSnapshot, item.id))
     .sort((a, b) =>
       (b.urgency && b.urgency.score || 0) - (a.urgency && a.urgency.score || 0) ||
       Date.parse(a.dueAt || a.trackedAt || 0) - Date.parse(b.dueAt || b.trackedAt || 0)
     )[0] || null;
   const suggestedReminder = firstItem;
-  return {
+  const result = {
     settings: devBuddySettings,
     signals: visibleSignals,
     items,
@@ -4140,6 +4171,8 @@ async function _devBuddyStatus({ refresh = false } = {}) {
     counts,
     refreshedAt: new Date().toISOString(),
   };
+  _devBuddyStatusCache = { at: Date.now(), value: result };
+  return result;
 }
 
 const _devBuddySourceContextCache = new Map();
@@ -4726,7 +4759,10 @@ async function _devBuddySourceContext(item) {
 }
 
 app.get('/api/dev-buddy/status', async (req, res) => {
-  try { res.json(await _devBuddyStatus({ refresh: req.query.refresh === '1' })); }
+  // Status must remain a cheap local read. Older cached Pixel pages may still
+  // send refresh=1 during startup; honoring it launches synchronous WorkIQ
+  // source reads and can make every desktop API unresponsive for minutes.
+  try { res.json(await _devBuddyStatus({ refresh: false })); }
   catch (e) { res.status(500).json({ error: e.message || 'Could not load Dev Buddy status.' }); }
 });
 
@@ -13273,7 +13309,12 @@ app.post('/api/import', upload.single('file'), async (req, res) => {
 // List available models from the SDK (id, name, cost multiplier, reasoning).
 app.get('/api/models', async (req, res) => {
   try {
-    const models = await sdkRunner.listModels();
+    const response = await _connectSpawnAgentChild({
+      mode: 'models',
+      timeoutMs: 60_000,
+      cwd: __dirname,
+    });
+    const models = response.models || [];
     res.json({
       models: (models || []).map(m => ({
         id: m.id,
@@ -14589,23 +14630,73 @@ async function _connectRunAgent(agentName, prompt, { timeoutMs } = {}) {
   // Only the writer/editor produce the actual Connect deliverable; collector/profiler
   // are background diary collection and shouldn't be charged against "Connect" savings.
   const cat = (agentName === 'writer' || agentName === 'editor') ? 'connect' : 'diary';
-  let acc = '';
-  const result = await sdkRunner.runChat({
-    config: { pluginDir: connectPluginDir, agent: agentName, cwd: __dirname },
+  const result = await _connectSpawnAgentChild({
+    mode: 'single',
+    agentName,
     prompt,
-    sessionId: require('crypto').randomUUID(),
-    resume: false,
-    modelCategory: 'execution',
-    ...(timeoutMs ? { timeoutMs } : {}),
+    category: cat,
+    timeoutMs: timeoutMs || 180_000,
+    pluginDir: connectPluginDir,
     cwd: __dirname,
-    meta: { source: 'connect', category: cat },
-    onChunk: (c) => { acc += c; },
   });
-  if (result && result.fallback) throw new Error(result.error || 'Connect agent runtime unavailable');
-  return acc.trim() ? acc : ((result && result.output) || '');
+  return result.text || '';
 }
 
 let _devBuddyCommitmentRun = null;
+
+// Copilot SDK startup can synchronously wait while MCP servers initialize. Keep
+// all Connect/Dev Buddy agent work in another process so it cannot stall Express.
+function _connectSpawnAgentChild(payload) {
+  const { fork } = require('child_process');
+  const timeoutMs = Number(payload.timeoutMs) || 180_000;
+  return new Promise((resolve, reject) => {
+    const child = fork(path.join(__dirname, 'dev-buddy-collector-child.js'), [], {
+      cwd: __dirname,
+      env: process.env,
+      stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+    });
+    child.stderr.on('data', chunk => {
+      const text = String(chunk || '').trim();
+      if (text) console.warn(`[connect:worker] ${text}`);
+    });
+    let settled = false;
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (child.connected) child.disconnect();
+      fn(value);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(reject, new Error(`Connect agent timed out after ${timeoutMs}ms`));
+    }, timeoutMs + 15_000);
+    if (typeof timer.unref === 'function') timer.unref();
+    child.once('message', message => {
+      if (message && message.ok) finish(resolve, message);
+      else finish(reject, new Error((message && message.error) || 'Connect agent worker failed'));
+    });
+    child.once('error', error => finish(reject, error));
+    child.once('exit', (code, signal) => {
+      if (!settled) {
+        finish(reject, new Error(`Connect agent worker exited (${signal || code})`));
+      }
+    });
+    child.send(payload);
+  });
+}
+
+async function _devBuddyCollectScopesIsolated(scopes, timeoutMs) {
+  const message = await _connectSpawnAgentChild({
+    mode: 'scopes',
+    scopes,
+    timeoutMs,
+    pluginDir: connectPluginDir,
+    cwd: __dirname,
+  });
+  return message.results || [];
+}
+
 async function _devBuddyCollectCommitments({ manual = false, force = false } = {}) {
   if (_devBuddyCommitmentRun) return _devBuddyCommitmentRun;
   const s = settings.getSettings();
@@ -14646,19 +14737,19 @@ async function _devBuddyCollectCommitments({ manual = false, force = false } = {
       },
     ];
     try {
-      const results = await Promise.all(scopes.map(async scope => {
-        try {
-          const text = await _connectRunAgent(
-            'dev-buddy-collector',
-            scope.prompt + '\nFollow the agent strict relevance and privacy rules.' + preferenceText,
-            { timeoutMs: 3 * 60 * 1000 }
-          );
-          const parsed = _connectExtractJson(text);
-          return { source: scope.name, items: Array.isArray(parsed) ? parsed : [] };
-        } catch (error) {
-          return { source: scope.name, items: [], error: error.message };
-        }
+      const isolatedScopes = scopes.map(scope => ({
+        name: scope.name,
+        prompt: scope.prompt + '\nFollow the agent strict relevance and privacy rules.' + preferenceText,
       }));
+      const workerResults = await _devBuddyCollectScopesIsolated(isolatedScopes, 60_000);
+      const results = workerResults.map(result => {
+        const parsed = _connectExtractJson(result.text);
+        return {
+          source: result.source,
+          items: Array.isArray(parsed) ? parsed : [],
+          error: result.error || '',
+        };
+      });
       const items = results.flatMap(result => result.items);
       const errors = results.filter(result => result.error).map(result => `${result.source}: ${result.error}`);
       if (errors.length === results.length) throw new Error(errors.join(' | '));

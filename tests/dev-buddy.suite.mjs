@@ -116,7 +116,7 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
     /if \(shouldHide && !embedded\)/.test(html) &&
     /id="embeddedLoading" hidden>Loading ToDo\.AI/.test(html) &&
     /if \(embedded\) \{[\s\S]{0,220}\$\('panel'\)\.classList\.add\('open'\)/.test(html) &&
-    /load\(!embedded\)\.then/.test(html) &&
+    /load\(false\)\.then/.test(html) &&
     /route === 'todo-ai'/.test(app) &&
     /dev-buddy\.html\?embedded=1&item=/.test(app) &&
     /class="todo-ai-frame-loading">Loading ToDo\.AI/.test(app) &&
@@ -879,6 +879,21 @@ await t.test('completed efforts ignore refresh-only presentation changes', () =>
   }]);
   t.ok(!state.efforts.some(entry => entry.id === effort.id),
     'legacy refresh-reopened work is repaired from its completion activity');
+});
+
+await t.test('Pixel startup status stays local and reuses its snapshot', () => {
+  const html = readFileSync(path.join(process.cwd(), 'public', 'dev-buddy.html'), 'utf8');
+  const server = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
+  t.ok(/load\(false\)\.then/.test(html), 'Pixel startup requests cached local status');
+  t.ok(/_devBuddyStatus\(\{ refresh: false \}\)/.test(server),
+    'the status route ignores forced refreshes from stale Pixel clients');
+  t.ok(/function _devBuddyBuildSignals\(refresh = false\) \{\s*if \(refresh/.test(server),
+    'build collection only starts after an explicit refresh');
+  t.ok(/if \(refresh && !_devBuddyCodeflowRefresh\.has\(view\)\)/.test(server),
+    'Code Flow collection only starts after an explicit refresh');
+  t.ok(/const signalSnapshot = devBuddy\.getSignalSnapshot\(\)/.test(server) &&
+    /_devBuddyStatusCache = \{ at: Date\.now\(\), value: result \}/.test(server),
+  'status generation reuses one signal snapshot and caches the completed result');
 });
 
 await t.test('efforts preserve urgency, reconcile cleared evidence, and complete source records', () => {

@@ -34333,7 +34333,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           // gates its schedules on the same state the client shows. Safe: writes a durable
           // localStorage key that the mirror flushes as a full snapshot.
           try { this._publishEnabledFeatures(); } catch {}
-          this.loadModels();
           this.connectEvents();
           this.loadExternalAccessFlag();
           setInterval(() => { this.now = Date.now(); }, 1000);
@@ -35618,13 +35617,14 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
+            const bootRequest = url => this.request(url, { timeoutMs: 15000 });
             const [agents, version, chats, tasks, chains, organizations] = await Promise.all([
-              this.request('/api/agents'),
-              this.request('/api/version'),
-              this.request('/api/chats'),
-              this.request('/api/tasks'),
-              this.request('/api/chains'),
-              this.request('/api/teams').catch(() => [])
+              bootRequest('/api/agents'),
+              bootRequest('/api/version'),
+              bootRequest('/api/chats'),
+              bootRequest('/api/tasks'),
+              bootRequest('/api/chains'),
+              bootRequest('/api/teams').catch(() => [])
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
             this.data.managers = [];

@@ -5432,7 +5432,10 @@
         $('stage').classList.add('panel-open');
         $('embeddedLoading').hidden = false;
       }
-      load(!embedded).then(() => {
+      // Render cached local status immediately. A forced source refresh starts
+      // several WorkIQ reads and must remain an explicit user action; doing it
+      // during Pixel startup can monopolize the local service for minutes.
+      load(false).then(() => {
         if (requestedItemId) {
           selectedItemId = requestedItemId;
           localStorage.setItem('dev-buddy-selected-item', selectedItemId);

@@ -1,12 +1,71 @@
 {
   "entries": [
     {
+      "version": "1.0.5",
+      "date": "2026-09-30",
+      "title": "New: add Pixel copy formats and ongoing work",
+      "summary": "This release includes 7 new features, 1 fix, and 22 improvements.",
+      "highlights": [
+        "Add Pixel copy formats and ongoing work",
+        "Add Pixel scratchpad and responsive merging",
+        "Add user-guided effort grouping",
+        "Add durable notes to Pixel work"
+      ],
+      "details": [
+        {
+          "heading": "New features",
+          "items": [
+            "Add Pixel copy formats and ongoing work",
+            "Add Pixel scratchpad and responsive merging",
+            "Add user-guided effort grouping",
+            "Add durable notes to Pixel work",
+            "Add substantive Outlook message coaching",
+            "Add Pixel Outlook writing coach",
+            "Add Pixel window controls"
+          ]
+        },
+        {
+          "heading": "Fixes",
+          "items": [
+            "Correct Pixel evidence grouping"
+          ]
+        },
+        {
+          "heading": "Improvements",
+          "items": [
+            "Render ToDo.AI before status refresh",
+            "Make Pixel immediately reusable after dragging",
+            "Make Pixel scratchpad a compact flyout",
+            "Redesign Pixel around quick navigation",
+            "Improve Pixel triage and navigation",
+            "Make Pixel easy to restore",
+            "Give Pixel explicit arm controls",
+            "Make Pixel feedback responsive",
+            "Keep completed Pixel work closed",
+            "Stabilize Pixel dragging and effort grouping",
+            "Keep Pixel work list above chat",
+            "Replace Outlook draft content cleanly",
+            "Stabilize Outlook coach v2 registration",
+            "Refresh Outlook add-in permissions cleanly",
+            "Automate Pixel Outlook installation",
+            "Apply Pixel rewrites to Outlook drafts",
+            "Guide users through Outlook add-in setup",
+            "Show email messages in Pixel context",
+            "Group Pixel signals into durable efforts",
+            "Allow Pixel window commands",
+            "Make Pixel reading pane source-first",
+            "Enrich Pixel work dossiers"
+          ]
+        }
+      ]
+    },
+    {
       "version": "1.0.4",
       "date": "2025-02-14",
       "title": "What's New & in-app Feedback",
-      "summary": "This release adds a running changelog that greets you after every upgrade, plus a one-click way to send feedback straight to the team as a GitHub issue \u2014 optionally with a screenshot of what you're looking at.",
+      "summary": "This release adds a running changelog that greets you after every upgrade, plus a one-click way to send feedback straight to the team as a GitHub issue — optionally with a screenshot of what you're looking at.",
       "highlights": [
-        "A \u201cWhat's new?\u201d dialog now appears automatically the first time you open the app after an update.",
+        "A “What's new?” dialog now appears automatically the first time you open the app after an update.",
         "A Feedback button sits next to Settings so you can report a bug or share an idea without leaving the app.",
         "Attach a screenshot of your current screen and AI turns your note into a well-structured GitHub issue."
       ],
@@ -16,7 +75,7 @@
           "items": [
             "Summarizes every change between your previous version and the one you just installed.",
             "Expand any release to read the full detail list, grouped by area.",
-            "Reopen it any time from Settings \u2192 About \u2192 \u201cWhat's new\u201d."
+            "Reopen it any time from Settings → About → “What's new”."
           ]
         },
         {
@@ -37,7 +96,7 @@
       "highlights": [
         "Newsletter is now a full studio with appearance controls, chat image uploads, and faithful email rendering.",
         "Code Flow PR cards show every reviewer and keep their Git section in sync with the review worktree.",
-        "Review agents now self-heal instead of showing \u201cReady\u201d for an agent the CLI can't find."
+        "Review agents now self-heal instead of showing “Ready” for an agent the CLI can't find."
       ],
       "details": [
         {
@@ -53,9 +112,9 @@
           "heading": "Code Flow",
           "items": [
             "PR cards list all reviewers, not just the pending ones.",
-            "Added an \u201cUpdate from PR branch\u201d action and fixed \u201cUpdate from main/PR\u201d silently refusing over untracked build output.",
+            "Added an “Update from PR branch” action and fixed “Update from main/PR” silently refusing over untracked build output.",
             "The Git section now reads sync, changes, and push state from the correct review worktree.",
-            "Review-agent files are seeded into every on-branch worktree so \u201cReady\u201d always means the agent is really there."
+            "Review-agent files are seeded into every on-branch worktree so “Ready” always means the agent is really there."
           ]
         }
       ]

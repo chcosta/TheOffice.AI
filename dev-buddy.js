@@ -714,6 +714,14 @@ function getSignalState(fingerprint) {
   return state && typeof state === 'object' ? { ...state } : {};
 }
 
+function getSignalSnapshot() {
+  const store = readStore();
+  return {
+    dismissedSignals: { ...store.dismissedSignals },
+    signalStates: { ...store.signalStates },
+  };
+}
+
 function updateSignal(fingerprint, patch = {}, item = {}) {
   const key = cleanText(fingerprint, 500);
   if (!key) return null;
@@ -1790,6 +1798,7 @@ module.exports = {
   getProgress,
   getCommitmentSync,
   getEffortClassificationState,
+  getSignalSnapshot,
   getSignalState,
   isSignalDismissed,
   listRecentActivity,
