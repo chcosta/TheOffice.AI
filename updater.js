@@ -286,6 +286,8 @@ async function checkForUpdate(currentVersion, opts = {}) {
   const updateAvailable = forceReinstall
     ? true
     : !!(best && canInstallVersion(best.version, current));
+  const repairInstall = !!(forceReinstall && best &&
+    compareSemver(best.version, current) === 0);
   // Newest-first, and never hand back an unbounded list.
   pending.sort((a, b) => compareSemver(b.version, a.version));
   const result = {
@@ -294,6 +296,7 @@ async function checkForUpdate(currentVersion, opts = {}) {
     latest: best ? best.version : '',
     updateAvailable,
     forceReinstall,
+    repairInstall,
     assetName: best ? best.assetName : '',
     deltaAvailable: !!(best && best.canDelta),
     notes: best ? best.notes : '',

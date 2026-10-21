@@ -66,10 +66,9 @@ function _preferredAccount() {
 let _cliAccountCache = { at: 0, value: null };
 
 // Resolve the CLI account the app should actually use. An explicit in-app
-// preference wins; otherwise use gh's healthy active account, or the only
-// healthy keyring account when the nominal active credential is stale/broken.
-// listAccounts() intentionally omits failed auth blocks, so this never
-// auto-selects a credential that `gh auth status` has already rejected.
+// preference wins; otherwise preserve gh's active account even when that
+// credential is temporarily unavailable. Secondary accounts must never silently
+// replace the user's chosen/default identity.
 function _resolvedCliAccount() {
   const preferred = _preferredAccount();
   if (preferred) return preferred;
@@ -79,8 +78,8 @@ function _resolvedCliAccount() {
   }
   try {
     const accounts = listAccounts();
-    const value = accounts.find(account => account.active) ||
-      (accounts.length === 1 ? { host: accounts[0].host, login: accounts[0].login } : null);
+    const active = accounts.find(account => account.active);
+    const value = active ? { host: active.host, login: active.login } : null;
     _cliAccountCache = { at: now, value };
     return value;
   } catch {
@@ -1263,7 +1262,8 @@ function _tokenSource() {
 // Enumerate every account the `gh` CLI is logged into, across hosts, by parsing
 // `gh auth status`. Lets the app offer a real account picker (e.g. a personal
 // github.com login alongside a GitHub EMU/enterprise login). Never throws.
-// Returns [{ host, login, active, source, protocol }].
+// Returns [{ host, login, active, source, protocol, valid, reason }]. Failed
+// credentials remain visible so the account manager can reauthenticate them.
 function listAccounts() {
   let out;
   try {
@@ -1292,6 +1292,9 @@ function listAccounts() {
     if (!prev) { seen.set(k, a); continue; }
     prev.active = prev.active || a.active;
     prev.preferred = prev.preferred || a.preferred;
+    prev.valid = prev.valid || a.valid;
+    if (a.valid) prev.reason = '';
+    else if (!prev.reason) prev.reason = a.reason;
     if (!prev.source) prev.source = a.source;
     if (!prev.protocol) prev.protocol = a.protocol;
   }
@@ -1308,16 +1311,22 @@ function _parseGhAuthStatus(text) {
   const lines = String(text || '').split(/\r?\n/);
   let cur = null;
   for (const line of lines) {
-    // A failed account block has the same "Active account:" detail lines as a
-    // healthy block. Reset the cursor so its false flag cannot overwrite the
-    // previously parsed valid account.
-    if (/Failed to log in to\s+\S+\s+account/i.test(line)) {
-      cur = null;
+    const failed = line.match(/Failed to log in to\s+(\S+)\s+account\s+(\S+)\s*(?:\(([^)]*)\))?/i);
+    if (failed) {
+      cur = {
+        host: failed[1], login: failed[2], source: (failed[3] || '').trim(),
+        active: false, protocol: '', preferred: false, valid: false,
+        reason: 'Credential unavailable — reauthenticate this account.'
+      };
+      accts.push(cur);
       continue;
     }
     const m = line.match(/Logged in to\s+(\S+)\s+account\s+(\S+)\s*(?:\(([^)]*)\))?/i);
     if (m) {
-      cur = { host: m[1], login: m[2], source: (m[3] || '').trim(), active: false, protocol: '', preferred: false };
+      cur = {
+        host: m[1], login: m[2], source: (m[3] || '').trim(),
+        active: false, protocol: '', preferred: false, valid: true, reason: ''
+      };
       accts.push(cur);
       continue;
     }
@@ -1326,6 +1335,9 @@ function _parseGhAuthStatus(text) {
       if (am) { cur.active = /true/i.test(am[1]); continue; }
       const pm = line.match(/Git operations protocol:\s*(\S+)/i);
       if (pm) { cur.protocol = pm[1]; continue; }
+      if (!cur.valid && /token.*(?:invalid|expired)|authentication failed/i.test(line)) {
+        cur.reason = 'Credential expired or invalid — reauthenticate this account.';
+      }
     }
   }
   return accts;

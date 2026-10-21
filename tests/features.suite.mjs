@@ -149,8 +149,8 @@ await t.test('GitHub CLI auth is isolated from inherited environment tokens', ()
     'gh auth token reads the OS keyring instead of an inherited GH_TOKEN');
   t.ok(/function _resolvedCliAccount\(\)/.test(gh) &&
        /accounts\.find\(account => account\.active\)/.test(gh) &&
-       /accounts\.length === 1/.test(gh),
-    'the app falls back to the sole healthy keyring account when gh has no healthy active account');
+       !/accounts\.length === 1/.test(gh),
+    'the app preserves the selected or CLI-default identity instead of silently switching accounts');
   const accountsFn = sliceSource('github.js', 'function listAccounts()', '// Parse `gh auth status`');
   t.ok(/env: _ghCliEnv\(\)/.test(accountsFn),
     'account discovery is not polluted by an environment-token pseudo-account');
@@ -159,7 +159,7 @@ await t.test('GitHub CLI auth is isolated from inherited environment tokens', ()
     'the visible sign-in window can launch even when the parent process has GH_TOKEN');
 });
 
-await t.test('GitHub account parsing ignores failed-account detail lines', () => {
+await t.test('GitHub account manager keeps unavailable credentials actionable', () => {
   const { _parseGhAuthStatus } = extractFns('github.js', ['_parseGhAuthStatus']);
   const accounts = _parseGhAuthStatus([
     'github.com',
@@ -169,9 +169,15 @@ await t.test('GitHub account parsing ignores failed-account detail lines', () =>
     '  Failed to log in to github.com account stale (keyring)',
     '  - Active account: false',
   ].join('\n'));
-  t.eq(accounts.length, 1, 'failed account is not offered as usable');
+  t.eq(accounts.length, 2, 'healthy and unavailable accounts are both listed');
   t.eq(accounts[0].login, 'healthy');
   t.eq(accounts[0].active, true, 'failed account metadata did not overwrite the valid account');
+  t.eq(accounts[0].valid, true);
+  t.eq(accounts[1].login, 'stale');
+  t.eq(accounts[1].valid, false, 'unavailable credential can be reauthenticated from the UI');
+  t.ok(/method === 'cli-refresh'/.test(readFileSync(SERVER, 'utf8')) &&
+       /refreshGithubAccount\(account\)/.test(readFileSync(APP_HTML, 'utf8')),
+    'each listed account exposes an explicit credential refresh flow');
 });
 
 await t.test('Code Flow: PR tabs swap per-view data immediately and sequence in-flight loads', () => {
@@ -2936,7 +2942,7 @@ await t.test('updates + Whats new: manual check bypasses the cache; release note
   t.notOk(updater.canInstallVersion('1.0.5-preview.763', '1.0.5', { allowEqual: true }), 'self-heal cannot bypass downgrade prevention');
   // (#3) A manual "Check for updates" must skip the 15-min release-lookup cache so
   // a build published seconds ago is seen (the auto-check on launch warms the cache).
-  const check = _win(upd, 'async function checkForUpdate(', 600);
+  const check = _win(upd, 'async function checkForUpdate(', 8000);
   t.ok(check, 'updater.checkForUpdate found');
   t.ok(/!opts\.force &&/.test(check), 'a forced check bypasses the release-lookup cache');
   t.ok(/canInstallVersion\(best\.version, current, \{ allowEqual: true \}\)/.test(check) &&
@@ -2968,6 +2974,11 @@ await t.test('updates + Whats new: manual check bypasses the cache; release note
     'the updater exposes a cached exact-tag release lookup');
 
   const html = readFileSync('public/app.html', 'utf8');
+  t.ok(/repairInstall:\s*false/.test(html) &&
+       /this\.update\.repairInstall = !!r\.repairInstall/.test(html) &&
+       /Repair v/.test(html) &&
+       /installed server files do not match that release/.test(html),
+    'same-version self-heal is presented as an explained repair, not a newer update');
   t.ok(/async checkForUpdate\(force\) \{/.test(html), 'SPA checkForUpdate accepts a force flag');
   t.ok(/\/api\/update\/check' \+ \(force \? '\?refresh=1' : ''\)/.test(html), 'force adds ?refresh=1 to the check request');
   const about = _win(html, 'async checkForUpdatesFromAbout()', 400);

@@ -1997,6 +1997,7 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
           'gh', 'auth', 'logout', '--hostname', 'github.com'],
           { detached: true, stdio: 'ignore', windowsHide: false });
       } else {
+        const { spawn } = require('child_process');
         const env = { ...process.env };
         delete env.GH_TOKEN;
         delete env.GITHUB_TOKEN;
@@ -2025,6 +2026,34 @@ app.post('/api/github/connect', express.json(), async (req, res) => {
         return res.status(400).json({ error: status.reason || `Could not use the "${login}" account.`, status });
       }
       return res.json({ ok: true, status });
+    }
+    if (method === 'cli-refresh') {
+      const login = (req.body.login || '').trim();
+      const host = (req.body.host || 'github.com').trim() || 'github.com';
+      if (!login) return res.status(400).json({ error: 'Choose a GitHub account to reauthenticate.' });
+      const accounts = github.listAccounts();
+      if (!accounts.some(a => a.login === login && a.host === host)) {
+        return res.status(400).json({ error: `"${login}" isn't a known GitHub CLI account.` });
+      }
+      if (process.platform === 'win32') {
+        _openWindowsAuthCli([
+          'gh', 'auth', 'refresh', '--hostname', host, '--user', login,
+          '--scopes', 'repo,read:org,gist',
+        ]);
+      } else {
+        const env = { ...process.env };
+        delete env.GH_TOKEN;
+        delete env.GITHUB_TOKEN;
+        spawn('gh', [
+          'auth', 'refresh', '--hostname', host, '--user', login,
+          '--scopes', 'repo,read:org,gist',
+        ], { detached: true, stdio: 'ignore', env });
+      }
+      return res.json({
+        ok: true,
+        launched: true,
+        message: `A GitHub sign-in window opened for @${login}.`,
+      });
     }
     // method === 'cli' — launch an interactive sign-in in its own window.
     const { spawn } = require('child_process');

@@ -1198,12 +1198,16 @@
     /* GitHub multi-account picker */
     .gh-acct-list { display: flex; flex-direction: column; gap: 3px; margin: 2px 0; }
     .gh-acct-hd { font-size: 11px; color: var(--cp-text-muted); margin: 2px 0 1px; }
-    .gh-acct { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+    .gh-acct { display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
       background: var(--cp-surface-soft); border: 1px solid var(--cp-border);
-      border-radius: calc(var(--cp-radius-scale, 1) * 8px); padding: 6px 8px; cursor: pointer; }
+      border-radius: calc(var(--cp-radius-scale, 1) * 8px); padding: 6px 8px; }
     .gh-acct:hover { border-color: var(--cp-border-strong); }
     .gh-acct.sel { border-color: var(--cp-accent); background: var(--cp-accent-soft, var(--cp-surface-soft)); }
+    .gh-acct.bad { border-color: var(--cp-danger); }
     .gh-acct:disabled { opacity: 0.6; cursor: default; }
+    .gh-acct-select { display:flex;align-items:center;gap:8px;min-width:0;flex:1;background:none;border:0;padding:0;text-align:left;color:inherit;font:inherit;cursor:pointer; }
+    .gh-acct-select:disabled,.gh-acct-action:disabled { opacity:0.6;cursor:default; }
+    .gh-acct-action { background:none;border:0;padding:2px;color:var(--cp-link);font:inherit;font-size:11px;cursor:pointer;white-space:nowrap; }
     .gh-acct-dot { width: 8px; height: 8px; border-radius: 999px; flex: 0 0 auto; }
     .gh-acct-dot.on { background: var(--cp-success, #2ea043); }
     .gh-acct-dot.off { background: var(--cp-border-strong); }
@@ -7473,22 +7477,6 @@
                   <div class="conn-pop-body">
                     <div class="conn-pop-row"><span class="conn-dot on"></span><b x-text="ghStatus.name || ghStatus.login"></b></div>
                     <div class="conn-pop-sub" x-text="'@' + ghStatus.login + (ghStatus.source ? ' · ' + ghSourceLabel(ghStatus.source) : '')"></div>
-                    <template x-if="ghStatus.accounts && ghStatus.accounts.length > 1">
-                      <div class="gh-acct-list">
-                        <div class="gh-acct-hd">Use this account</div>
-                        <template x-for="a in ghStatus.accounts" :key="a.host + '/' + a.login">
-                          <button class="gh-acct" type="button" :class="{ 'sel': ghAcctActive(a) }" :disabled="ghBusy" @click="selectGithubAccount(a.login, a.host)">
-                            <span class="gh-acct-dot" :class="ghAcctActive(a) ? 'on' : 'off'"></span>
-                            <span class="gh-acct-main">
-                              <span class="gh-acct-login" x-text="'@' + a.login"></span>
-                              <span class="gh-acct-meta" x-text="ghSourceLabel(a.source) + (a.host && a.host !== 'github.com' ? ' · ' + a.host : '')"></span>
-                            </span>
-                            <span class="gh-acct-tag" x-show="ghAcctActive(a)" x-text="a.preferred ? 'pinned' : 'active'"></span>
-                          </button>
-                        </template>
-                        <button class="conn-pop-link" type="button" x-show="ghStatus.preferred" @click="selectGithubAccount('', '')">Clear pinned account</button>
-                      </div>
-                    </template>
                     <div class="conn-pop-actions">
                       <button class="conn-pop-btn" type="button" @click="connectGithubCli()" :disabled="ghBusy" x-text="ghBusy ? 'Opening…' : 'Add another account'"></button>
                       <button class="conn-pop-btn danger" type="button" @click="signOutGithub()" :disabled="ghBusy">Sign out</button>
@@ -7508,6 +7496,25 @@
                       <button type="button" @click="connectGithubPat()" :disabled="ghBusy || !ghPat">Save</button>
                     </div>
                     <div class="conn-pop-err" x-show="ghErr" x-text="ghErr"></div>
+                  </div>
+                </template>
+                <template x-if="ghStatus && ghStatus.accounts && ghStatus.accounts.length">
+                  <div class="conn-pop-body gh-acct-list">
+                    <div class="gh-acct-hd">Default account</div>
+                    <template x-for="a in ghStatus.accounts" :key="a.host + '/' + a.login">
+                      <div class="gh-acct" :class="{ 'sel': ghAcctActive(a), 'bad': a.valid === false }">
+                        <button class="gh-acct-select" type="button" :disabled="ghBusy" @click="selectGithubAccount(a.login, a.host)">
+                          <span class="gh-acct-dot" :class="a.valid === false ? 'off' : 'on'"></span>
+                          <span class="gh-acct-main">
+                            <span class="gh-acct-login" x-text="'@' + a.login"></span>
+                            <span class="gh-acct-meta" x-text="a.valid === false ? (a.reason || 'Credential unavailable') : (ghSourceLabel(a.source) + (a.host && a.host !== 'github.com' ? ' · ' + a.host : ''))"></span>
+                          </span>
+                          <span class="gh-acct-tag" x-show="ghAcctActive(a)" x-text="a.preferred ? 'default' : 'CLI default'"></span>
+                        </button>
+                        <button class="gh-acct-action" type="button" :disabled="ghBusy" @click.stop="refreshGithubAccount(a)" x-text="a.valid === false ? 'Sign in again' : 'Update sign-in'"></button>
+                      </div>
+                    </template>
+                    <button class="conn-pop-link" type="button" x-show="ghStatus.preferred" @click="selectGithubAccount('', '')">Use GitHub CLI default</button>
                   </div>
                 </template>
               </div>
@@ -7546,8 +7553,8 @@
           <div class="sidebar-meta">
             <template x-if="update.supported && update.available && (update.phase === 'idle' || update.phase === 'error') && !update.dismissed">
               <button type="button" class="sidebar-update-btn" @click="downloadUpdate()" :disabled="update.busy"
-                      :title="'A new version (v' + update.latest + ') is available'"
-                      x-text="update.busy ? 'Preparing…' : ('↑ Update to v' + update.latest)"></button>
+                      :title="update.repairInstall ? 'Repair the installed files for this version' : ('A new version (v' + update.latest + ') is available')"
+                      x-text="update.busy ? 'Preparing…' : updateActionLabel('↑ ')"></button>
             </template>
             <template x-if="update.supported && update.available && (update.phase === 'idle' || update.phase === 'error') && !update.dismissed && updatePendingEntries().length">
               <a href="#" class="svc-logs-link" @click.prevent="openUpdateNotes()" title="See what's included in this update">What's included</a>
@@ -30372,7 +30379,7 @@
                     <span style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end">
                       <span x-show="update.checked && !update.available && !update.checking" style="color:var(--cp-success);font-size:0.85rem">✓ Up to date</span>
                       <a href="#" x-show="update.available && !update.checking && updatePendingEntries().length" @click.prevent="openUpdateNotes()" style="font-size:0.85rem">See what's included</a>
-                      <a href="#" x-show="update.available && !update.checking" @click.prevent="downloadUpdate()" x-text="'Update to v' + update.latest + ' →'"></a>
+                      <a href="#" x-show="update.available && !update.checking" @click.prevent="downloadUpdate()" x-text="updateActionLabel() + ' →'"></a>
                       <button type="button" class="btn ghost" @click="checkForUpdatesFromAbout()" :disabled="update.checking || update.busy || (update.phase && update.phase !== 'idle' && update.phase !== 'error')" x-text="update.checking ? 'Checking…' : 'Check for updates'"></button>
                     </span>
                   </template>
@@ -32145,7 +32152,7 @@
         </template>
         <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px">
           <button class="btn ghost" type="button" @click="update.notesOpen = false">Close</button>
-          <button class="btn primary" type="button" x-show="update.available" @click="update.notesOpen = false; downloadUpdate()" x-text="'Update to v' + update.latest"></button>
+          <button class="btn primary" type="button" x-show="update.available" @click="update.notesOpen = false; downloadUpdate()" x-text="updateActionLabel()"></button>
         </div>
       </div>
     </div>
@@ -33166,7 +33173,7 @@
         restarting: false,
         // In-app self-updater state (desktop build only). `supported` gates the
         // whole UI so browser/LAN builds never show update chrome.
-        update: { supported: false, checked: false, checking: false, available: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '', notes: '', publishedAt: '', pending: [], notesOpen: false, lastApplied: null, applying: false },
+        update: { supported: false, checked: false, checking: false, available: false, forceReinstall: false, repairInstall: false, latest: '', current: '', phase: 'idle', progress: 0, error: '', busy: false, dismissed: false, delta: false, applyOn: '', notes: '', publishedAt: '', pending: [], notesOpen: false, lastApplied: null, applying: false },
         updateConfirmOpen: false,
         _whatsNewChecked: false,
         // "What's new" release-notes dialog. Populated from /api/whats-new; shown
@@ -37315,6 +37322,27 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           } catch (e) {
             this.ghErr = (e && e.message) || 'Could not switch account.';
             await this.refreshGithubStatus(true);
+          } finally { this.ghBusy = false; }
+        },
+        async refreshGithubAccount(account) {
+          if (this.ghBusy || !account || !account.login) return;
+          this.ghErr = ''; this.ghBusy = true;
+          try {
+            const r = await this.request('/api/github/connect', {
+              method: 'POST',
+              body: JSON.stringify({ method: 'cli-refresh', login: account.login, host: account.host || 'github.com' })
+            });
+            this.toast(r.message || ('Sign-in opened for @' + account.login), 'info');
+            let tries = 0;
+            const iv = setInterval(async () => {
+              tries++;
+              await this.refreshGithubStatus(true);
+              const refreshed = ((this.ghStatus && this.ghStatus.accounts) || [])
+                .find(a => a.login === account.login && a.host === account.host);
+              if ((refreshed && refreshed.valid !== false) || tries > 40) clearInterval(iv);
+            }, 3000);
+          } catch (e) {
+            this.ghErr = (e && e.message) || 'Could not update this GitHub sign-in.';
           } finally { this.ghBusy = false; }
         },
         ghConnLabel() {
@@ -73713,6 +73741,8 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (!r || r.supported === false) { this.update.supported = false; return; }
             this.update.checked = true;
             this.update.available = !!r.updateAvailable;
+            this.update.forceReinstall = !!r.forceReinstall;
+            this.update.repairInstall = !!r.repairInstall;
             this.update.latest = r.latest || '';
             this.update.current = r.current || '';
             this.update.deltaAvailable = !!r.deltaAvailable;
@@ -73732,7 +73762,10 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             if (this.update.supported === false) {
               this.showToast('Updates', 'Auto-updates are managed by the desktop app.', 'info');
             } else if (this.update.available) {
-              this.showToast('Update available', `Version ${this.update.latest} is ready to download.`, 'info');
+              this.showToast(this.update.repairInstall ? 'Repair recommended' : 'Update available',
+                this.update.repairInstall
+                  ? `The installed files for version ${this.update.latest} need repair.`
+                  : `Version ${this.update.latest} is ready to download.`, 'info');
             } else {
               this.showToast('Up to date', `You're on the latest version (${this.update.current || this.versionLabel()}).`, 'success');
             }
@@ -73746,6 +73779,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // than what's installed. Falls back to a single synthesized entry from the
         // latest release's notes when the per-release list isn't available.
         updatePendingEntries() {
+          if (this.update.repairInstall) return [];
           const list = Array.isArray(this.update.pending) ? this.update.pending : [];
           if (list.length) return list;
           if (this.update.available && this.update.notes) {
@@ -73757,15 +73791,21 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!this.updatePendingEntries().length) return;
           this.update.notesOpen = true;
         },
+        updateActionLabel(prefix = '') {
+          return prefix + (this.update.repairInstall ? 'Repair v' : 'Update to v') + this.update.latest;
+        },
         async downloadUpdate() {
           if (!this.update.supported || !this.update.available) return;
           const delta = !!this.update.deltaAvailable;
+          const repair = !!this.update.repairInstall;
           const ok = await this.uiConfirm({
-            title: `Update to v${this.update.latest}?`,
-            message: delta
+            title: repair ? `Repair v${this.update.latest}?` : `Update to v${this.update.latest}?`,
+            message: repair
+              ? 'The version number is current, but the installed server files do not match that release. A clean copy will download and reinstall when you close the app.'
+              : delta
               ? 'The update downloads in the background. It installs the next time you open the app — a small, quick update. You can keep working until then.'
               : 'The update downloads in the background. It installs automatically when you close the app, then reopens on the new version. You can keep working until then.',
-            confirmLabel: 'Download update'
+            confirmLabel: repair ? 'Download repair' : 'Download update'
           });
           if (!ok) return;
           this.update.busy = true;
