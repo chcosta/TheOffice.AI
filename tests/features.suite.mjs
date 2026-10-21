@@ -143,9 +143,14 @@ await t.test('GitHub CLI auth is isolated from inherited environment tokens', ()
        /upper === 'GH_TOKEN' \|\| upper === 'GITHUB_TOKEN'/.test(gh),
     'GitHub CLI commands receive an environment without token overrides');
   const tokenFn = sliceSource('github.js', 'function _ghAuthToken()', '// Get a GitHub token.');
-  t.ok(/const env = _ghCliEnv\(\)/.test(tokenFn) &&
+  t.ok(/const a = _resolvedCliAccount\(\)/.test(tokenFn) &&
+       /const env = _ghCliEnv\(\)/.test(tokenFn) &&
        /shell: true, env/.test(tokenFn),
     'gh auth token reads the OS keyring instead of an inherited GH_TOKEN');
+  t.ok(/function _resolvedCliAccount\(\)/.test(gh) &&
+       /accounts\.find\(account => account\.active\)/.test(gh) &&
+       /accounts\.length === 1/.test(gh),
+    'the app falls back to the sole healthy keyring account when gh has no healthy active account');
   const accountsFn = sliceSource('github.js', 'function listAccounts()', '// Parse `gh auth status`');
   t.ok(/env: _ghCliEnv\(\)/.test(accountsFn),
     'account discovery is not polluted by an environment-token pseudo-account');

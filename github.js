@@ -63,10 +63,36 @@ function _preferredAccount() {
   return null;
 }
 
+let _cliAccountCache = { at: 0, value: null };
+
+// Resolve the CLI account the app should actually use. An explicit in-app
+// preference wins; otherwise use gh's healthy active account, or the only
+// healthy keyring account when the nominal active credential is stale/broken.
+// listAccounts() intentionally omits failed auth blocks, so this never
+// auto-selects a credential that `gh auth status` has already rejected.
+function _resolvedCliAccount() {
+  const preferred = _preferredAccount();
+  if (preferred) return preferred;
+  const now = Date.now();
+  if (_cliAccountCache.at && now - _cliAccountCache.at < 5 * 60_000) {
+    return _cliAccountCache.value;
+  }
+  try {
+    const accounts = listAccounts();
+    const value = accounts.find(account => account.active) ||
+      (accounts.length === 1 ? { host: accounts[0].host, login: accounts[0].login } : null);
+    _cliAccountCache = { at: now, value };
+    return value;
+  } catch {
+    _cliAccountCache = { at: now, value: null };
+    return null;
+  }
+}
+
 // Active host for the current account (github.com unless a preferred account
 // pins an enterprise host).
 function _activeHost() {
-  const a = _preferredAccount();
+  const a = _resolvedCliAccount();
   return (a && a.host) || HOST;
 }
 
@@ -96,7 +122,7 @@ function _ghCliEnv() {
 // pass `--user` so gh returns THAT account's keyring token. Falls back to the
 // active keyring account if the installed gh predates `--user`.
 function _ghAuthToken() {
-  const a = _preferredAccount();
+  const a = _resolvedCliAccount();
   const host = (a && a.host) || HOST;
   const env = _ghCliEnv();
   if (a && a.login) {
@@ -119,6 +145,7 @@ function _ghAuthToken() {
 // refresh on demand. forceRefresh bypasses the cache after a 401.
 function getToken(forceRefresh = false) {
   const now = Date.now();
+  if (forceRefresh) _cliAccountCache = { at: 0, value: null };
   if (!forceRefresh && _tokenCache.token && now < _tokenCache.expiresAt - 60_000) {
     return _tokenCache.token;
   }
@@ -131,7 +158,7 @@ function getToken(forceRefresh = false) {
   } catch {}
   // 2) Environment (CI / shells that exported a token) — only when NO explicit
   //    account is pinned, so a chosen account is never silently overridden.
-  if (!token && !_preferredAccount()) token = (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim();
+  if (!token && !_resolvedCliAccount()) token = (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim();
   // 3) Optional stored PAT.
   if (!token) token = _settingsPat();
 
@@ -1226,7 +1253,7 @@ function _tokenSource() {
       return { source: 'cli', hasToken: true };
     }
   } catch {}
-  if (!_preferredAccount() && (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim()) {
+  if (!_resolvedCliAccount() && (process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '').trim()) {
     return { source: 'env', hasToken: true };
   }
   if (_settingsPat()) return { source: 'pat', hasToken: true };
@@ -1242,7 +1269,8 @@ function listAccounts() {
   try {
     // --show-token would leak secrets; we only need logins + which is active.
     const raw = execSync('gh auth status', {
-      encoding: 'utf-8', timeout: 15_000, shell: true, env: _ghCliEnv()
+      encoding: 'utf-8', timeout: 15_000, shell: true, env: _ghCliEnv(),
+      stdio: ['ignore', 'pipe', 'pipe']
     });
     out = _parseGhAuthStatus(raw);
   } catch (e) {
