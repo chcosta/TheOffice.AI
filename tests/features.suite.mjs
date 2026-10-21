@@ -2918,11 +2918,20 @@ await t.test('documents import: external file → library (+ board Add link card
 
 await t.test('updates + Whats new: manual check bypasses the cache; release notes scope to the running version line', () => {
   const upd = readFileSync('updater.js', 'utf8');
+  const updater = require('../updater');
+  t.ok(updater.canInstallVersion('1.0.5-preview.764', '1.0.5-preview.763'), 'a newer preview remains installable');
+  t.ok(updater.canInstallVersion('1.0.5', '1.0.5-preview.763'), 'the stable release outranks its previews');
+  t.notOk(updater.canInstallVersion('1.0.5-preview.763', '1.0.5'), 'an older preview can never replace the stable release');
+  t.ok(updater.canInstallVersion('1.0.5', '1.0.5', { allowEqual: true }), 'self-heal may reinstall the same version');
+  t.notOk(updater.canInstallVersion('1.0.5-preview.763', '1.0.5', { allowEqual: true }), 'self-heal cannot bypass downgrade prevention');
   // (#3) A manual "Check for updates" must skip the 15-min release-lookup cache so
   // a build published seconds ago is seen (the auto-check on launch warms the cache).
   const check = _win(upd, 'async function checkForUpdate(', 600);
   t.ok(check, 'updater.checkForUpdate found');
   t.ok(/!opts\.force &&/.test(check), 'a forced check bypasses the release-lookup cache');
+  t.ok(/canInstallVersion\(best\.version, current, \{ allowEqual: true \}\)/.test(check) &&
+       /canInstallVersion\(best\.version, current\)/.test(check),
+    'normal updates and forced self-heal both enforce non-downgrade version ordering');
 
   const src = readFileSync('server.js', 'utf8');
   const chk = _win(src, "app.get('/api/update/check'", 600);

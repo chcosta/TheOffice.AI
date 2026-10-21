@@ -133,6 +133,15 @@ function compareSemver(av, bv) {
   return 0;
 }
 
+// An installer may replace every locally deployed file, so version ordering is
+// a hard safety boundary even during corruption recovery. A self-heal may
+// reinstall the same version, but it must never downgrade to an older release.
+function canInstallVersion(candidate, current, { allowEqual = false } = {}) {
+  if (!parseSemver(candidate) || !parseSemver(current)) return false;
+  const order = compareSemver(candidate, current);
+  return allowEqual ? order >= 0 : order > 0;
+}
+
 // --- release lookup ---------------------------------------------------------
 
 let _checkCache = { at: 0, current: '', result: null };
@@ -267,7 +276,8 @@ async function checkForUpdate(currentVersion, opts = {}) {
   // reinstall of the latest release — even when version math says we're current,
   // and never via a delta (a broken base can't be delta-patched).
   const heal = isDesktop() ? pendingHeal() : null;
-  const forceReinstall = !!(heal && best);
+  const forceReinstall = !!(heal && best &&
+    canInstallVersion(best.version, current, { allowEqual: true }));
   if (forceReinstall) {
     best.canDelta = false;
     best.forceFull = true;
@@ -275,7 +285,7 @@ async function checkForUpdate(currentVersion, opts = {}) {
 
   const updateAvailable = forceReinstall
     ? true
-    : !!(best && current && parseSemver(current) && compareSemver(best.version, current) > 0);
+    : !!(best && canInstallVersion(best.version, current));
   // Newest-first, and never hand back an unbounded list.
   pending.sort((a, b) => compareSemver(b.version, a.version));
   const result = {
@@ -607,6 +617,7 @@ function lastApplied() {
 module.exports = {
   isDesktop,
   compareSemver,
+  canInstallVersion,
   releaseForVersion,
   checkForUpdate,
   startDownload,
