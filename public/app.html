@@ -25635,9 +25635,9 @@
                               <button x-show="(cfWt(pr).changeCount || 0) > 0" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfToggleChanges(pr)"
                                       title="View, commit, or discard uncommitted changes in this worktree"
                                       x-text="((cfChangeState(pr) && cfChangeState(pr).open) ? '▾ ' : '▸ ') + 'Changes ' + (cfWt(pr).changeCount || 0)"></button>
-                              <button x-show="cfIsSteward(pr)" class="cf-wt-link" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
-                                      title="Commit any local changes and push to the PR branch"
-                                      x-text="cfBusy(pr) === 'push' ? 'Pushing…' : '⇧ Push'"></button>
+                              <button x-show="cfIsSteward(pr) || (cfWt(pr).drift && (cfWt(pr).drift.ahead || 0) > 0)" class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfPush(pr)"
+                                      :title="(cfWt(pr).drift && (cfWt(pr).drift.ahead || 0) > 0) ? ('Push ' + cfWt(pr).drift.ahead + ' local commit' + (cfWt(pr).drift.ahead === 1 ? '' : 's') + ' to the PR branch') : 'Commit any local changes and push to the PR branch'"
+                                      x-text="cfBusy(pr) === 'push' ? 'Pushing…' : ((cfWt(pr).drift && (cfWt(pr).drift.ahead || 0) > 0) ? ('⇧ Push to PR (' + cfWt(pr).drift.ahead + ')') : '⇧ Push')"></button>
                               <button x-show="!cfIsSteward(pr) && (cfWt(pr).reviewComments || 0) > 0"
                                       class="cf-wt-link cf-wt-approve" :disabled="!!cfBusy(pr)" @click="cfPostComments(pr)"
                                       :title="'Post ' + (cfWt(pr).reviewComments || 0) + ' AI review finding(s) as comments on this PR'"

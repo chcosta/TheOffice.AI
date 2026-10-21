@@ -503,6 +503,9 @@ await t.test('Code Flow AI review reports durable live phase and tool activity',
     'PR cards render current work, model, reasoning effort, elapsed time, and recent activity');
   t.ok(/\.cf-studio \.dvx-index \{ max-height:none; overflow:visible; \}/.test(html),
     'the pull-request navigator grows with the page instead of creating a nested vertical scrollbar');
+  t.ok(/x-show="cfIsSteward\(pr\) \|\| \(cfWt\(pr\)\.drift && \(cfWt\(pr\)\.drift\.ahead \|\| 0\) > 0\)"/.test(html) &&
+    /Push to PR/.test(html),
+    'a worktree with local-only commits exposes the push action even outside the My PRs tab');
   t.ok(/extra\.reviewLive = _cfActiveReviews\.has\(key\)/.test(server) &&
     /extra\.reviewHeartbeatAt = new Date\(\)\.toISOString\(\)/.test(server),
     'status polls include a live server heartbeat for an in-process review');
