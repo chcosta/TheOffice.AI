@@ -2258,10 +2258,9 @@ function _azdoAiSnapshotItem(item) {
 }
 async function _azdoAiBuild() {
   const config = AZDO_AI_CONFIG;
-  const [teamIterations, iterationTree, rawItems, me] = await Promise.all([
+  const [teamIterations, iterationTree, me] = await Promise.all([
     azdo.getTeamIterations(config.org, config.project, config.team),
     azdo.getIterationTree(config.org, config.project, 6),
-    azdo.queryStoredWorkItems(config.org, config.project, config.queryId, 500),
     azdo.getCurrentUser(config.org)
   ]);
   const iterationMap = new Map();
@@ -2273,13 +2272,37 @@ async function _azdoAiBuild() {
   const iterations = [...iterationMap.values()].filter(item =>
     String(item.path || '').toLowerCase().startsWith(config.areaPath.toLowerCase())
   );
-  const sortedIterations = iterations.slice().sort((a, b) => String(a.startDate || '').localeCompare(String(b.startDate || '')));
+  const sortedIterations = iterations.slice().sort((a, b) =>
+    String(a.startDate || '9999').localeCompare(String(b.startDate || '9999')) ||
+    String(a.path || '').localeCompare(String(b.path || '')));
+  const scheduledIterations = sortedIterations.filter(item => item.startDate && !/future consideration/i.test(item.path));
   const current = sortedIterations.find(item => item.timeFrame === 'current') ||
-    sortedIterations.find(item => String(item.path).toLowerCase().endsWith('\\sprint 1')) ||
-    sortedIterations[0] || null;
-  const currentIndex = current ? sortedIterations.findIndex(item => item.id === current.id) : -1;
-  const next = currentIndex >= 0 ? (sortedIterations.slice(currentIndex + 1).find(item => !/future consideration/i.test(item.path)) || null) : null;
+    scheduledIterations.find(item => {
+      const now = Date.now();
+      return Date.parse(item.startDate) <= now && now <= Date.parse(item.finishDate);
+    }) || scheduledIterations[0] || null;
+  const currentIndex = current ? scheduledIterations.findIndex(item => item.id === current.id) : -1;
+  const next = currentIndex >= 0 ? (scheduledIterations[currentIndex + 1] || null) : null;
   const future = sortedIterations.find(item => /future consideration/i.test(item.path)) || null;
+  let rawItems = [];
+  let querySource = 'stored';
+  let queryWarning = '';
+  try {
+    rawItems = await azdo.queryStoredWorkItems(config.org, config.project, config.queryId, 500);
+  } catch (error) {
+    querySource = 'iterations';
+    queryWarning = error && error.message || 'The configured sprint query could not be read.';
+  }
+  if (!rawItems.length) {
+    querySource = 'iterations';
+    rawItems = await azdo.queryIterationWorkItems(
+      config.org,
+      config.project,
+      config.areaPath,
+      [current && current.path, next && next.path, future && future.path, config.areaPath],
+      500
+    );
+  }
   const capacities = current ? await azdo.getTeamIterationCapacities(config.org, config.project, config.team, current.id).catch(() => []) : [];
   const store = _azdoAiRead(AZDO_AI_PATH, { snapshots: [], checkins: {} });
   const prior = (store.snapshots || []).slice().reverse().find(snapshot => snapshot.iterationPath === (current && current.path)) || null;
@@ -2363,11 +2386,15 @@ async function _azdoAiBuild() {
   return {
     config,
     fetchedAt: new Date().toISOString(),
+    querySource,
+    queryWarning,
     me,
     iterations: { current, next, future, all: sortedIterations },
     links: {
       board: `https://dev.azure.com/${config.org}/${config.project}/_sprints/taskboard/${config.team}/${encodeURIComponent(current && current.path || config.areaPath)}`,
-      query: `https://dev.azure.com/${config.org}/${config.project}/_queries/query/${config.queryId}/`,
+      query: querySource === 'stored'
+        ? `https://dev.azure.com/${config.org}/${config.project}/_queries/query/${config.queryId}/`
+        : '',
       capacity: `https://dev.azure.com/${config.org}/${config.project}/_sprints/capacity/${config.team}/${encodeURIComponent(current && current.path || config.areaPath)}`
     },
     items,

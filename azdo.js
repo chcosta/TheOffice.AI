@@ -1152,35 +1152,28 @@ async function getTeamIterationCapacities(org, project, team, iterationId) {
   });
 }
 
-async function queryStoredWorkItems(org, project, queryId, top = 250) {
-  const query = await apiSend(
-    org,
-    `${seg(project)}/_apis/wit/wiql/${seg(queryId)}?api-version=${API_VERSION}`
-  );
-  const refs = [];
-  for (const item of (query.workItems || [])) if (item && item.id) refs.push(item.id);
-  for (const rel of (query.workItemRelations || [])) {
-    if (rel && rel.target && rel.target.id) refs.push(rel.target.id);
+async function _getPlanningWorkItems(org, project, ids) {
+  const uniqueIds = [...new Set((ids || []).filter(Boolean))].slice(0, 500);
+  if (!uniqueIds.length) return [];
+  const fields = [
+    'System.Id', 'System.Title', 'System.State', 'System.WorkItemType',
+    'System.AreaPath', 'System.IterationPath', 'System.Tags',
+    'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo',
+    'Microsoft.VSTS.Scheduling.Effort', 'Microsoft.VSTS.Scheduling.RemainingWork',
+    'Microsoft.VSTS.Scheduling.CompletedWork', 'Microsoft.VSTS.Common.Priority',
+    'Microsoft.VSTS.Common.ActivatedDate', 'Microsoft.VSTS.Common.ClosedDate'
+  ];
+  const values = [];
+  for (let offset = 0; offset < uniqueIds.length; offset += 200) {
+    const batch = await apiSend(org, `${seg(project)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`, {
+      method: 'POST',
+      body: { ids: uniqueIds.slice(offset, offset + 200), fields },
+      contentType: 'application/json'
+    });
+    values.push(...(batch.value || []));
   }
-  const ids = [...new Set(refs)].slice(0, Math.max(1, Math.min(500, Number(top) || 250)));
-  if (!ids.length) return [];
-  const batch = await apiSend(org, `${seg(project)}/_apis/wit/workitemsbatch?api-version=${API_VERSION}`, {
-    method: 'POST',
-    body: {
-      ids,
-      fields: [
-        'System.Id', 'System.Title', 'System.State', 'System.WorkItemType',
-        'System.AreaPath', 'System.IterationPath', 'System.Tags',
-        'System.ChangedDate', 'System.CreatedDate', 'System.AssignedTo',
-        'Microsoft.VSTS.Scheduling.Effort', 'Microsoft.VSTS.Scheduling.RemainingWork',
-        'Microsoft.VSTS.Scheduling.CompletedWork', 'Microsoft.VSTS.Common.Priority',
-        'Microsoft.VSTS.Common.ActivatedDate', 'Microsoft.VSTS.Common.ClosedDate'
-      ]
-    },
-    contentType: 'application/json'
-  });
-  const order = new Map(ids.map((id, index) => [id, index]));
-  return (batch.value || []).map(item => {
+  const order = new Map(uniqueIds.map((id, index) => [id, index]));
+  return values.map(item => {
     const fields = item.fields || {};
     const assignedTo = _workItemPerson(fields['System.AssignedTo']);
     return {
@@ -1203,6 +1196,41 @@ async function queryStoredWorkItems(org, project, queryId, top = 250) {
       url: workItemUrl(org, project, item.id)
     };
   }).sort((a, b) => (order.get(a.id) || 0) - (order.get(b.id) || 0));
+}
+
+async function queryStoredWorkItems(org, project, queryId, top = 250) {
+  const query = await apiSend(
+    org,
+    `${seg(project)}/_apis/wit/wiql/${seg(queryId)}?api-version=${API_VERSION}`
+  );
+  const refs = [];
+  for (const item of (query.workItems || [])) if (item && item.id) refs.push(item.id);
+  for (const rel of (query.workItemRelations || [])) {
+    if (rel && rel.target && rel.target.id) refs.push(rel.target.id);
+  }
+  const ids = [...new Set(refs)].slice(0, Math.max(1, Math.min(500, Number(top) || 250)));
+  return _getPlanningWorkItems(org, project, ids);
+}
+
+async function queryIterationWorkItems(org, project, areaPath, iterationPaths, top = 500) {
+  const quote = value => `'${String(value || '').replace(/'/g, "''")}'`;
+  const paths = [...new Set((iterationPaths || []).map(value => String(value || '').trim()).filter(Boolean))];
+  if (!paths.length) return [];
+  const wiql = [
+    'SELECT [System.Id] FROM WorkItems',
+    `WHERE [System.TeamProject] = @project`,
+    areaPath ? `AND [System.AreaPath] UNDER ${quote(areaPath)}` : '',
+    `AND [System.IterationPath] IN (${paths.map(quote).join(', ')})`,
+    'ORDER BY [System.ChangedDate] DESC'
+  ].filter(Boolean).join(' ');
+  const query = await apiSend(org, `${seg(project)}/_apis/wit/wiql?api-version=${API_VERSION}`, {
+    method: 'POST',
+    body: { query: wiql },
+    contentType: 'application/json'
+  });
+  const ids = (query.workItems || []).map(item => item && item.id).filter(Boolean)
+    .slice(0, Math.max(1, Math.min(500, Number(top) || 500)));
+  return _getPlanningWorkItems(org, project, ids);
 }
 
 // Expand an epic's hierarchy: its direct child work items (Hierarchy-Forward
@@ -1707,6 +1735,7 @@ module.exports = {
   getIterationTree,
   getTeamIterationCapacities,
   queryStoredWorkItems,
+  queryIterationWorkItems,
   listMyWorkItems,
   queryWorkItems,
   getEpicTree

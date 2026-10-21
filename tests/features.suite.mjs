@@ -127,8 +127,13 @@ await t.test('AzDo.AI: both themed sprint views, reminders, and calendar OOF are
     'unchanged page refreshes do not create redundant sprint checkpoints');
   t.ok(/data\.teamMembers/.test(azdo) &&
        /getIterationTree/.test(azdo) &&
-       /queryStoredWorkItems/.test(azdo),
-    'AzDO integration supports live capacity response shape and future iteration discovery');
+       /queryStoredWorkItems/.test(azdo) &&
+       /queryIterationWorkItems/.test(azdo) &&
+       /querySource = 'iterations'/.test(srv) &&
+       /scheduledIterations\[currentIndex \+ 1\]/.test(srv) &&
+       /querySource === 'stored'/.test(srv) &&
+       /Using sprint iteration data/.test(html),
+    'AzDO integration supports live capacity, future iteration discovery, and a stored-query fallback');
 });
 
 await t.test('GitHub CLI auth is isolated from inherited environment tokens', () => {

@@ -21678,7 +21678,9 @@
                 </div>
                 <div class="azai-links" x-show="azdoAi.data">
                   <a class="azai-link" :href="azdoAi.data && azdoAi.data.links.board" target="_blank">Sprint board ↗</a>
-                  <a class="azai-link" :href="azdoAi.data && azdoAi.data.links.query" target="_blank">Sprint query ↗</a>
+                  <a class="azai-link" x-show="azdoAi.data && azdoAi.data.links.query" :href="azdoAi.data && azdoAi.data.links.query" target="_blank">Sprint query ↗</a>
+                  <span class="hint" x-show="azdoAi.data && azdoAi.data.querySource === 'iterations'"
+                        :title="azdoAi.data && azdoAi.data.queryWarning">Using sprint iteration data</span>
                   <a class="azai-link" :href="azdoAi.data && azdoAi.data.links.capacity" target="_blank">Capacity &amp; OOF ↗</a>
                 </div>
               </div>
