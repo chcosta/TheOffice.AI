@@ -1038,7 +1038,7 @@ const SYSTEM_AGENTS = [
   },
   {
     id: 'compose-writer', name: 'Compose writer', modelCategory: 'execution', canModel: true,
-    role: 'Composes a finished, sendable deliverable from a brief (purpose, audience, format, sources) — proposals, alignment memos, status updates, one-pagers, technical & architecture docs, references, or a self-contained prototype microsite. Investigates the referenced sources to ground the work.',
+    role: 'Composes a finished, sendable deliverable from a brief (purpose, audience, format, sources) — proposals, alignment memos, status updates, resumes, one-pagers, technical & architecture docs, references, or a self-contained prototype microsite. Investigates the referenced sources to ground the work.',
     usedIn: 'Compose.AI studio → "Generate / Regenerate".',
     tools: 'Runs as the compose plugin\'s "writer" agent with full investigation tools (WorkIQ / ADO / GitHub / browser / shell).',
     contract: 'Wraps the deliverable between ===COMPOSE-START=== / ===COMPOSE-END=== sentinels (Markdown for email/teams/doc; a full HTML document for site).',
@@ -18828,18 +18828,48 @@ app.post('/api/compose', (req, res) => {
   catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// Import an external text file into the Documents library as a composition.
-// The client browses & uploads a file (FileReader.readAsText → text content).
+async function _composeImportedDocumentText(body) {
+  const b = body || {};
+  if (typeof b.content === 'string' && b.content.trim()) return b.content;
+  const dataUrl = typeof b.dataUrl === 'string' ? b.dataUrl : '';
+  const match = dataUrl.match(/^data:([^;,]+)?;base64,([A-Za-z0-9+/=\s]+)$/);
+  if (!match) return '';
+  const buffer = Buffer.from(match[2].replace(/\s/g, ''), 'base64');
+  if (!buffer.length) return '';
+  if (buffer.length > 8 * 1024 * 1024) throw new Error('The imported file is larger than 8 MB.');
+  const filename = String(b.filename || '').toLowerCase();
+  const mime = String(match[1] || '').toLowerCase();
+  if (filename.endsWith('.docx') || /wordprocessingml/.test(mime)) {
+    const mammoth = require('mammoth');
+    const result = await mammoth.extractRawText({ buffer });
+    return String((result && result.value) || '').trim();
+  }
+  if (filename.endsWith('.pdf') || mime === 'application/pdf') {
+    const { PDFParse } = require('pdf-parse');
+    const parser = new PDFParse({ data: buffer });
+    try {
+      const result = await parser.getText();
+      return String((result && result.text) || '').trim();
+    } finally {
+      await parser.destroy();
+    }
+  }
+  throw new Error('This binary document type is not supported. Choose a Word .docx, PDF, or text-based file.');
+}
+
+// Import an external document into the Documents library as a composition.
+// Text files arrive as text; Word/PDF files arrive as base64 and are extracted
+// server-side so an existing resume can enter the normal Compose iteration flow.
 // The composition type (purpose) defaults to Reference; the rendering format is
 // derived from the file extension (.html/.htm → an interactive 'site' page,
 // everything else → a 'doc' rendered as markdown) so imported HTML displays as a
 // page, not raw tags. Declared BEFORE /api/compose/:id so ":id" doesn't capture
 // "import".
-app.post('/api/compose/import', (req, res) => {
+app.post('/api/compose/import', async (req, res) => {
   try {
     const b = req.body || {};
-    let content = typeof b.content === 'string' ? b.content : '';
-    if (!content.trim()) return res.status(400).json({ ok: false, error: 'No text content to import. Choose a text-based file (Markdown, HTML, plain text, code, CSV, JSON, …).' });
+    let content = await _composeImportedDocumentText(b);
+    if (!content.trim()) return res.status(400).json({ ok: false, error: 'No readable content was found in that document.' });
     // Generous safety ceiling so a pathological upload can't bloat the store.
     const MAX_IMPORT = 4000000;
     if (content.length > MAX_IMPORT) content = content.slice(0, MAX_IMPORT);
@@ -18857,7 +18887,20 @@ app.post('/api/compose/import', (req, res) => {
     const format = compose.FORMATS.includes(b.format)
       ? b.format
       : ((ext === 'html' || ext === 'htm') ? 'site' : 'doc');
-    const composition = compose.createComposition({ purpose, title, content, format });
+    const resumeSources = purpose === 'resume'
+      ? { diary: true, diaryDays: 90, m365: true }
+      : {};
+    const composition = compose.createComposition({
+      purpose,
+      title,
+      content,
+      format,
+      audience: purpose === 'resume' ? 'Hiring managers and recruiters' : '',
+      brief: purpose === 'resume'
+        ? 'Use this imported resume as the factual baseline. Strengthen it with supported evidence from the selected sources, keep it ATS-friendly, and preserve editable placeholders for missing personal details.'
+        : '',
+      sources: resumeSources,
+    });
     res.json({ ok: true, composition });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });

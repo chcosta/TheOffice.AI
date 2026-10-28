@@ -32,6 +32,11 @@ Lead with what the audience cares about. Never open with throat-clearing.
 - **Architecture doc** — Context & goals, constraints, the architecture (with a diagram), key
   components and their responsibilities, data flow, key decisions (with rationale and
   alternatives), risks, and a roadmap.
+- **Resume** — ATS-friendly and reverse chronological: contact template, evidence-grounded
+  professional summary, core skills, accomplishment-led experience, selected projects/impact
+  when additive, then education/credentials. Preserve facts from an imported resume, strengthen
+  them with supported diary/M365 evidence, never invent metrics or history, and use obvious
+  square-bracket placeholders for missing contact, education, date, and credential fields.
 - **Reference** — Scannable and exhaustive: a clear contents/index, consistent entry structure,
   tables for parameters/fields, examples. Optimized for lookup, not narrative.
 - **Newsletter** — Warm, story-driven, human. A masthead, a short intro, a few stories with
@@ -60,7 +65,8 @@ Lead with what the audience cares about. Never open with throat-clearing.
 - **Diagrams** (architecture, flow) as inline `<svg>` or clean ASCII in a code block.
 - Screenshots stay as clearly-marked placeholders unless a real captured image exists.
 - Density scales with purpose: proposals / status updates / technical & architecture docs are
-  visual; alignment memos and newsletters are lighter and more narrative.
+  visual; alignment memos and newsletters are lighter and more narrative. Resumes use no charts,
+  diagrams, skill meters, columns, or tables; keep them simple and ATS-friendly.
 
 ## No pills as organization
 

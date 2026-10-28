@@ -12277,11 +12277,11 @@
                   <button class="icon-button" type="button" @click="docImportClose()">✕</button>
                 </div>
                 <div style="padding:18px;display:flex;flex-direction:column;gap:14px">
-                  <div class="hint" x-text="docImport.mode === 'board' ? 'Bring an external text file into your Documents library and add it to this board as a document card.' : 'Bring an external text file (Markdown, HTML, plain text, code, CSV, JSON, …) into your Documents library. It becomes a document you can view, iterate on, and pin to a workspace.'"></div>
+                  <div class="hint" x-text="docImport.mode === 'board' ? 'Bring an external document into your Documents library and add it to this board as a document card.' : (docImport.purpose === 'resume' ? 'Add an existing Word, PDF, Markdown, HTML, or plain-text resume. It opens in the normal Compose studio so the assistant can strengthen and iterate on it with your selected context.' : 'Bring an external document into your Documents library. It becomes a document you can view, iterate on, and pin to a workspace.')"></div>
 
                   <label class="field">
                     <span class="field-label">File</span>
-                    <input type="file" accept=".md,.markdown,.txt,.text,.html,.htm,.csv,.tsv,.json,.log,.yml,.yaml,.xml,.rst,.adoc,.js,.ts,.jsx,.tsx,.py,.cs,.java,.go,.rb,.rs,.c,.h,.cpp,.sh,.ps1,.sql,text/*,application/json" @change="docImportPick($event)" />
+                    <input type="file" accept=".docx,.pdf,.md,.markdown,.txt,.text,.html,.htm,.csv,.tsv,.json,.log,.yml,.yaml,.xml,.rst,.adoc,.js,.ts,.jsx,.tsx,.py,.cs,.java,.go,.rb,.rs,.c,.h,.cpp,.sh,.ps1,.sql,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf,text/*,application/json" @change="docImportPick($event)" />
                   </label>
                   <div class="hint" x-show="docImport.reading">Reading file…</div>
                   <div class="hint" x-show="docImport.readErr" style="color:var(--cp-danger)" x-text="docImport.readErr"></div>
@@ -12304,7 +12304,7 @@
 
                   <div style="display:flex;justify-content:flex-end;gap:8px">
                     <button class="btn" type="button" @click="docImportClose()">Cancel</button>
-                    <button class="btn primary" type="button" :disabled="docImport.busy || docImport.reading || !docImport.content.trim() || !!docImport.readErr" @click="docImportSubmit()" x-text="docImport.busy ? 'Importing…' : (docImport.mode === 'board' ? 'Import & add card' : 'Import')"></button>
+                    <button class="btn primary" type="button" :disabled="docImport.busy || docImport.reading || (!docImport.content.trim() && !docImport.dataUrl) || !!docImport.readErr" @click="docImportSubmit()" x-text="docImport.busy ? 'Importing…' : (docImport.mode === 'board' ? 'Import & add card' : 'Import')"></button>
                   </div>
                 </div>
               </div>
@@ -23023,6 +23023,8 @@
               .cmpx-purpose-wrap>.cmpx-purpose{flex:1}
               .cmpx-purpose-new{position:absolute;top:10px;right:10px;font-size:11px;color:var(--cp-text-secondary);background:none;border:0;cursor:pointer;padding:2px 5px;border-radius:6px}
               .cmpx-purpose-new:hover{color:var(--cp-accent);background:var(--cp-surface-hover,rgba(0,0,0,.04))}
+              .cmpx-purpose-import{position:absolute;right:10px;bottom:9px;font-size:11px;color:var(--cp-link);background:none;border:0;cursor:pointer;padding:2px 5px}
+              .cmpx-purpose-import:hover{text-decoration:underline}
               .cmpx-purpose:hover{border-color:var(--cp-accent);transform:translateY(-1px);box-shadow:0 4px 16px rgba(0,0,0,.06)}
               .cmpx-purpose .ic{font-size:22px}
               .cmpx-purpose .nm{font-weight:650;font-size:15px;color:var(--cp-text)}
@@ -23369,7 +23371,7 @@
                   <h1 @click="composeGoHome()" @keydown.enter="composeGoHome()" role="link" tabindex="0"
                       style="cursor:pointer" title="Go to the Compose.AI home page"
                       x-text="route === 'documents' ? '📄 Documents' : '✍️ Compose.AI'"></h1>
-                  <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
+                  <div class="cmpx-sub" x-show="compose.view === 'launcher'">Compose proposals, resumes, alignment memos, status updates, docs, one-pagers & prototypes — grounded in your work. Every draft is yours to review before it's sent.</div>
                   <div class="cmpx-switch" x-show="compose.view === 'studio' && compose.current" @click.outside="compose.switcherOpen = false" @keydown.escape.window="compose.switcherOpen = false">
                     <button type="button" class="cmpx-switch-btn" @click="composeToggleSwitcher()" :aria-expanded="compose.switcherOpen">
                       <span class="ic" x-text="(composePurpose((compose.current||{}).purpose)||{}).icon || '📝'"></span>
@@ -23428,6 +23430,9 @@
                                 x-show="p.linksTo !== 'newsletter' && composeLatestForPurpose(p.id)"
                                 @click.stop="composeStart(p.id, { forceNew: true })"
                                 title="Start a fresh blank composition of this type">＋ New</button>
+                        <button class="cmpx-purpose-import" type="button" x-show="p.id === 'resume'"
+                                @click.stop="docImportOpen('library', 'resume')"
+                                title="Import an existing Word, PDF, Markdown, or text resume">Import existing →</button>
                       </div>
                     </template>
                   </div>
@@ -33549,7 +33554,7 @@
         // External-document import (shared by the Documents "⬆ Import" toolbar action and
         // the board pin-picker "＋ Add link"). mode 'library' just adds to Documents +
         // opens it; mode 'board' also pins the new doc card to the active board.
-        docImport: { open: false, mode: 'library', filename: '', title: '', purpose: 'reference', content: '', readErr: '', busy: false, reading: false },
+        docImport: { open: false, mode: 'library', filename: '', title: '', purpose: 'reference', content: '', dataUrl: '', bytes: 0, readErr: '', busy: false, reading: false },
         boardPinSearch: '',
         boardPrCandidates: [],
         _boardPrLoaded: false,
@@ -37495,7 +37500,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'epics', label: 'Epics', icon: '🏔', hint: 'Epic cockpits in Code Flow — goals, roadmap, in-flight kanban & AI standups for the work items you own.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
-            { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
+            { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, resumes, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
           ];
         },
         // Catalog of optional features that can be switched OFF while in Advanced mode
@@ -37516,7 +37521,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             { key: 'news', label: 'News', icon: '📜', hint: 'Activity feed & reports.' },
             { key: 'epics', label: 'Epics', icon: '🏔', hint: 'Epic cockpits in Code Flow — goals, roadmap, in-flight kanban & AI standups for the work items you own.' },
             { key: 'connect', label: 'Connect', icon: '🌟', hint: 'Living impact diary that drafts your Connect.', requires: 'diary' },
-            { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
+            { key: 'newsletter', label: 'Compose.AI', icon: '✍️', hint: 'Compose proposals, resumes, status updates, docs, one-pagers & newsletters — grounded in your work.', requires: 'connect' },
           ];
         },
         setExperienceLevel(level) {
@@ -53393,13 +53398,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           return n.endsWith('.html') || n.endsWith('.htm');
         },
         docImportSizeLabel() {
+          if (this.docImport.bytes) {
+            const b = Number(this.docImport.bytes) || 0;
+            if (b < 1024) return b + ' B';
+            if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+            return (b / (1024 * 1024)).toFixed(1) + ' MB';
+          }
           const n = (this.docImport.content || '').length;
           if (n < 1024) return n + ' chars';
           if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
           return (n / (1024 * 1024)).toFixed(1) + ' MB';
         },
-        docImportOpen(mode) {
-          this.docImport = { open: true, mode: mode === 'board' ? 'board' : 'library', filename: '', title: '', purpose: 'reference', content: '', readErr: '', busy: false, reading: false };
+        docImportOpen(mode, purpose) {
+          const chosen = this.composePurpose(purpose) ? purpose : 'reference';
+          this.docImport = { open: true, mode: mode === 'board' ? 'board' : 'library', filename: '', title: '', purpose: chosen, content: '', dataUrl: '', bytes: 0, readErr: '', busy: false, reading: false };
         },
         docImportClose() {
           this.docImport.open = false;
@@ -53409,35 +53421,48 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (!file) return;
           const name = file.name || 'document';
           const lower = name.toLowerCase();
-          // Guard obvious binaries we can't read as text.
-          if (/\.(pdf|docx?|xlsx?|pptx?|zip|png|jpe?g|gif|webp|bmp|ico|mp[34]|mov|avi|wav|ogg|ttf|otf|woff2?|exe|dll|bin)$/i.test(lower)) {
-            this.docImport.readErr = 'That looks like a binary file. Convert it to text or Markdown first, then import.';
-            this.docImport.content = ''; this.docImport.filename = name;
+          const supportedBinary = /\.(docx|pdf)$/i.test(lower);
+          // Guard binary types the server cannot extract.
+          if (!supportedBinary && /\.(doc|xlsx?|pptx?|zip|png|jpe?g|gif|webp|bmp|ico|mp[34]|mov|avi|wav|ogg|ttf|otf|woff2?|exe|dll|bin)$/i.test(lower)) {
+            this.docImport.readErr = 'That binary file type is not supported. Choose a Word .docx, PDF, or text-based document.';
+            this.docImport.content = ''; this.docImport.dataUrl = ''; this.docImport.filename = name; this.docImport.bytes = file.size || 0;
             return;
           }
           this.docImport.readErr = '';
           this.docImport.reading = true;
           this.docImport.filename = name;
+          this.docImport.bytes = file.size || 0;
           if (!this.docImport.title) this.docImport.title = name.replace(/\.[^.]+$/, '');
           const reader = new FileReader();
           reader.onload = () => {
             this.docImport.reading = false;
+            if (supportedBinary) {
+              const dataUrl = String(reader.result || '');
+              if (!dataUrl) { this.docImport.readErr = 'That file is empty.'; this.docImport.dataUrl = ''; return; }
+              this.docImport.content = '';
+              this.docImport.dataUrl = dataUrl;
+              return;
+            }
             const txt = String(reader.result || '');
             if (!txt.trim()) { this.docImport.readErr = 'That file is empty.'; this.docImport.content = ''; return; }
             if (txt.length > 4000000) { this.docImport.readErr = 'That file is too large to import (over ~4M characters).'; this.docImport.content = ''; return; }
+            this.docImport.dataUrl = '';
             this.docImport.content = txt;
           };
-          reader.onerror = () => { this.docImport.reading = false; this.docImport.readErr = 'Could not read that file.'; this.docImport.content = ''; };
-          reader.readAsText(file);
+          reader.onerror = () => { this.docImport.reading = false; this.docImport.readErr = 'Could not read that file.'; this.docImport.content = ''; this.docImport.dataUrl = ''; };
+          if (supportedBinary) reader.readAsDataURL(file);
+          else reader.readAsText(file);
         },
         async docImportSubmit() {
           if (this.docImport.busy) return;
           const content = this.docImport.content || '';
-          if (!content.trim()) { this.docImport.readErr = 'Choose a text file first.'; return; }
+          const dataUrl = this.docImport.dataUrl || '';
+          if (!content.trim() && !dataUrl) { this.docImport.readErr = 'Choose a document first.'; return; }
           this.docImport.busy = true;
           try {
             const body = {
               content,
+              dataUrl,
               filename: this.docImport.filename || '',
               title: (this.docImport.title || '').trim(),
               purpose: this.docImport.purpose || 'reference',
@@ -53464,6 +53489,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
               try { localStorage.setItem('compose-last-id', comp.id); } catch {}
               this.showToast('Documents', 'Imported "' + (comp.title || 'document') + '".', 'success');
               this.goTo('#/compose');
+              await this.composeOpen(comp.id);
             }
           } catch (e) {
             this.docImport.busy = false;
@@ -53488,16 +53514,20 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           try {
             const r = await this.request('/api/compose', { method: 'POST', body: JSON.stringify({
               purpose: purposeId,
-              title: '',
-              audience: '',
+              title: purposeId === 'resume' ? '[FULL NAME] — Resume' : '',
+              audience: purposeId === 'resume' ? 'Hiring managers and recruiters' : '',
               format: this.composeDefaultFormat(p),
-              brief: '',
+              brief: purposeId === 'resume'
+                ? 'Create a cohesive, clear, engaging resume that highlights my strongest evidenced skills and impact. Use editable square-bracket placeholders for missing contact, education, credential, employer, title, location, or date details instead of inventing them.'
+                : '',
               sources: {
-                diary: on.has('diary'), diaryDays: 14,
+                diary: on.has('diary'), diaryDays: purposeId === 'resume' ? 90 : 14,
                 pr: on.has('pr'), prRef: '',
                 pursuit: on.has('pursuit'), pursuitRef: '',
                 workitems: on.has('workitems'), workitemsRef: '',
                 repos: on.has('repos'), reposRef: '',
+                composition: on.has('composition'), compositionRef: '',
+                agentruns: on.has('agentruns'), agentRunsRef: '', agentRunsDays: 14,
                 m365: on.has('m365'),
                 links: [], pasted: '',
               },

@@ -17,7 +17,7 @@ the provided sources, the current draft, and any investigation you do. Do not in
 ## Inputs (provided in the prompt)
 
 - **Purpose / audience / format / title** — the composition's brief (proposal, alignment, status
-  update, one-pager, technical/architecture doc, reference, newsletter, or site; medium email,
+  update, resume, one-pager, technical/architecture doc, reference, newsletter, or site; medium email,
   teams, doc, or site).
 - **Brief** — the user's own description of intent.
 - **Sources** — dated evidence and references you may draw on and investigate.

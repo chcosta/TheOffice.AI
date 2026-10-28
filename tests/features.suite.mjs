@@ -1599,6 +1599,7 @@ await t.test('compose roadmap: a visual + documented Roadmap purpose (catalog + 
   ['Objectives & themes', 'Workstreams & scope', 'Visual roadmap', 'Milestones & deliverables', 'Dependencies & sequencing', 'Resourcing & capacity', 'Risks, assumptions & open questions'].forEach(h => {
     t.ok(bp.includes(h), `roadmap blueprint has the "${h}" section`);
   });
+
   // The visual section demands a REAL, offline-rendering visual (svg/table) — the
   // compose doc viewer renders inline SVG + tables verbatim, so this actually shows.
   const vis = _win(cjs, "h: 'Visual roadmap'", 900);
@@ -1606,6 +1607,34 @@ await t.test('compose roadmap: a visual + documented Roadmap purpose (catalog + 
   t.ok(/render offline|no external assets/.test(vis), 'the visual must render offline (no external assets)');
   t.ok(/no pills/.test(vis), 'the visual keeps the no-pills convention');
   t.ok(/never fabricate a date|TBD|est\./.test(bp), 'roadmap forbids fabricating dates (TBD/est.)');
+});
+
+await t.test('compose resume: importable, evidence-grounded, editable placeholder template', () => {
+  const cjs = readFileSync('compose.js', 'utf8');
+  const srv = readFileSync(SERVER, 'utf8');
+  const html = readFileSync(APP_HTML, 'utf8');
+  const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+  t.ok(/id: 'resume',\s*label: 'Resume'/.test(cjs), 'Resume is a first-class Compose purpose');
+  t.ok(/resume:\s*\['diary', 'm365'\]/.test(cjs), 'new resumes start with diary and M365 context');
+  const bp = sliceSource('compose.js', '  resume: {', '  onepager: {');
+  for (const section of ['Name and contact', 'Professional summary', 'Core skills', 'Professional experience', 'Selected projects and impact', 'Education and credentials']) {
+    t.ok(bp.includes(section), `resume blueprint includes ${section}`);
+  }
+  for (const placeholder of ['[FULL NAME]', '[PHONE NUMBER]', '[EMAIL ADDRESS]', '[DEGREE OR PROGRAM]', '[CERTIFICATION OR CREDENTIAL]']) {
+    t.ok(bp.includes(placeholder), `resume blueprint preserves editable placeholder ${placeholder}`);
+  }
+  t.ok(/Never invent employers, job titles, dates, degrees, certifications, contact details, technologies, metrics, or outcomes/.test(bp),
+    'resume generation explicitly forbids invented career facts');
+  t.ok(/docImportOpen\('library', 'resume'\)/.test(html) &&
+       /Import existing/.test(html), 'Resume card offers direct import of an existing resume');
+  t.ok(/\.docx,\.pdf/.test(html) &&
+       /readAsDataURL/.test(html), 'resume import accepts Word and PDF documents');
+  t.ok(/mammoth/.test(srv) && /pdf-parse/.test(srv) &&
+       /_composeImportedDocumentText/.test(srv), 'server extracts Word and PDF resume text');
+  t.ok(pkg.dependencies.mammoth && pkg.dependencies['pdf-parse'], 'resume parsers are declared dependencies');
+  t.ok(/diaryDays:\s*purposeId === 'resume' \? 90 : 14/.test(html) &&
+       /Hiring managers and recruiters/.test(html), 'new resumes get useful context and audience defaults');
+  t.ok(/await this\.composeOpen\(comp\.id\)/.test(html), 'an imported resume opens directly in the normal iterative studio');
 });
 
 await t.test('compose paired assistant: heartbeat keeps the idle watchdog alive during active work', () => {
@@ -2906,21 +2935,21 @@ await t.test('documents import: external file → library (+ board Add link card
   const idget = src.indexOf("app.get('/api/compose/:id'");
   t.ok(imp > 0, 'POST /api/compose/import route present');
   t.ok(imp < idget, 'import route precedes the /api/compose/:id catch-all');
-  const route = _win(src, "app.post('/api/compose/import'", 1700);
+  const route = _win(src, "app.post('/api/compose/import'", 3200);
   t.ok(/purposeById\(b\.purpose\) \? b\.purpose : 'reference'/.test(route), 'composition type defaults to reference, honors a valid purpose');
-  t.ok(/createComposition\(\{ purpose, title, content, format \}\)/.test(route), 'import reuses createComposition');
+  t.ok(/compose\.createComposition\(\{[\s\S]*?purpose,[\s\S]*?title,[\s\S]*?content,[\s\S]*?format,/.test(route), 'import reuses createComposition');
   t.ok(/=== 'html' \|\| ext === 'htm'\) \? 'site' : 'doc'/.test(route), 'format derives from file extension (html→site else doc)');
-  t.ok(/No text content to import/.test(route), 'rejects empty content');
+  t.ok(/No readable content was found/.test(route), 'rejects empty or unreadable content');
 
   const html = readFileSync('public/app.html', 'utf8');
   // Shared teleported import modal + state.
   t.ok(/x-teleport="body"/.test(html) && /docImport\.open/.test(html), 'import modal is a top-level teleport gated on docImport.open');
-  t.ok(/open: false, mode: 'library', filename: '', title: '', purpose: 'reference'/.test(html), 'docImport state defaults to library mode + reference purpose');
+  t.ok(/open: false, mode: 'library', filename: '', title: '', purpose: 'reference', content: '', dataUrl: '', bytes: 0/.test(html), 'docImport state defaults to library mode + reference purpose');
   // Documents Import button + board Add-link affordance both open the modal.
   t.ok(/docImportOpen\('library'\)/.test(html), 'Documents toolbar Import button opens the library-mode modal');
   t.ok(/docImportOpen\('board'\)/.test(html), 'board pin-picker Add-link opens the board-mode modal');
-  // The 8 import methods/helpers.
-  for (const m of ['composeImportPurposes()', 'composeImportPurposeHint()', 'docImportIsHtml()', 'docImportSizeLabel()', 'docImportOpen(mode)', 'docImportClose()', 'docImportPick(ev)', 'async docImportSubmit()']) {
+  // The import methods/helpers.
+  for (const m of ['composeImportPurposes()', 'composeImportPurposeHint()', 'docImportIsHtml()', 'docImportSizeLabel()', 'docImportOpen(mode, purpose)', 'docImportClose()', 'docImportPick(ev)', 'async docImportSubmit()']) {
     t.ok(html.includes(m + ' {'), 'import method present: ' + m);
   }
   const submit = _win(html, 'async docImportSubmit()', 2600);

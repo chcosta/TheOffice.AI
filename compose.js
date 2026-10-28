@@ -4,7 +4,7 @@
 // Local storage + domain logic for the "Compose.AI" feature: a general-purpose
 // composition studio that turns a brief (purpose, audience, format, sources)
 // into a finished, sendable deliverable — proposals, alignment memos, status
-// updates, one-pagers, technical & architecture docs, references, newsletters,
+// updates, resumes, one-pagers, technical & architecture docs, references, newsletters,
 // or a self-contained prototype microsite.
 //
 // Compose.AI is the successor/superset of the Newsletter feature. Newsletter
@@ -49,6 +49,7 @@ const PURPOSES = [
   { id: 'onepager',     label: 'One-pager',          blurb: 'The team’s epic one-pager: how the v-team will build & support it.', defaultFormat: 'doc', icon: '📄' },
   { id: 'technical',    label: 'Technical doc',      blurb: 'Specify a design, interface, or approach precisely.',  defaultFormat: 'doc',   icon: '🛠️' },
   { id: 'architecture', label: 'Architecture doc',   blurb: 'Context, components, decisions, and a diagram.',       defaultFormat: 'doc',   icon: '🏛️' },
+  { id: 'resume',       label: 'Resume',             blurb: 'Turn your real work and impact into a clear, engaging, editable resume.', defaultFormat: 'doc', icon: '🧾' },
   { id: 'reference',    label: 'Reference',          blurb: 'Scannable, complete, optimized for lookup.',           defaultFormat: 'doc',   icon: '📚' },
   { id: 'newsletter',   label: 'Newsletter / digest',blurb: 'Warm, story-driven impact digest.',                    defaultFormat: 'email', icon: '📰', linksTo: 'newsletter' },
   { id: 'prototype',    label: 'Prototype / demo',   blurb: 'A self-contained site that demonstrates an experience.', defaultFormat: 'site', icon: '✨' },
@@ -98,6 +99,7 @@ const SOURCE_DEFAULTS = {
   onepager:     ['workitems', 'pursuit'],
   technical:    ['pr', 'pasted'],
   architecture: ['pasted', 'pr'],
+  resume:       ['diary', 'm365'],
   reference:    ['pasted'],
   newsletter:   ['diary'],
   prototype:    ['pasted'],
@@ -144,6 +146,19 @@ const PURPOSE_BLUEPRINTS = {
       { h: 'Resourcing & capacity', ask: 'The resources the plan assumes (people/roles, teams, budget or infra) mapped against the workload per horizon. Be explicit where demand exceeds capacity and what that forces — descope, slip, or add resources. If capacity is unknown, state the assumption you are planning against.' },
       { h: 'Risks, assumptions & open questions', ask: 'The biggest risks to the plan and how you would de-risk each, the key assumptions the dates rest on, and the open questions that need a human decision before this roadmap is committed.' },
     ],
+  },
+  resume: {
+    title: 'Evidence-grounded professional resume',
+    intro: 'A cohesive, clear, engaging resume built from the user’s real experience and impact. Treat an imported resume as the factual baseline, then strengthen it with supported evidence from the Connect diary, Microsoft 365, work items, repositories, agent runs, and other selected sources. Never invent employers, job titles, dates, degrees, certifications, contact details, technologies, metrics, or outcomes. When a conventional resume field is missing, use an obvious editable placeholder in square brackets rather than omitting it silently or guessing. Keep the document ATS-friendly: concise headings, straightforward Markdown, reverse-chronological experience, strong action verbs, and no decorative charts, skill meters, photos, columns, or tables.',
+    sections: [
+      { h: 'Name and contact', ask: 'Start with the person’s name and a compact contact line. Use the exact placeholders `[FULL NAME]`, `[CITY, STATE / LOCATION]`, `[PHONE NUMBER]`, `[EMAIL ADDRESS]`, `[LINKEDIN URL]`, and `[PORTFOLIO OR GITHUB URL]` for details not present in the sources. These placeholders are part of the editable template and must remain easy to search and replace.' },
+      { h: 'Professional summary', ask: 'Write 3–5 crisp lines that establish the candidate’s professional identity, strongest capabilities, scope, and differentiating impact. Ground every claim in the sources. Do not use generic adjectives, an objective statement, first person, or unsupported years-of-experience claims.' },
+      { h: 'Core skills', ask: 'Group the strongest evidenced skills into a compact, scannable list (for example: leadership, systems, platforms, languages, operations, delivery). Include only skills demonstrated by the imported resume or selected sources. Never infer proficiency levels or add fashionable keywords without evidence.' },
+      { h: 'Professional experience', ask: 'Use reverse chronological roles. Preserve factual employer/title/location/date information from an imported resume. If a role is evidenced but a conventional field is missing, use `[EMPLOYER]`, `[JOB TITLE]`, `[LOCATION]`, or `[START DATE – END DATE]`. Under each role, write 3–6 concise accomplishment bullets that lead with action and emphasize scope, problem, approach, and measurable result. Use metrics only when the sources provide them; otherwise describe concrete impact without invented numbers.' },
+      { h: 'Selected projects and impact', ask: 'Include only when it adds evidence not already covered by experience. Highlight 2–5 significant initiatives, open-source contributions, operational improvements, launches, or cross-team outcomes supported by the diary and other sources. Name the technology and the user’s contribution without exposing confidential details or duplicating bullets.' },
+      { h: 'Education and credentials', ask: 'Preserve supported education, certifications, awards, and relevant training. When absent, include the editable template lines `[DEGREE OR PROGRAM] — [SCHOOL], [YEAR]` and `[CERTIFICATION OR CREDENTIAL] — [ISSUER], [YEAR]`. Never manufacture institutions, graduation dates, or credentials.' },
+    ],
+    naming: 'Use `[FULL NAME] — Resume` as the title when the person’s name is unavailable. Keep placeholders exactly bracketed and human-readable so the user can replace them directly in the editor or through the paired assistant.',
   },
   onepager: {
     title: 'DNCEng epic one-pager',
