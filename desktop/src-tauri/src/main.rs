@@ -932,18 +932,63 @@ fn file_fp(p: &std::path::Path) -> String {
     }
 }
 
+fn copilot_native_runtime_candidates(server_dir: &std::path::Path) -> Vec<PathBuf> {
+    let arch = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => other,
+    };
+    let platforms: Vec<String> = match std::env::consts::OS {
+        "windows" => vec![format!("win32-{arch}")],
+        "macos" => vec![format!("darwin-{arch}")],
+        "linux" => vec![format!("linux-{arch}"), format!("linuxmusl-{arch}")],
+        other => vec![format!("{other}-{arch}")],
+    };
+    let prebuilds = server_dir
+        .join("node_modules")
+        .join("@github")
+        .join("copilot")
+        .join("prebuilds");
+    platforms
+        .into_iter()
+        .map(|platform| prebuilds.join(platform).join("runtime.node"))
+        .collect()
+}
+
+/// The Copilot SDK can be require-resolvable while its native runtime is empty
+/// or missing. That failure only appears when the first agent starts, and after
+/// three attempts sdk-runner disables every paired assistant for the process.
+/// Treat a plausible native binary as part of runtime provisioning health.
+fn copilot_native_runtime_healthy(server_dir: &std::path::Path) -> bool {
+    copilot_native_runtime_candidates(server_dir)
+        .iter()
+        .any(|p| std::fs::metadata(p).map(|m| m.len() > 1024 * 1024).unwrap_or(false))
+}
+
+fn copilot_native_runtime_size(server_dir: &std::path::Path) -> u64 {
+    copilot_native_runtime_candidates(server_dir)
+        .iter()
+        .filter_map(|p| std::fs::metadata(p).ok().map(|m| m.len()))
+        .max()
+        .unwrap_or(0)
+}
+
 /// Content fingerprint of the parts of a server tree that must never lag the
 /// installed bundle: the SPA (`public/app.html`), the build stamp
-/// (`build-info.json`), and the entrypoint (`server.js`). Comparing these —
+/// (`build-info.json`), the entrypoint (`server.js`), and the platform Copilot
+/// native runtime. Comparing these —
 /// not just the version string or `build-info.json` alone — is what prevents a
 /// per-version runtime cache from silently serving a stale SPA after an
 /// in-place upgrade (the delta applier can bump `build-info.json` without
-/// rewriting `app.html`, so `build-info` alone is NOT a reliable signal).
+/// rewriting `app.html`, so `build-info` alone is NOT a reliable signal). The
+/// native size tripwire also catches interrupted package installs that leave a
+/// zero-byte runtime.node while package-lock.json still looks valid.
 fn server_fingerprint(server_dir: &std::path::Path) -> String {
     let app = file_fp(&server_dir.join("public").join("app.html"));
     let bi = file_fp(&server_dir.join("build-info.json"));
     let srv = file_fp(&server_dir.join("server.js"));
-    format!("app={app}|build-info={bi}|server={srv}")
+    let copilot_native = copilot_native_runtime_size(server_dir);
+    format!("app={app}|build-info={bi}|server={srv}|copilot-native={copilot_native}")
 }
 
 /// Fingerprint of the dependency lock — a cheap signal that an already-installed
@@ -996,6 +1041,12 @@ fn adopt_node_modules(
             continue;
         }
         if deps_fingerprint(&donor_server) != want {
+            continue;
+        }
+        if !copilot_native_runtime_healthy(&donor_server) {
+            log_line(&format!(
+                "[desktop] runtime: refusing corrupt node_modules donor v{name} (Copilot native runtime missing or truncated)"
+            ));
             continue;
         }
         if let Err(err) = std::fs::create_dir_all(dst_server) {
@@ -1076,12 +1127,12 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
     let want_fp = server_fingerprint(&src_server);
     if marker.exists() && node_bin.exists() && server_js.exists() {
         let have_fp = std::fs::read_to_string(&marker).unwrap_or_default();
-        if have_fp == want_fp && !want_fp.is_empty() {
+        if have_fp == want_fp && !want_fp.is_empty() && copilot_native_runtime_healthy(&dir.join("server")) {
             cleanup_old_runtimes(&base, &version);
             return Some(dir);
         }
         log_line(&format!(
-            "[desktop] runtime v{version} content differs from installed bundle — re-provisioning"
+            "[desktop] runtime v{version} content or Copilot native runtime differs from installed bundle — re-provisioning"
         ));
     }
 
@@ -1117,6 +1168,10 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
     }
     if !node_bin.exists() || !server_js.exists() {
         log_line("[desktop] runtime: copy finished but expected files are missing");
+        return None;
+    }
+    if !copilot_native_runtime_healthy(&dst_server) {
+        log_line("[desktop] runtime: copy finished but Copilot native runtime is missing or truncated");
         return None;
     }
     // Store the content fingerprint (not the version string) so the next launch

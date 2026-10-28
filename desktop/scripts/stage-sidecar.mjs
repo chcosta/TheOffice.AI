@@ -113,6 +113,30 @@ if (clean) {
 }
 log(`node_modules staged (${dirSizeMB(join(serverDest, 'node_modules'))} MB)`);
 
+// The SDK package can be present and require-resolvable even when an interrupted
+// copy/install has left its native runtime.node empty. That broken payload only
+// fails when the first agent starts, disabling every paired assistant. Refuse to
+// publish an installer with a missing or implausibly small platform binary.
+{
+  const arch = process.arch === 'x64' ? 'x64' : process.arch === 'arm64' ? 'arm64' : process.arch;
+  const platforms = process.platform === 'win32'
+    ? [`win32-${arch}`]
+    : process.platform === 'darwin'
+      ? [`darwin-${arch}`]
+      : process.platform === 'linux'
+        ? [`linux-${arch}`, `linuxmusl-${arch}`]
+        : [`${process.platform}-${arch}`];
+  const candidates = platforms.map(platform =>
+    join(serverDest, 'node_modules', '@github', 'copilot', 'prebuilds', platform, 'runtime.node'));
+  const healthy = candidates.find(p => {
+    try { return statSync(p).size > 1024 * 1024; } catch { return false; }
+  });
+  if (!healthy) {
+    throw new Error(`staging failed: Copilot native runtime is missing or truncated (${candidates.join(', ')})`);
+  }
+  log(`verified Copilot native runtime (${Math.round(statSync(healthy).size / (1024 * 1024))} MB)`);
+}
+
 // 5) Portable Node — copy the running node binary (single self-contained exe on Windows).
 const nodeExe = process.execPath;
 copyFileSync(nodeExe, join(nodeDest, process.platform === 'win32' ? 'node.exe' : 'node'));

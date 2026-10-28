@@ -34,12 +34,13 @@ const crypto = require('crypto');
 let SDK = null;
 let approveAll = null;
 let yaml = null;
+let sdkLoadError = '';
 try {
   const mod = require('@github/copilot-sdk');
   SDK = mod.CopilotClient;
   approveAll = mod.approveAll;
 } catch (e) {
-  // SDK not installed - runner stays disabled.
+  sdkLoadError = e && e.message ? e.message : String(e);
 }
 try {
   yaml = require('js-yaml');
@@ -86,6 +87,8 @@ class SdkRunner {
     this._starting = null;
     this._failures = 0;
     this._available = !!SDK;
+    this._lastStartError = sdkLoadError;
+    this._retryAfter = 0;
     // Live interactive-chat sessions kept connected between turns so each new
     // message reuses the same agent process instead of re-spinning it ("starting
     // agent" on every turn). Keyed by sessionId -> { session, lastUsed, timer }.
@@ -508,6 +511,7 @@ class SdkRunner {
     // Client availability is decoupled from SDK_RUN_MODE: interactive chat
     // (runChat) needs a client even when the run-routing gate is 'off'.
     if (!this._available) return null;
+    if (this._retryAfter > Date.now()) return null;
     if (this._client) return this._client;
     if (this._starting) return this._starting;
     this._starting = (async () => {
@@ -516,14 +520,18 @@ class SdkRunner {
         await c.start();
         this._client = c;
         this._failures = 0;
+        this._lastStartError = '';
+        this._retryAfter = 0;
         return c;
       } catch (e) {
+        this._lastStartError = e && e.message ? e.message : String(e);
         this._failures++;
         if (this._failures >= 3) {
-          this._available = false;
-          console.error('[sdk-runner] disabled after repeated start failures:', e.message);
+          this._failures = 0;
+          this._retryAfter = Date.now() + 60000;
+          console.error('[sdk-runner] paused for 60s after repeated start failures:', this._lastStartError);
         } else {
-          console.error('[sdk-runner] client start failed (will retry):', e.message);
+          console.error('[sdk-runner] client start failed (will retry):', this._lastStartError);
         }
         return null;
       } finally {
@@ -913,7 +921,8 @@ class SdkRunner {
    */
   async runChat({ config, prompt, sessionId, resume, cwd, onChunk, onStep, model, modelCategory, reasoningEffort, timeoutMs, availableTools, meta, onPermissionRequest }) {
     if (!this._available) {
-      return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: SDK unavailable', sessionId };
+      const detail = this._lastStartError ? ` (${this._lastStartError})` : '';
+      return { ok: false, fallback: true, code: -1, output: '', error: `sdk-runner: SDK unavailable${detail}`, sessionId };
     }
     // A caller MAY supply its own permission handler (a classifier that approves
     // read-only work but gates writes/external actions — see the Me-agent auth
@@ -1051,7 +1060,10 @@ class SdkRunner {
       };
     }
     if (!client) {
-      return { ok: false, fallback: true, code: -1, output: '', error: 'sdk-runner: no client', sessionId };
+      const detail = this._lastStartError || (this._retryAfter > Date.now()
+        ? 'SDK startup is cooling down after repeated failures'
+        : 'no client');
+      return { ok: false, fallback: true, code: -1, output: '', error: `sdk-runner: ${detail}`, sessionId };
     }
 
     const resume = !!opts.__resume;

@@ -4771,6 +4771,31 @@ await t.test('boot splash reel + About check-for-updates', () => {
   t.ok(/checking:\s*false/.test(html), 'update state carries a checking flag');
 });
 
+await t.test('desktop runtime rejects truncated Copilot native dependencies', () => {
+  const rust = readFileSync('desktop/src-tauri/src/main.rs', 'utf8');
+  const stage = readFileSync('desktop/scripts/stage-sidecar.mjs', 'utf8');
+  const runner = readFileSync(SDK_RUNNER, 'utf8');
+  t.ok(/fn copilot_native_runtime_healthy\(/.test(rust) &&
+       /m\.len\(\) > 1024 \* 1024/.test(rust),
+    'runtime health requires a plausible platform runtime.node');
+  t.ok(/refusing corrupt node_modules donor/.test(rust),
+    'runtime provisioning never adopts a corrupt sibling dependency tree');
+  t.ok(/have_fp == want_fp[\s\S]{0,160}copilot_native_runtime_healthy/.test(rust),
+    'a cached runtime is reused only while its Copilot native module is healthy');
+  t.ok(/copy finished but Copilot native runtime is missing or truncated/.test(rust),
+    'a bad fresh copy falls back instead of launching a broken sidecar');
+  t.ok(/staging failed: Copilot native runtime is missing or truncated/.test(stage) &&
+       /statSync\(p\)\.size > 1024 \* 1024/.test(stage),
+    'desktop packaging fails before publishing an empty native runtime');
+  t.ok(/paused for 60s after repeated start failures/.test(runner) &&
+       /this\._retryAfter = Date\.now\(\) \+ 60000/.test(runner) &&
+       !/this\._available = false;\s*console\.error\('\[sdk-runner\] disabled after repeated/.test(runner),
+    'transient SDK startup failures cool down and retry instead of disabling assistants for the process lifetime');
+  t.ok(/SDK unavailable\$\{detail\}/.test(runner) &&
+       /this\._lastStartError/.test(runner),
+    'paired-assistant failures retain the actionable SDK startup reason');
+});
+
 await t.test('version number opens GitHub source in desktop (both sidebar + Settings) via openSourceRepo', () => {
   const html = readFileSync('public/app.html', 'utf8');
 
