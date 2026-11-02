@@ -975,8 +975,8 @@ fn copilot_native_runtime_size(server_dir: &std::path::Path) -> u64 {
 
 /// Content fingerprint of the parts of a server tree that must never lag the
 /// installed bundle: the SPA (`public/app.html`), the build stamp
-/// (`build-info.json`), the entrypoint (`server.js`), and the platform Copilot
-/// native runtime. Comparing these —
+/// (`build-info.json`), the entrypoint (`server.js`), the server manifest, and
+/// the platform Copilot native runtime. Comparing these —
 /// not just the version string or `build-info.json` alone — is what prevents a
 /// per-version runtime cache from silently serving a stale SPA after an
 /// in-place upgrade (the delta applier can bump `build-info.json` without
@@ -987,8 +987,9 @@ fn server_fingerprint(server_dir: &std::path::Path) -> String {
     let app = file_fp(&server_dir.join("public").join("app.html"));
     let bi = file_fp(&server_dir.join("build-info.json"));
     let srv = file_fp(&server_dir.join("server.js"));
+    let manifest = file_fp(&server_dir.join("server-manifest.json"));
     let copilot_native = copilot_native_runtime_size(server_dir);
-    format!("app={app}|build-info={bi}|server={srv}|copilot-native={copilot_native}")
+    format!("app={app}|build-info={bi}|server={srv}|manifest={manifest}|copilot-native={copilot_native}")
 }
 
 /// Fingerprint of the dependency lock — a cheap signal that an already-installed
@@ -1127,7 +1128,11 @@ fn provision_runtime_inner(app: &tauri::AppHandle) -> Option<PathBuf> {
     let want_fp = server_fingerprint(&src_server);
     if marker.exists() && node_bin.exists() && server_js.exists() {
         let have_fp = std::fs::read_to_string(&marker).unwrap_or_default();
-        if have_fp == want_fp && !want_fp.is_empty() && copilot_native_runtime_healthy(&dir.join("server")) {
+        if have_fp == want_fp
+            && !want_fp.is_empty()
+            && server_fingerprint(&dir.join("server")) == want_fp
+            && copilot_native_runtime_healthy(&dir.join("server"))
+        {
             cleanup_old_runtimes(&base, &version);
             return Some(dir);
         }

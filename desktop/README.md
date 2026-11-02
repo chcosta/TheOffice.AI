@@ -50,6 +50,17 @@ If the sidecar never starts at launch, the same page shows the recovery view aft
 short grace period. The SPA's reconnect banner additionally exposes a **View logs**
 link (desktop only) that invokes the `open_logs_dir` command.
 
+Cached per-version runtimes are reused only when their actual SPA, server entrypoint,
+build stamp, and server manifest match the installed bundle and the Copilot native
+runtime is healthy. A `.provisioned` marker alone is not proof of integrity; stale
+or partial payloads are re-provisioned on the next launch.
+
+Routine GitHub/Azure connection and agent-dependency CLI probes run in worker
+threads (`../status-probes.js`), keeping slow CLI startup off the HTTP event loop.
+Concurrent identical reads share a probe; failures remain visible in the existing
+status/error responses. Version loading retries independently of other SPA boot
+requests and retains the last successfully verified version.
+
 ---
 
 ## Prerequisites

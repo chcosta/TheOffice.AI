@@ -35875,14 +35875,26 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           window.location.hash = hash;
         },
 
+        async loadVersion() {
+          try {
+            const version = await this.requestResilient('/api/version', { timeoutMs: 15000 }, { tries: 3, delay: 500 });
+            this.data.version = version;
+            this.initUpdater();
+            this.maybeShowWhatsNew();
+          } catch (error) {
+            console.warn('[version] Could not refresh installed version:', error.message);
+            this.showToast('Version check failed', error.message, 'error');
+          }
+        },
+
         async refreshAll(showLoading = true, opts = {}) {
           if (showLoading) this.loading = true;
           this.errorMessage = '';
           try {
             const bootRequest = url => this.request(url, { timeoutMs: 15000 });
-            const [agents, version, chats, tasks, chains, organizations] = await Promise.all([
+            this.loadVersion();
+            const [agents, chats, tasks, chains, organizations] = await Promise.all([
               bootRequest('/api/agents'),
-              bootRequest('/api/version'),
               bootRequest('/api/chats'),
               bootRequest('/api/tasks'),
               bootRequest('/api/chains'),
@@ -35890,7 +35902,6 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
             ]);
             this.data.agents = agents.map((agent) => this.normalizeAgent(agent));
             this.data.managers = [];
-            this.data.version = version;
             this.data.chats = chats;
             this.data.tasks = tasks || [];
             this.data.chains = Array.isArray(chains) ? chains : [];

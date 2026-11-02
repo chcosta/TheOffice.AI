@@ -183,7 +183,7 @@ class Supervisor extends EventEmitter {
       // DB schedule takes precedence over agents.json (user may have changed it in dashboard)
       if (row.schedule && row.schedule !== config.schedule) {
         config.schedule = row.schedule;
-      } else {
+      } else if (row.schedule !== config.schedule) {
         this.db.prepare('UPDATE agent_state SET schedule = ? WHERE agent_id = ?').run(config.schedule, config.id);
       }
     }

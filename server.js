@@ -29,7 +29,8 @@ const marketplace = require('./marketplace');
 const marketplaceDesign = require('./marketplace-design');
 const standupAgent = require('./standupAgent');
 const dependencies = require('./dependencies');
-const agentDeps = require('./agentDeps');
+const { runProbe } = require('./status-probes');
+const { readSessionMeta } = require('./session-signals');
 const updater = require('./updater');
 
 // Runtime data dirs (plugins, mcp-configs) live under the user profile, not the
@@ -1385,8 +1386,8 @@ mobileHandler.localBaseUrl = `http://127.0.0.1:${getPort()}`;
 setInterval(() => eventListener.cleanupIdleSessions(), 60000);
 
 // Load agent configs
-function loadAgents() {
-  const agents = readAgentsFileSync();
+let _loadedAgentsSignature = null;
+function loadAgents(agents = readAgentsFileSync()) {
   // Normalize any pluginDir still pointing at the legacy in-repo plugins/ folder
   // to the relocated runtime store. Persist once so the scan/paths stay clean.
   const legacyPluginsDir = path.join(__dirname, 'plugins');
@@ -1400,8 +1401,10 @@ function loadAgents() {
   if (normalized) {
     try { writeAgentsFile(agents); } catch {}
   }
+  const signature = JSON.stringify(agents);
   agents.forEach(agent => supervisor.register(agent));
   supervisor.pruneOrphans(agents.map(a => a.id));
+  _loadedAgentsSignature = signature;
   return agents;
 }
 
@@ -1459,12 +1462,15 @@ configSync.start().catch(err => console.log('[config-sync] Disabled:', err.messa
 
 // Watch agents.json for external edits and reload
 let _reloadTimer = null;
-fs.watch(AGENTS_PATH, () => {
+fs.watch(path.dirname(AGENTS_PATH), (_, filename) => {
+  if (filename && String(filename) !== path.basename(AGENTS_PATH)) return;
   if (_reloadTimer) clearTimeout(_reloadTimer);
-  _reloadTimer = setTimeout(() => {
+  _reloadTimer = setTimeout(async () => {
     try {
+      const agents = await readAgentsFileAsync();
+      if (JSON.stringify(agents) === _loadedAgentsSignature) return;
       console.log('[supervisor] agents.json changed, reloading...');
-      loadAgents();
+      loadAgents(agents);
       // Each machine pushes its OWN config changes to its own cloud namespace.
       if (configSync.enabled) {
         configSync.pushConfig().catch(e => console.warn('[sync] auto-push (agents) failed:', e.message));
@@ -1931,7 +1937,7 @@ async function _githubStatus(force = false) {
   }
   let value;
   try {
-    value = await github.getStatus();
+    value = await runProbe('github', 'getStatus');
   } catch (e) {
     value = { connected: false, login: '', name: '', source: null, accounts: [], preferred: '', reason: (e && e.message) || 'GitHub status check failed.' };
   }
@@ -2084,7 +2090,7 @@ async function _azdoStatus(force = false) {
   }
   let value;
   try {
-    value = azdo.getSignInStatus();
+    value = await runProbe('azdo', 'getSignInStatus');
   } catch (e) {
     value = { connected: false, login: '', name: '', source: 'az', reason: (e && e.message) || 'Azure status check failed.' };
   }
@@ -4133,81 +4139,9 @@ function _devBuddyBuildSignals(refresh = false) {
   return { ..._devBuddyBuildCache, refreshing: !!_devBuddyBuildRefresh };
 }
 
-function _devBuddySessionSignals(signalSnapshot = null) {
-  const now = Date.now();
-  let candidates = [];
-  try {
-    if (!fs.existsSync(SESSION_STATE_DIR)) return [];
-    for (const entry of fs.readdirSync(SESSION_STATE_DIR, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const dir = path.join(SESSION_STATE_DIR, entry.name);
-      const eventsPath = path.join(dir, 'events.jsonl');
-      let stat;
-      try { stat = fs.statSync(eventsPath); } catch { continue; }
-      const age = now - stat.mtimeMs;
-      if (age < 0 || age > 8 * 60 * 60 * 1000) continue;
-      candidates.push({ id: entry.name, dir, eventsPath, stat });
-    }
-  } catch { return []; }
-  candidates.sort((a, b) => b.stat.mtimeMs - a.stat.mtimeMs);
-  return candidates.slice(0, 8).map(candidate => {
-      const meta = readSessionMeta(candidate.dir);
-      if (!meta) return null;
-      let ended = false;
-      let proactivelyInteractive = String(meta.client || '').toLowerCase() === 'github/autopilot';
-      try {
-        const size = candidate.stat.size;
-        const length = Math.min(size, 512 * 1024);
-        const fd = fs.openSync(candidate.eventsPath, 'r');
-        const buffer = Buffer.alloc(length);
-        fs.readSync(fd, buffer, 0, length, Math.max(0, size - length));
-        fs.closeSync(fd);
-        const events = buffer.toString('utf8').split('\n').slice(1).map(line => {
-          try { return JSON.parse(line); } catch { return null; }
-        }).filter(Boolean);
-        const decisive = [...events].reverse()
-          .find(event => ['session.shutdown', 'session.resume', 'user.message', 'assistant.message'].includes(event.type));
-        proactivelyInteractive = proactivelyInteractive || events.some(event =>
-          event.type === 'user.message' &&
-          event.data &&
-          (event.data.messageId || event.data.delivery || event.data.turnId)
-        );
-        ended = decisive && decisive.type === 'session.shutdown';
-      } catch {}
-      if (ended || !proactivelyInteractive) return null;
-      const lastModified = candidate.stat.mtime.toISOString();
-      const age = now - candidate.stat.mtimeMs;
-      const active = age <= 10 * 60 * 1000;
-      const fingerprint = `session|${meta.id || candidate.id}`;
-      if (_devBuddySnapshotSignalDismissed(signalSnapshot, fingerprint)) return null;
-      const repository = meta.repository || (meta.cwd ? path.basename(meta.cwd) : '');
-      const sessionName = String(meta.name || '').trim();
-      const title = sessionName && sessionName !== '(unnamed)' && !/^\|[-+>]?$/.test(sessionName)
-        ? sessionName
-        : [repository, meta.branch].filter(Boolean).join(' · ') || 'Copilot work';
-      return {
-        id: fingerprint,
-        fingerprint,
-        reminderKey: fingerprint,
-        kind: 'session',
-        title: active ? `${title} is active` : `Continue ${title}`,
-        detail: active ? 'Pixel is following this Copilot session.' : 'This session was active recently and may be worth resuming.',
-        priority: active ? 'normal' : 'low',
-        source: ['Copilot session', repository, meta.branch].filter(Boolean).join(' · '),
-        route: '#/sessions',
-        trackedAt: lastModified,
-        repository,
-        sessionId: meta.id || candidate.id,
-        context: {
-          state: active ? 'active' : 'idle',
-          repository,
-          branch: meta.branch || '',
-          sessionId: meta.id || candidate.id,
-          lastActivityAt: lastModified,
-        },
-      };
-    })
-    .filter(Boolean);
+async function _devBuddySessionSignals(signalSnapshot = null) {
+  const signals = await runProbe('sessions', 'list', SESSION_STATE_DIR);
+  return signals.filter(signal => !_devBuddySnapshotSignalDismissed(signalSnapshot, signal.fingerprint));
 }
 
 function _devBuddyCommitmentSignals(signalSnapshot = null) {
@@ -4438,7 +4372,7 @@ async function _devBuddyStatus({ refresh = false } = {}) {
       },
     });
   }
-  if (devBuddySettings.trackSessions) signals.push(..._devBuddySessionSignals(signalSnapshot));
+  if (devBuddySettings.trackSessions) signals.push(...await _devBuddySessionSignals(signalSnapshot));
   if (devBuddySettings.trackCommitments) {
     signals.push(..._devBuddyCommitmentSignals(signalSnapshot));
   }
@@ -12478,31 +12412,6 @@ app.post('/api/share/teams', (req, res) => {
 
 // ---- Session History & Chat ----
 const SESSION_STATE_DIR = path.join(process.env.USERPROFILE || process.env.HOME, '.copilot', 'session-state');
-
-function parseYamlSimple(text) {
-  const obj = {};
-  for (const line of text.split('\n')) {
-    const m = line.match(/^(\w[\w_]*)\s*:\s*(.+)/);
-    if (m) obj[m[1]] = m[2].trim();
-  }
-  return obj;
-}
-
-function readSessionMeta(sessionDir) {
-  const wsPath = path.join(sessionDir, 'workspace.yaml');
-  if (!fs.existsSync(wsPath)) return null;
-  const yaml = parseYamlSimple(fs.readFileSync(wsPath, 'utf-8'));
-  return {
-    id: yaml.id || path.basename(sessionDir),
-    name: yaml.name || '(unnamed)',
-    cwd: yaml.cwd || '',
-    repository: yaml.repository || '',
-    branch: yaml.branch || '',
-    client: yaml.client_name || '',
-    createdAt: yaml.created_at || '',
-    updatedAt: yaml.updated_at || ''
-  };
-}
 
 function readSessionConversation(sessionDir, opts = {}) {
   const eventsPath = path.join(sessionDir, 'events.jsonl');
@@ -37997,7 +37906,7 @@ function _meetingsWorkIqTool(name, toolArgs, timeoutMs = 120000) {
       return;
     }
 
-    const { spawn, spawnSync } = require('child_process');
+    const { spawn } = require('child_process');
     const command = String(workiq.command);
     const commandArgs = Array.isArray(workiq.args) ? workiq.args.map(String) : [];
     const commandParts = [command, ...commandArgs];
@@ -38020,10 +37929,12 @@ function _meetingsWorkIqTool(name, toolArgs, timeoutMs = 120000) {
         if (child.exitCode !== null) return;
         try {
           if (process.platform === 'win32') {
-            spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+            const cleanup = spawn('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
               stdio: 'ignore',
               windowsHide: true,
             });
+            cleanup.on('error', error => console.warn('[workiq] process cleanup failed:', error.message));
+            cleanup.unref();
           } else {
             child.kill('SIGTERM');
           }
@@ -40756,18 +40667,18 @@ function _depsGlobalConfig() {
 // ---------------------------------------------------------------------------
 
 // Cached view (fast) — probes on demand if never checked.
-app.get('/api/agent-deps', (req, res) => {
+app.get('/api/agent-deps', async (req, res) => {
   try {
-    res.json(agentDeps.list());
+    res.json(await runProbe('agentDeps', 'list'));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // Force a fresh probe of every agent dependency.
-app.post('/api/agent-deps/check', (req, res) => {
+app.post('/api/agent-deps/check', async (req, res) => {
   try {
-    res.json({ ok: true, ...agentDeps.check() });
+    res.json({ ok: true, ...await runProbe('agentDeps', 'check') });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -40778,11 +40689,11 @@ app.post('/api/agent-deps/:id/install', async (req, res) => {
   try {
     const s = settings.getSettings();
     if (s.depsOfflineMode) return res.status(409).json({ error: 'Offline mode is enabled — installs are disabled.' });
-    const result = await agentDeps.install(String(req.params.id));
+    const result = await runProbe('agentDeps', 'install', String(req.params.id));
     if (result && result.ok === false) {
-      return res.status(400).json({ ...result, ...agentDeps.list() });
+      return res.status(400).json({ ...result, ...await runProbe('agentDeps', 'list') });
     }
-    res.json({ ...result, ...agentDeps.list() });
+    res.json({ ...result, ...await runProbe('agentDeps', 'list') });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
