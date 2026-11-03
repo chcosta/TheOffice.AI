@@ -746,12 +746,14 @@ async function updateWorkItemState(org, project, id, state) {
   };
 }
 
-// Create a work item. `type` is the work-item-type name (e.g. "Task",
-// "DNCEng Task", "Bug"); it is URL-appended after a literal "$". Optional fields
+// Create a work item. `type` is the work-item-type name (e.g. "Task", "Bug");
+// legacy custom task names are normalized to Task. Optional fields
 // (description/assignedTo/areaPath/iterationPath/state/tags) are set via the
 // JSON-patch document. Returns the compact getWorkItem shape.
 async function createWorkItem(org, project, type, { title, description, assignedTo, areaPath, iterationPath, state, tags, validateOnly = false } = {}) {
   if (!String(title || '').trim()) throw new Error('Work item title is required.');
+  if (/^dnceng\s+task$/i.test(String(type || '').trim()) && /^(backlog|dev)$/i.test(String(state || '').trim())) state = undefined;
+  type = require('./settings').normalizeWorkItemType(type);
   const patch = [{ op: 'add', path: '/fields/System.Title', value: String(title).slice(0, 250) }];
   if (description) patch.push({ op: 'add', path: '/fields/System.Description', value: String(description) });
   if (assignedTo) patch.push({ op: 'add', path: '/fields/System.AssignedTo', value: String(assignedTo) });

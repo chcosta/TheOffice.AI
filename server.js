@@ -19538,8 +19538,8 @@ function _meAiConfig(s) {
   const workItem = {
     org: str(s.meAiWorkItemOrg, _firstAdo.org || 'dnceng'),
     project: str(s.meAiWorkItemProject, _firstAdo.project || 'internal'),
-    type: str(s.meAiWorkItemType, 'DNCeng Task'),
-    state: str(s.meAiWorkItemState, 'Backlog'),
+    type: settings.normalizeWorkItemType(s.meAiWorkItemType),
+    state: str(s.meAiWorkItemState, ''),
     areaPath: str(s.meAiWorkItemArea, ''),
     iterationPath: str(s.meAiWorkItemIteration, ''),
     tags: str(s.meAiWorkItemTags, ''),
@@ -26107,7 +26107,7 @@ app.put('/api/me-ai/settings', (req, res) => {
       const s40 = v => String(v == null ? '' : v).trim().slice(0, 120);
       if ('org' in wi) patch.meAiWorkItemOrg = s40(wi.org);
       if ('project' in wi) patch.meAiWorkItemProject = s40(wi.project);
-      if ('type' in wi) patch.meAiWorkItemType = s40(wi.type) || 'DNCeng Task';
+      if ('type' in wi) patch.meAiWorkItemType = s40(wi.type) || 'Task';
       if ('state' in wi) patch.meAiWorkItemState = s40(wi.state);
       if ('areaPath' in wi) patch.meAiWorkItemArea = String(wi.areaPath || '').trim().slice(0, 300);
       if ('iterationPath' in wi) patch.meAiWorkItemIteration = String(wi.iterationPath || '').trim().slice(0, 300);
@@ -43373,8 +43373,9 @@ function _devAutoNormRule(r, i, s) {
     name: str(r.name, ''),
     org: str(r.org, defOrg),
     project: str(r.project, defProject),
-    workItemType: str(r.workItemType || r.type, 'DNCeng Task'),
-    state: str(r.state, 'Dev'),
+    workItemType: settings.normalizeWorkItemType(r.workItemType || r.type),
+    state: /^dnceng\s+task$/i.test(String(r.workItemType || r.type || '').trim()) && /^dev$/i.test(String(r.state || '').trim())
+      ? 'Active' : str(r.state, 'Active'),
     areaPath: str(r.areaPath || r.area, ''),
     frequencyMin: freq,
     repoMappings: mappings

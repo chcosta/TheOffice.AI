@@ -333,8 +333,8 @@ const DEFAULTS = {
   // the first connected ADO target at runtime when left blank.
   meAiWorkItemOrg: '',
   meAiWorkItemProject: '',
-  meAiWorkItemType: 'DNCeng Task',
-  meAiWorkItemState: 'Backlog',
+  meAiWorkItemType: 'Task',
+  meAiWorkItemState: '',
   meAiWorkItemArea: '',
   meAiWorkItemIteration: '',
   meAiWorkItemTags: '',
@@ -373,6 +373,31 @@ function _isFixedShapeObject(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).length > 0;
 }
 
+function normalizeWorkItemType(value) {
+  const type = String(value || '').trim();
+  return !type || /^(?:dnceng\s+)?task$/i.test(type) ? 'Task' : type;
+}
+
+function _normalizeLegacyTaskSettings(value) {
+  if (/^dnceng\s+task$/i.test(String(value.meAiWorkItemType || '').trim()) &&
+      /^(backlog|dev)$/i.test(String(value.meAiWorkItemState || '').trim())) {
+    value.meAiWorkItemState = '';
+  }
+  value.meAiWorkItemType = normalizeWorkItemType(value.meAiWorkItemType);
+  value.devAutoCreateRules = (Array.isArray(value.devAutoCreateRules) ? value.devAutoCreateRules : []).map(rule => {
+    if (!rule || typeof rule !== 'object') return rule;
+    const type = rule.workItemType || rule.type;
+    const legacy = /^dnceng\s+task$/i.test(String(type || '').trim());
+    return {
+      ...rule,
+      workItemType: normalizeWorkItemType(type),
+      ...(rule.type ? { type: normalizeWorkItemType(rule.type) } : {}),
+      ...(legacy && /^dev$/i.test(String(rule.state || '').trim()) ? { state: 'Active' } : {}),
+    };
+  });
+  return value;
+}
+
 function _read() {
   try {
     const raw = fs.readFileSync(SETTINGS_PATH, 'utf8');
@@ -387,7 +412,7 @@ function _read() {
       const sv = src[k];
       out[k] = (sv && typeof sv === 'object' && !Array.isArray(sv)) ? { ...DEFAULTS[k], ...sv } : { ...DEFAULTS[k] };
     }
-    return out;
+    return _normalizeLegacyTaskSettings(out);
   } catch (e) {
     return { ...DEFAULTS };
   }
@@ -432,6 +457,7 @@ function updateSettings(patch) {
       }
     }
   }
+  _normalizeLegacyTaskSettings(next);
   try {
     fs.writeFileSync(SETTINGS_PATH, JSON.stringify(next, null, 2));
   } catch (e) {
@@ -513,6 +539,7 @@ module.exports = {
   getSettings,
   reload,
   updateSettings,
+  normalizeWorkItemType,
   resolveModel,
   resolveReasoningEffort,
   getCostPerPremiumRequest,

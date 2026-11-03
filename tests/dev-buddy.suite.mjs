@@ -90,7 +90,7 @@ await t.test('work UI uses a compact list-detail workspace and one completion ac
   'source context renders Markdown and constrained inline HTML without unsafe styles or attributes');
   t.ok(/peek_height\.unwrap_or\(640\)\.clamp\(260, 1200\)/.test(desktop) &&
     /function measurePeekHeight\(\)/.test(html) &&
-    /176 \+ headerHeight \+ tabsHeight \+ listHeight/.test(html) &&
+    /176 \+ headerHeight \+ tabsHeight \+ entryHeight \+ listHeight/.test(html) &&
     /setMode\('peek', currentPeekWidth\(\), null, measurePeekHeight\(\)\)/.test(html),
   'quick view sizes its native window to visible content instead of blocking the full monitor');
   t.ok(/const pendingStarStates = new Map\(\)/.test(html) &&

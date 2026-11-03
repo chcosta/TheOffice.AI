@@ -711,6 +711,7 @@
     }
     .work-toolbar {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 14px;
       padding: 9px 14px;
@@ -721,6 +722,39 @@
       flex: 1;
       margin: 0;
     }
+    .todo-entry {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--cp-border);
+      background: var(--cp-surface);
+    }
+    .todo-entry[hidden] { display: none; }
+    .todo-entry input {
+      flex: 1;
+      min-width: 140px;
+      padding: 8px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-bg);
+      color: var(--cp-text);
+      font: inherit;
+    }
+    .todo-entry input:focus { outline: 1px solid var(--cp-accent); }
+    [data-add-todo], [data-cancel-todo] {
+      padding: 6px 10px;
+      border: 1px solid var(--cp-border);
+      border-radius: 6px;
+      background: var(--cp-surface);
+      color: var(--cp-text);
+      cursor: pointer;
+    }
+    .todo-entry button:disabled { opacity: .6; cursor: default; }
+    .todo-entry-status { flex-basis: 100%; color: var(--cp-text-muted); font-size: 12px; }
+    .todo-entry-status:empty { display: none; }
+    .todo-entry-status.error { color: var(--cp-danger); }
     .sort-control {
       display: inline-flex;
       align-items: center;
@@ -1656,6 +1690,7 @@
     }
     .hover-preview-head {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       gap: 8px;
       padding: 10px 12px;
@@ -2325,6 +2360,7 @@
       <section class="panel-view" id="workView">
         <div class="work-toolbar">
           <div class="daily-progress" id="dailyProgress"></div>
+          <button type="button" data-add-todo="todoEntry" aria-controls="todoEntry" aria-expanded="false">Add to-do</button>
           <label class="sort-control">Sort
             <select id="workSort" aria-label="Sort work list">
               <option value="urgency">Urgency</option>
@@ -2333,6 +2369,12 @@
             </select>
           </label>
         </div>
+        <form class="todo-entry" id="todoEntry" data-todo-entry hidden>
+          <input name="title" maxlength="160" placeholder="What do you need to do?" aria-label="New to-do" autocomplete="off" required>
+          <button class="primary" type="submit" disabled>Add</button>
+          <button type="button" data-cancel-todo>Cancel</button>
+          <span class="todo-entry-status" role="status" aria-live="polite"></span>
+        </form>
         <div class="work-layout">
           <aside class="work-navigation" aria-label="Work list">
             <div class="source-status" id="sourceStatus"></div>
@@ -2461,6 +2503,7 @@
     </section>
     <aside class="hover-preview" id="hoverPreview" aria-label="Top work items">
       <div class="hover-preview-head">To-do
+        <button type="button" data-add-todo="quickTodoEntry" aria-controls="quickTodoEntry" aria-expanded="false">Add to-do</button>
         <div class="preview-width-controls" aria-label="Quick view width">
           <button class="preview-width-control" id="peekNarrower" type="button" aria-label="Make quick view narrower" title="Narrower">−</button>
           <button class="preview-width-control" id="peekAutoWidth" type="button" aria-label="Auto-size quick view width" title="Auto-size width">Auto</button>
@@ -2474,6 +2517,12 @@
           </select>
         </label>
       </div>
+      <form class="todo-entry" id="quickTodoEntry" data-todo-entry hidden>
+        <input name="title" maxlength="160" placeholder="What do you need to do?" aria-label="New to-do" autocomplete="off" required>
+        <button class="primary" type="submit" disabled>Add</button>
+        <button type="button" data-cancel-todo>Cancel</button>
+        <span class="todo-entry-status" role="status" aria-live="polite"></span>
+      </form>
       <nav class="preview-tabs" id="previewTabs" aria-label="Quick To-do categories"></nav>
       <div class="preview-list" id="previewList"></div>
     </aside>
@@ -2529,6 +2578,8 @@
       const requestedItemId = pageParams.get('item') || '';
       if (embedded) document.documentElement.classList.add('embedded');
       let status = null;
+      let todoSaving = false;
+      let pendingManualTodoId = '';
       let panelOpen = false;
       let scratchpadFlyout = false;
       let scratchpadReturnView = 'work';
@@ -4136,6 +4187,14 @@
             efforts: preservePendingStates(hidePending(nextStatus.efforts)),
           };
           status = nextStatus;
+          if (pendingManualTodoId) {
+            const added = (status.list || []).find(item => item.id === pendingManualTodoId ||
+              (item.observations || []).some(observation => observation.key === pendingManualTodoId));
+            if (added) {
+              selectedItemId = added.id;
+              pendingManualTodoId = '';
+            }
+          }
           for (const item of (status.items || [])) {
             if (item.snoozedUntil) scheduleSnoozeWake(item.snoozedUntil);
           }
@@ -4290,10 +4349,11 @@
         preview.classList.add('show', 'measuring');
         const headerHeight = preview.querySelector('.hover-preview-head')?.offsetHeight || 48;
         const tabsHeight = $('previewTabs').offsetHeight || 36;
+        const entryHeight = $('quickTodoEntry').hidden ? 0 : $('quickTodoEntry').offsetHeight;
         const listHeight = $('previewList').scrollHeight || 48;
         preview.classList.remove('measuring');
         if (!alreadyShown) preview.classList.remove('show');
-        return Math.max(260, Math.min(1200, 176 + headerHeight + tabsHeight + listHeight));
+        return Math.max(260, Math.min(1200, 176 + headerHeight + tabsHeight + entryHeight + listHeight));
       }
 
       function schedulePeekResize(delay = 0) {
@@ -4733,6 +4793,79 @@
           } catch (_) {}
         }
         hideBubble();
+      });
+
+      function toggleTodoEntry(form, open) {
+        if (todoSaving) return;
+        form.hidden = !open;
+        const toggle = document.querySelector(`[data-add-todo="${form.id}"]`);
+        toggle?.setAttribute('aria-expanded', String(open));
+        if (open) form.elements.title.focus();
+        else toggle?.focus();
+        schedulePeekResize();
+      }
+
+      function updateTodoEntryControls() {
+        document.querySelectorAll('[data-todo-entry]').forEach(form => {
+          form.elements.title.disabled = todoSaving;
+          form.querySelector('[type="submit"]').disabled = todoSaving || !form.elements.title.value.trim();
+          form.querySelector('[type="submit"]').textContent = todoSaving ? 'Adding…' : 'Add';
+          form.querySelector('[data-cancel-todo]').disabled = todoSaving;
+        });
+      }
+
+      async function addManualTodo(event) {
+        event.preventDefault();
+        const form = event.currentTarget;
+        const input = form.elements.title;
+        const title = input.value.trim();
+        if (!title || todoSaving) return;
+        todoSaving = true;
+        const message = form.querySelector('.todo-entry-status');
+        message.classList.remove('error');
+        message.textContent = 'Adding to your to-do list…';
+        updateTodoEntryControls();
+        try {
+          const result = await request('/api/dev-buddy/items', {
+            method: 'POST',
+            body: JSON.stringify({ title, source: 'You' }),
+          });
+          if (!result.item?.id) throw new Error('The server did not confirm the new to-do.');
+          pendingManualTodoId = result.item.id;
+          input.value = '';
+          message.textContent = 'Added to your to-do list.';
+          await load();
+        } catch (error) {
+          message.classList.add('error');
+          message.textContent = error.message || 'Could not add your to-do. Please try again.';
+        } finally {
+          todoSaving = false;
+          updateTodoEntryControls();
+          input.focus();
+          schedulePeekResize();
+        }
+      }
+
+      document.querySelectorAll('[data-add-todo]').forEach(button => {
+        button.addEventListener('click', () => {
+          const form = $(button.dataset.addTodo);
+          toggleTodoEntry(form, form.hidden);
+        });
+      });
+      document.querySelectorAll('[data-todo-entry]').forEach(form => {
+        form.addEventListener('submit', addManualTodo);
+        form.elements.title.addEventListener('input', () => {
+          form.querySelector('.todo-entry-status').textContent = '';
+          updateTodoEntryControls();
+        });
+        form.addEventListener('keydown', event => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            toggleTodoEntry(form, false);
+          }
+        });
+        form.querySelector('[data-cancel-todo]').addEventListener('click', () => toggleTodoEntry(form, false));
       });
 
       $('composer').addEventListener('submit', async event => {

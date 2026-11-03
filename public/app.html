@@ -29799,12 +29799,12 @@
                       <div>
                         <label class="field-label">Work item type</label>
                         <select class="field-input" x-model="rule.workItemType" @change="saveDevAuto()">
-                          <option>DNCeng Task</option><option>Task</option><option>Bug</option><option>User Story</option><option>Feature</option><option>Epic</option>
+                          <option>Task</option><option>Bug</option><option>User Story</option><option>Feature</option><option>Epic</option>
                         </select>
                       </div>
                       <div>
                         <label class="field-label">Work item state</label>
-                        <input class="field-input" type="text" x-model="rule.state" placeholder="Dev" @change="saveDevAuto()" />
+                        <input class="field-input" type="text" x-model="rule.state" placeholder="Active" @change="saveDevAuto()" />
                       </div>
                       <div style="grid-column:1 / -1">
                         <label class="field-label">Area path</label>
@@ -40601,7 +40601,7 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
         // ----- Part A: auto-create dev cards from AzDO work-item conditions -----
         _devAutoBlankRule() {
           return { id: 'devrule-' + Date.now().toString(36), enabled: true, name: '', org: '', project: '',
-            workItemType: 'DNCeng Task', state: 'Dev', areaPath: '', frequencyMin: 30, repoMappings: [] };
+            workItemType: 'Task', state: 'Active', areaPath: '', frequencyMin: 30, repoMappings: [] };
         },
         async loadDevAuto() {
           if (this.devAuto.loaded) return;

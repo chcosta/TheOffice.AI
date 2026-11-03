@@ -129,7 +129,7 @@ This persona deliberately does **not** hardcode the team roster or the theme/fea
 
 When you create a new work item:
 - **Prefer \`create_work_item_with_links\`** so the new item is created with its parent (and any dependency links) in a single step. Pass the correct \`workItemType\` and the parent ID (\`parentWorkItemId\`).
-- Match the work item type already used in this epic's backlog (inspect existing children to learn it — e.g. \`DNCEng Task\` vs \`Task\`). Do **not** invent a type. If the platform rejects your chosen type, report the failure and ask for guidance rather than silently falling back.
+- For task-level work, always use the standard \`Task\` work item type, even if historical children use a custom task type. Do **not** create custom task types. If the platform rejects \`Task\`, report the failure and ask for guidance rather than silently falling back.
 - Always link the new item to its parent (and to any enabling/dependency items).
 - Set Area Path to match the epic (\`${area || 'the epic\'s area path'}\`) and place it under the correct parent.
 - Set \`System.AssignedTo\` when an owner is known; resolve names with \`resolve_user_identity\` first.

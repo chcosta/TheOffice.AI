@@ -52,6 +52,18 @@ The home page provides a real-time overview of all running agents, recent activi
 
 ![Dashboard](dashboard.png)
 
+### ToDo.AI and Dev Buddy
+
+Use **Add to-do** in ToDo.AI or Pixel's quick-view header to add an item directly
+to the shared list. Enter a title and press Enter or **Add**; no AI request is
+required. Failed saves keep your text for retry. **Ask Pixel** remains available
+separately for assistant conversations.
+
+Azure DevOps task creation uses the standard **Task** type. Legacy custom task
+settings are migrated to Task; existing historical work items are not changed.
+New tasks use the project's default initial state instead of the legacy custom
+workflow. Existing legacy Dev auto-creation filters migrate to Active.
+
 ### 🤖 Managers
 
 Managers are intelligent orchestrators that coordinate multiple agents. A manager can:
