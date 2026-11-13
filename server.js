@@ -3430,7 +3430,7 @@ async function _gatherCodeflow(view) {
     const provider = providerOf(r);
     const F = forge(r);
     const me = userByKey[idKey(r)];
-    if (!me || !me.id) { errors.push({ repo: r.repo, error: 'identity unavailable' }); return []; }
+    if (!me || !me.id) { errors.push({ repoId: r.id, repo: r.repo, error: 'identity unavailable' }); return []; }
     const myGroups = groupsForProvider(provider);
     const reviewsWithGroups = view === 'reviews' && myGroups.length > 0;
     try {
@@ -3492,17 +3492,20 @@ async function _gatherCodeflow(view) {
       }))).filter(Boolean);
       return enriched;
     } catch (e) {
-      errors.push({ repo: r.repo, error: e.message });
+      errors.push({ repoId: r.id, repo: r.repo, error: e.message });
       return [];
     }
   }));
 
-  const pullRequests = perRepo.flat().sort((a, b) => {
+  // Watches can be removed while remote PR requests are still in flight.
+  const watchedIds = new Set(loadCodeflowRepos().map(repo => repo.id));
+  const currentRepos = repos.filter(repo => watchedIds.has(repo.id));
+  const pullRequests = perRepo.flat().filter(pr => watchedIds.has(pr.repoId)).sort((a, b) => {
     if (a.attention !== b.attention) return a.attention ? -1 : 1;
     return new Date(b.creationDate || 0) - new Date(a.creationDate || 0);
   });
   const attentionCount = pullRequests.filter(p => p.attention).length;
-  return { view, repos, pullRequests, attentionCount, errors };
+  return { view, repos: currentRepos, pullRequests, attentionCount, errors: errors.filter(error => watchedIds.has(error.repoId)) };
 }
 
 app.get('/api/codeflow/pullrequests', async (req, res) => {

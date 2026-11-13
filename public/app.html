@@ -24898,7 +24898,7 @@
                   <span class="cf-pill cf-repo" x-text="r.repo"></span>
                   <span class="hint" style="flex:1" x-text="(r.provider==='github') ? r.org : (r.org + ' / ' + r.project)"></span>
                   <button class="btn ghost danger" type="button" :disabled="codeflowReposBusy[r.id]"
-                          @click="removeCodeflowRepo(r)" x-text="codeflowReposBusy[r.id] ? '…' : '🗑 Remove'"></button>
+                          @click="removeCodeflowRepo(r)" x-text="codeflowReposBusy[r.id] ? 'Removing…' : '🗑 Remove'"></button>
                 </div>
               </template>
               <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-top:14px">
@@ -55941,10 +55941,12 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           if (this.codeflow.loading) return;
           if (!this._codeflowSnaps) this._codeflowSnaps = {};
           const view = this.codeflow.view;
+          const epoch = (this._cfLoadEpochs || {})[view] || 0;
           let data;
           try {
             data = await this.request('/api/codeflow/pullrequests?view=' + encodeURIComponent(view) + '&refresh=' + (force ? '1' : '0'));
           } catch { return; }
+          if (((this._cfLoadEpochs || {})[view] || 0) !== epoch) return;
           const list = Array.isArray(data.pullRequests) ? data.pullRequests : [];
           this._cfStoreViewCache(view, {
             pullRequests: list,
@@ -56656,11 +56658,39 @@ grpCollapsed: (() => { try { return JSON.parse(localStorage.getItem('cfGrpCollap
           setTimeout(() => { this.codeflowRepoForm.repoOpen = false; }, 150);
         },
         async removeCodeflowRepo(repoEntry) {
-          if (!repoEntry || !repoEntry.id) return;
+          if (!repoEntry || !repoEntry.id || this.codeflowReposBusy[repoEntry.id]) return;
           this.codeflowReposBusy[repoEntry.id] = true;
           try {
-            await this.request('/api/codeflow/repos/' + encodeURIComponent(repoEntry.id), { method: 'DELETE' });
-            await this.loadCodeFlow();
+            await this.request('/api/codeflow/repos/' + encodeURIComponent(repoEntry.id), { method: 'DELETE', timeoutMs: 15000 });
+            // Removing a watch is local configuration, not a remote PR refresh.
+            // Retire older loads before they can restore the deleted repo.
+            this._cfLoadEpochs = this._cfLoadEpochs || {};
+            for (const view of new Set(['mine', 'reviews', 'active', 'other', ...Object.keys(this._cfLoadEpochs)])) {
+              this._cfLoadEpochs[view] = (this._cfLoadEpochs[view] || 0) + 1;
+            }
+            this.codeflow.repos = this.codeflow.repos.filter(r => r.id !== repoEntry.id);
+            const keepPr = pr => pr.repoId !== repoEntry.id;
+            const keepError = error => error.repoId
+              ? error.repoId !== repoEntry.id
+              : error.repo !== repoEntry.repo || this.codeflow.repos.some(r => r.repo === error.repo);
+            for (const view of Object.keys(this.codeflow.viewCache || {})) {
+              const cached = this.codeflow.viewCache[view];
+              const pullRequests = (cached.pullRequests || []).filter(keepPr);
+              this._cfStoreViewCache(view, {
+                pullRequests,
+                errors: (cached.errors || []).filter(keepError),
+                attentionCount: pullRequests.filter(pr => pr.attention).length,
+                selectedKey: pullRequests.some(pr => this.cfPrKey(pr) === cached.selectedKey) ? cached.selectedKey : ''
+              });
+            }
+            this.codeflow.pullRequests = this.codeflow.pullRequests.filter(keepPr);
+            this.codeflow.errors = this.codeflow.errors.filter(keepError);
+            this.codeflow.attentionCount = this.codeflow.pullRequests.filter(pr => pr.attention).length;
+            if (!this.codeflow.pullRequests.some(pr => this.cfPrKey(pr) === this.codeflow.selectedKey)) this.codeflow.selectedKey = '';
+            if (this.codeflow.filterRepo === repoEntry.id) this.codeflow.filterRepo = '';
+            this.codeflow.loading = false;
+            this._codeflowSeedSnap();
+            this.showToast('Repository removed', `Stopped watching ${repoEntry.repo}. No repository or local files were deleted.`, 'info');
             this.loadCodeflowAttention(true);
           } catch (e) {
             this.showToast('Code Flow', e.message, 'error');

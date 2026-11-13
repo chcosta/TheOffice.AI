@@ -64,6 +64,13 @@ settings are migrated to Task; existing historical work items are not changed.
 New tasks use the project's default initial state instead of the legacy custom
 workflow. Existing legacy Dev auto-creation filters migrate to Active.
 
+### Code Flow watched repositories
+
+**Remove** stops watching a repository locally; it does not delete the remote
+repository or local files. It works even when the remote repository is deleted
+or inaccessible, without waiting for a pull-request refresh. Its PRs and errors
+are removed from all cached Code Flow views.
+
 ### 🤖 Managers
 
 Managers are intelligent orchestrators that coordinate multiple agents. A manager can:
